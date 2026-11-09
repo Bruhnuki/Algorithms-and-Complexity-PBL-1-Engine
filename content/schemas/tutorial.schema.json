@@ -1,0 +1,16 @@
+{
+ "type": "object",
+ "required": [
+  "id",
+  "kind",
+  "concept",
+  "title",
+  "cost_min",
+  "text"
+ ],
+ "properties": {
+  "cost_min": {
+   "const": 30
+  }
+ }
+}

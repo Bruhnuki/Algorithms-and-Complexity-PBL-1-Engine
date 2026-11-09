@@ -1,0 +1,8 @@
+{
+ "id": "definition_of_done",
+ "kind": "scrum",
+ "concept": "definition_of_done",
+ "title": "Definition of Done",
+ "cost_min": 30,
+ "text": "The Definition of Done is the team's honest checklist: tests pass, the code matches the doc, and there is no security concern. Passing the examples does not prove there is no security concern."
+}

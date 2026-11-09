@@ -1,0 +1,89 @@
+{
+ "type": "object",
+ "required": [
+  "id",
+  "kind",
+  "difficulty",
+  "concept",
+  "title",
+  "doc",
+  "params",
+  "examples",
+  "source",
+  "options",
+  "run_shows_failure",
+  "glossary"
+ ],
+ "properties": {
+  "id": {
+   "type": "string"
+  },
+  "kind": {
+   "enum": [
+    "fix",
+    "build"
+   ]
+  },
+  "difficulty": {
+   "type": "integer",
+   "minimum": 1,
+   "maximum": 5
+  },
+  "concept": {
+   "type": "string"
+  },
+  "examples": {
+   "type": "array",
+   "minItems": 5,
+   "maxItems": 5,
+   "items": {
+    "type": "object",
+    "required": [
+     "input",
+     "expected"
+    ]
+   }
+  },
+  "source": {
+   "type": "array",
+   "minItems": 5,
+   "maxItems": 15,
+   "items": {
+    "type": "string"
+   }
+  },
+  "options": {
+   "type": "array",
+   "minItems": 3,
+   "maxItems": 4,
+   "items": {
+    "type": "object",
+    "required": [
+     "id",
+     "text",
+     "effect",
+     "bug_type",
+     "run_outcome"
+    ],
+    "properties": {
+     "effect": {
+      "enum": [
+       "correct",
+       "correct_small_flaw",
+       "crashes",
+       "wrong_hidden",
+       "security_hole"
+      ]
+     },
+     "run_outcome": {
+      "enum": [
+       "pass",
+       "fail",
+       "error"
+      ]
+     }
+    }
+   }
+  }
+ }
+}

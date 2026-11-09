@@ -1,0 +1,40 @@
+{
+ "id": "po",
+ "name": "Marlo",
+ "role": "Product Owner",
+ "voice": "Hurried, buzzword-heavy, always behind on a board meeting.",
+ "secret": "the investors are about to pull out",
+ "example_line": "Quick one, when does the discount fix ship?",
+ "fallback_lines": {
+  "ping_clue": [
+   "Customers keep saying the discount looks way too big. Maybe read the numbers again.",
+   "Support says the totals are off. Check what the doc promises.",
+   "Someone mentioned the result is not what the examples say."
+  ],
+  "ping_noise": [
+   "Big board deck tomorrow. No pressure!",
+   "Did anyone see the new logo? Thoughts?",
+   "Reminder: synergy workshop at four."
+  ],
+  "ping_trap": [
+   "Honestly just push it, we can fix it later.",
+   "The checklist is overkill. Ship it now.",
+   "Skip the boxes, the client is waiting."
+  ],
+  "help_call": [
+   "Can you help me prioritise these? Everything is urgent!",
+   "I need a second pair of eyes on the backlog.",
+   "Please talk me through the ordering, I am lost."
+  ],
+  "standup_question": [
+   "Quick standup: how did your last push go, really?",
+   "Status on the last push? Be straight with me.",
+   "Walk me through your last push. Did it hold up?"
+  ],
+  "status_demand": [
+   "I need a status update right now. Where are we?",
+   "Give me numbers. How far along is it?",
+   "The board wants a progress report. Now, please."
+  ]
+ }
+}

@@ -1,0 +1,24 @@
+{
+ "type": "object",
+ "required": [
+  "id",
+  "name",
+  "role",
+  "voice",
+  "secret",
+  "fallback_lines"
+ ],
+ "properties": {
+  "fallback_lines": {
+   "type": "object",
+   "minProperties": 6,
+   "additionalProperties": {
+    "type": "array",
+    "minItems": 3,
+    "items": {
+     "type": "string"
+    }
+   }
+  }
+ }
+}

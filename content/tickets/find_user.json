@@ -1,0 +1,88 @@
+{
+ "id": "find_user",
+ "kind": "fix",
+ "difficulty": 2,
+ "concept": "definition_of_done",
+ "title": "User search query",
+ "doc": "find_user(name) builds the database query that looks a user up by name. The examples all work. Check the Definition of Done box about security before you push.",
+ "params": [
+  "name"
+ ],
+ "examples": [
+  {
+   "input": [
+    "ana"
+   ],
+   "expected": "SELECT * FROM users WHERE name = 'ana'"
+  },
+  {
+   "input": [
+    "bo"
+   ],
+   "expected": "SELECT * FROM users WHERE name = 'bo'"
+  },
+  {
+   "input": [
+    "cy"
+   ],
+   "expected": "SELECT * FROM users WHERE name = 'cy'"
+  },
+  {
+   "input": [
+    "di"
+   ],
+   "expected": "SELECT * FROM users WHERE name = 'di'"
+  },
+  {
+   "input": [
+    "ed"
+   ],
+   "expected": "SELECT * FROM users WHERE name = 'ed'"
+  }
+ ],
+ "source": [
+  "function find_user(name) {",
+  "  prefix = \"SELECT * FROM users WHERE name = '\"",
+  "  suffix = \"'\"",
+  "  return prefix + name + suffix",
+  "}"
+ ],
+ "buggy_line": 4,
+ "blank_line": null,
+ "original_outcome": "pass",
+ "run_shows_failure": false,
+ "options": [
+  {
+   "id": "a",
+   "text": "  return prefix + clean(name) + suffix",
+   "effect": "correct",
+   "bug_type": null,
+   "run_outcome": "pass"
+  },
+  {
+   "id": "b",
+   "text": "  return prefix + name + suffix",
+   "effect": "security_hole",
+   "bug_type": "security_hole",
+   "run_outcome": "pass"
+  },
+  {
+   "id": "c",
+   "text": "  return prefix + clean(nam) + suffix",
+   "effect": "crashes",
+   "bug_type": "runtime_error",
+   "run_outcome": "error"
+  },
+  {
+   "id": "d",
+   "text": "  return prefix + clean(name) + suffix + \"\"",
+   "effect": "correct_small_flaw",
+   "bug_type": "sloppy_fix",
+   "run_outcome": "pass"
+  }
+ ],
+ "glossary": {
+  "clean": "Removes quote characters so user text cannot break out of the query.",
+  "+": "Joins two pieces of text together."
+ }
+}

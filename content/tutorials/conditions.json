@@ -1,0 +1,8 @@
+{
+ "id": "conditions",
+ "kind": "code",
+ "concept": "conditions",
+ "title": "Reading if / else",
+ "cost_min": 30,
+ "text": "An if block runs only when its condition is true. Otherwise the else block runs. Read the condition first, then each branch, and check the numbers against the doc's examples."
+}

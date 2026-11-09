@@ -1,0 +1,87 @@
+# PRD: Fix it with Scrum
+
+Source: spec section 1. All rows **[SPEC]** unless tagged.
+
+## 1. Product
+
+A browser game where the student is a Scrum Master with a faked resume running a bankrupt company's team of one AI Product Owner and two AI Developers across **7 sprints**. Win condition: keep Rating above 2.0 and Cover below 100 by choosing which demands to Work, Delegate, Coach or Defer. Most pressure comes from fixing short ScrumScript tickets.
+
+## 2. Users
+
+| User | Need | How the game serves it |
+| --- | --- | --- |
+| Student (algorithms / software-engineering course) | Practice Scrum behaviour (Definition of Done, blockers, coaching, review) and read code for bugs, low stakes | Chaotic timed Pile of demands where honest process beats grinding |
+| Instructor | See what students did, not only the score | Transcripts and process score per student |
+| Project team (researchers) | Evidence of learning for a pilot of 8 to 10 students | E2 learning gain from pre/post test plus logged process events |
+
+## 3. Goals and non-goals
+
+**Goals**
+
+- G1: Messy and stressful but fair: every card settleable in 1 to 3 actions.
+- G2: Doing everything yourself pays fastest but lowers the process score. The Scrum lesson is in the incentives.
+- G3: Learn to read short code and tell **five kinds of bug** apart, including a security hole tests do not reveal.
+- G4: Pilot shows pre/post learning gain through the existing E2 engine.
+- G5: Whole game runs on one local RTX 5060 Ti PC, no paid API.
+
+**Non-goals (v1):** free-form typed code, multiplayer or multi-student teams, mobile layout, real company brands, a general Scrum platform.
+
+## 4. Functional requirements
+
+IDs are reused as test names (`test_<ID without dash>_...`, e.g. `AUTH-1` → `test_AUTH1_...`). `MVP` column from spec section 2 [PROPOSED mapping, see mvp-scope.md].
+
+| ID | Requirement | Acceptance test | MVP |
+| --- | --- | --- | --- |
+| AUTH-1 | Students and instructors register and log in with email + password; Argon2id | Plaintext password never appears in DB or logs; wrong password returns same generic error as unknown email | Yes |
+| AUTH-2 | Server-side sessions, idle and absolute timeouts; roles student, instructor | A student token cannot read another student's run (403) | Yes |
+| PILE-1 | Pile shows demand cards with sender, deadline timer, payoff, penalty | New run: sprint 1 ≈ 2 live cards, sprint 4 ≈ 5, sprint 7 ≥ 8 | Yes (sprint 1 only) |
+| PILE-2 | One card worked at a time; moves Work, Triage, Delegate, Coach, Defer | Starting a second card while one is open is rejected or switches with Focus penalty | Yes |
+| PILE-3 | Ignored card never disappears; escalates (louder message → call → meeting) | After deadline card still present with escalation level +1 | Yes |
+| PILE-4 | Delegated cards return later; ≈ half carry a hidden bug needing re-review | Over 1,000 simulated delegations hidden-bug rate 45%–55% | Yes |
+| CODE-1 | CodeDesk opens a ticket: short doc, 5–15 lines ScrumScript, hover glossary, concept tag | Every ticket in content pack validates against ticket schema | Yes |
+| CODE-2 | Fix tickets: flag a line, pick 1 of 3–4 replacement lines. Build tickets: fill a blank from a tray | Exactly one option per ticket is right; each wrong option maps to a named bug type | Yes |
+| CODE-3 | Run Script: 5 runs per ticket, plain-English pass/fail on doc examples; normal input only | A security-hole ticket passes all runs while still containing the hole | Yes |
+| CODE-4 | Definition of Done checklist (tests pass, matches doc, no security concern); push allowed with boxes unticked at Cover cost | Push with a box unticked adds +5 Cover and lowers process score | Yes |
+| CODE-5 | Every push resolves to exactly one of five results (Clean, Acceptable, Runtime error, Functional but buggy, Security hole) with stated point and rating effects | Table-driven test over all five matches design numbers | Yes |
+| METER-1 | Points, Rating, Cover, Focus follow meter rules; repeat rewards shrink 30% per repeat in a sprint | 3rd identical clean push in a sprint earns 49% of the first | Yes |
+| METER-2 | Lose: Rating < 2.0, Cover 100, or two demotion warnings | Each condition ends run with matching ending | Yes |
+| TIME-1 | In-game day = 8 working hours; costs: read 10 min, patch 5, test 5, push 2, tutorial 30 | A day cannot fit > 8 h of actions; Focus < 30 raises every cost by 50% | Yes |
+| SPRINT-1 | Sprint = 2 in-game days: Planning, Standup, Build, Standup, Review via E1 stage machine | Illegal stage jump refused with `ILLEGAL_TRANSITION` | Yes |
+| STAND-1 | Each standup a teammate asks about last push; pick accurate / vague / wrong; Cover −10 / +5 / +15 | Accurate offered only if concept unlocked | Yes |
+| MEM-1 | Teammates remember earlier answers within E1 token budget; later contradiction +10 Cover | Replaying a contradicted bluff adds exactly +10 once | Yes |
+| TEAM-1 | Chat and standup dialogue generated by local model in character, with canned fallbacks | With model stopped, game fully playable on authored lines | Yes |
+| HACK-1 | Hacker events in sprints 4 and 7 target oldest shipped security hole: attack meter, patch waves, Refresh cost, Approve / Request changes / Fix yourself | Approving bad patch speeds meter; approving good one ends event +200 points +0.1 rating | **No** (MVP uses scripted attack check) |
+| PERK-1 | Toolbox perks bought with Points: AI Assistant, Keyboard Warrior, Debug Master, Security Scan, Focus Mode | Points never feed process score or final grade | Partial (AI Assistant only) |
+| TUT-1 | LearnLoop tutorials unlock a concept for the whole run; unknown shows `???` | Tutorial costs 30 in-game min and removes `???` on tagged lines | Yes (2 tutorials) |
+| PROC-1 | Process score computed by E2 from logged behaviours: standups, clearing blockers, honest DoD, review before push, coaching | Doing everything yourself scores lower than coaching + delegating with review, equal Points | Yes |
+| END-1 | Debrief after sprint 7 or on loss: Rating, Cover, process score, the gap | Debrief renders for all four endings | Yes |
+| INSTR-1 | Instructors see own cohort's transcripts, process scores, pre/post gain | Instructor cannot see another cohort | Yes (list + transcript) |
+| ASSESS-1 | Pre- and post-test (~10 questions) feed E2 learning gain with bootstrap interval | Output matches E2's certificate for a fixed seed | Yes |
+
+## 5. Success metrics
+
+| Metric | Target |
+| --- | --- |
+| Campaign length | ≈ 45 min for 7 sprints |
+| Pilot learning | Median pre/post gain larger than a reading-only control |
+| Teammate reply latency (5060 Ti, 5 students concurrent) | Median < 3 s, p95 < 8 s |
+| Fairness | Every card settleable in ≤ 3 actions in scripted playtest |
+| Resilience | Full run completes with model server off |
+
+## 6. Decisions taken (change without rewriting the rest)
+
+| Decision | Default |
+| --- | --- |
+| GPU | RTX 5060 Ti 16 GB (8 GB: use Qwen3.5-9B fallback) |
+| Student access | One PC, Tailscale Funnel (public HTTPS). Alternative: Serve + invite |
+| Teammate dialogue | LLM-written with authored fallback; model never changes game state |
+| Patching | Pick-a-patch only (3–4 options); typed edits post-MVP |
+| AI Assistant perk | Wrong ≈ 1 in 5, seeded, switchable by config flag |
+| Balance numbers | All in `balance.yaml` (guesses until playtested) |
+| Code execution | Own ScrumScript interpreter; no AI- or student-written Python ever executed |
+| Engines E1/E2 | In-process Python library behind existing `solve()` contract; HTTP route internal |
+| Spec format | IDs reused as test names |
+
+## 7. Open questions
+
+See [README](../README.md#open-questions-from-the-spec).

@@ -1,0 +1,105 @@
+{
+ "id": "assessment_v1",
+ "questions": [
+  {
+   "id": "q1",
+   "text": "Who owns the order of the Product Backlog?",
+   "choices": [
+    "Scrum Master",
+    "Product Owner",
+    "Developers"
+   ],
+   "answer": 1
+  },
+  {
+   "id": "q2",
+   "text": "What is the Definition of Done for?",
+   "choices": [
+    "A shared honest checklist for finished work",
+    "A deadline",
+    "A meeting agenda"
+   ],
+   "answer": 0
+  },
+  {
+   "id": "q3",
+   "text": "A daily standup is mainly to...",
+   "choices": [
+    "Report to management",
+    "Inspect progress and clear blockers",
+    "Assign blame"
+   ],
+   "answer": 1
+  },
+  {
+   "id": "q4",
+   "text": "A Scrum Master mostly...",
+   "choices": [
+    "Writes all the code",
+    "Coaches the team and removes impediments",
+    "Sets the product priorities"
+   ],
+   "answer": 1
+  },
+  {
+   "id": "q5",
+   "text": "What does this return? function f(x) { if x == 1 { return 10 } else { return 20 } } with f(2)",
+   "choices": [
+    "10",
+    "20",
+    "error"
+   ],
+   "answer": 1
+  },
+  {
+   "id": "q6",
+   "text": "function g(a, b) { return a / b } with g(4, 0)",
+   "choices": [
+    "0",
+    "4",
+    "crashes"
+   ],
+   "answer": 2
+  },
+  {
+   "id": "q7",
+   "text": "function h(p) { return p * 0.5 } is meant to give 10% off. What is wrong?",
+   "choices": [
+    "Nothing",
+    "It gives 50% off",
+    "It adds tax"
+   ],
+   "answer": 1
+  },
+  {
+   "id": "q8",
+   "text": "A change passes all the listed examples. Is it safe to ship?",
+   "choices": [
+    "Yes, always",
+    "Not necessarily; examples may miss a security problem",
+    "Only on Fridays"
+   ],
+   "answer": 1
+  },
+  {
+   "id": "q9",
+   "text": "Doing every task yourself instead of coaching the team...",
+   "choices": [
+    "Is always best",
+    "Is fast now but hides the team's growth",
+    "Is forbidden"
+   ],
+   "answer": 1
+  },
+  {
+   "id": "q10",
+   "text": "Joining user text straight into a database query is risky because...",
+   "choices": [
+    "It is slow",
+    "Users can inject commands",
+    "It uses memory"
+   ],
+   "answer": 1
+  }
+ ]
+}

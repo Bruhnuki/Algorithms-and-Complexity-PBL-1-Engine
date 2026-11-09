@@ -1,0 +1,40 @@
+{
+ "id": "dev2",
+ "name": "Tobi",
+ "role": "Developer",
+ "voice": "Anxious, earnest, apologises a lot.",
+ "secret": "he broke the staging server last week",
+ "example_line": "Sorry sorry, can I ask something quick?",
+ "fallback_lines": {
+  "ping_clue": [
+   "Sorry, but I think the bug is where the result is calculated.",
+   "Maybe the crash is a misspelt name? Sorry if wrong.",
+   "Did you test with the examples? That helped me."
+  ],
+  "ping_noise": [
+   "Is anyone else hearing a weird hum?",
+   "I rearranged my desk. Hope that is okay.",
+   "Sorry, wrong channel again."
+  ],
+  "ping_trap": [
+   "Maybe just push? It probably works, sorry.",
+   "Skipping the checklist is faster, right?",
+   "I never tick the boxes. Nobody noticed."
+  ],
+  "help_call": [
+   "Sorry to bother you, can you help me fix this?",
+   "I am lost on this ticket. Could you coach me?",
+   "Please, can you show me what I got wrong?"
+  ],
+  "standup_question": [
+   "Sorry, quick standup: how did your last push go?",
+   "Um, did your last push work out?",
+   "Can you tell us how your last push went?"
+  ],
+  "status_demand": [
+   "Sorry, they asked me for status. What do I say?",
+   "Everyone wants an update. Sorry!",
+   "The Product Owner is asking again, sorry."
+  ]
+ }
+}

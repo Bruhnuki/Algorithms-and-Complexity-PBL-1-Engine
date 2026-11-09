@@ -1,0 +1,91 @@
+# All meter numbers, costs and rates. Initial values are guesses until playtested.
+version: 1
+sprints_total: 1            # MVP = 1; full game = 7
+assistant_flaky: true       # false => AI Assistant always right (deterministic tests)
+
+start: {points: 0, rating: 3.5, cover: 0, focus: 100}
+limits:
+  rating_min: 1.0
+  rating_max: 5.0
+  rating_lose_below: 2.0
+  rating_warn_below: 3.0
+  cover_lose_at: 100
+  warnings_lose_at: 2
+
+time:
+  real_to_game: 160          # 1 real second = 160 in-game seconds
+  tick_max_real_ms: 5000
+  day_minutes: 480
+  focus_low_threshold: 30
+  focus_low_cost_multiplier: 1.5
+
+costs_min: {read: 10, open_other: 2, patch: 5, test: 5, push: 2, tutorial: 30,
+            answer_call: 15, delegate: 2, coach: 15, defer: 1, assistant: 5, triage: 1}
+
+push:
+  points: {clean: 100, acceptable: 50, runtime_error: -30, buggy: 20, security_hole: 20}
+  rating: {clean: 0.02, acceptable: -0.05}
+  repeat_decay: 0.7
+  dod_unticked_cover: 5
+  wrong_hidden_review_penalty: 0.05
+  wrong_hidden_reviews: 3
+  viral_chance: 0.25
+  viral_range: [0.3, 0.5]
+
+standup_cover: {accurate: -10, vague: 5, wrong: 15}
+contradiction_cover: 10
+
+calls:
+  window_min: 60
+  third_miss_cover: 3
+  clue_chance: 0.5
+  focus_busy_penalty: 10
+  focus_missed_penalty: 5
+focus_day_recovery: 10
+
+escalation:
+  interval_min: 60
+  max_level: 2               # 0 message, 1 call, 2 meeting
+
+delegation:
+  return_after_min: 90
+  hidden_bug_chance: 0.5
+
+attack_check: {rating: -0.8, points: -150}
+interpreter: {step_limit: 2000}
+allowed_keywords: [function, return, if, else]   # plus operators = and ==
+
+perks:
+  ai_assistant: {price: 150, error_rate: 0.2}
+
+density: {"1": 2, "4": 5, "7": 8}
+
+process_score:
+  standup_held: 10
+  blocker_cleared: 10
+  coach: 15
+  dod_honest: 10
+  dod_skipped: -10
+  dod_dishonest: -10
+  review_before_push: 10
+  max_per_behaviour: 3       # each behaviour counts at most this many times
+
+# Schedule inside sprint 1 (game minutes from run start)
+schedule:
+  cards:
+    - {at: 0,   type: fix,            ticket: final_price,   sender: po,   deadline: 300, payoff: {points: 100}, penalty: {cover: 3}}
+    - {at: 0,   type: fix,            ticket: average_rating, sender: dev1, deadline: 360, payoff: {points: 100}, penalty: {cover: 3}}
+    - {at: 90,  type: help_call,      ticket: null,          sender: dev2, deadline: 240, payoff: {}, penalty: {cover: 2}}
+    - {at: 180, type: build,          ticket: total_with_tax, sender: po,  deadline: 600, payoff: {points: 100}, penalty: {cover: 3}}
+    - {at: 240, type: status_demand,  ticket: null,          sender: po,   deadline: 420, payoff: {}, penalty: {cover: 3}}
+    - {at: 300, type: fix,            ticket: find_user,     sender: dev1, deadline: 700, payoff: {points: 100}, penalty: {cover: 3}}
+  calls:
+    - {at: 150, sender: dev2}
+    - {at: 400, sender: po}
+    - {at: 700, sender: dev1}
+  pings:
+    - {at: 45,  sender: dev1}
+    - {at: 120, sender: dev2}
+    - {at: 330, sender: dev1}
+    - {at: 500, sender: dev2}
+  ping_weights: {ping_clue: 0.4, ping_noise: 0.4, ping_trap: 0.2}

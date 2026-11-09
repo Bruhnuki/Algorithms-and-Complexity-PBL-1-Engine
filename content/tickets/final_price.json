@@ -1,0 +1,97 @@
+{
+ "id": "final_price",
+ "kind": "fix",
+ "difficulty": 1,
+ "concept": "conditions",
+ "title": "Coupon discount is wrong",
+ "doc": "final_price(price, coupon) must take 10% off the price when coupon is 1, and return the price unchanged when coupon is 0. Customers say the discount is far too big.",
+ "params": [
+  "price",
+  "coupon"
+ ],
+ "examples": [
+  {
+   "input": [
+    100,
+    1
+   ],
+   "expected": 90
+  },
+  {
+   "input": [
+    100,
+    0
+   ],
+   "expected": 100
+  },
+  {
+   "input": [
+    100,
+    1
+   ],
+   "expected": 90
+  },
+  {
+   "input": [
+    100,
+    0
+   ],
+   "expected": 100
+  },
+  {
+   "input": [
+    100,
+    1
+   ],
+   "expected": 90
+  }
+ ],
+ "source": [
+  "function final_price(price, coupon) {",
+  "  if coupon == 1 {",
+  "    return price * 0.1",
+  "  } else {",
+  "    return price",
+  "  }",
+  "}"
+ ],
+ "buggy_line": 3,
+ "blank_line": null,
+ "original_outcome": "fail",
+ "run_shows_failure": true,
+ "options": [
+  {
+   "id": "a",
+   "text": "    return price * 0.9",
+   "effect": "correct",
+   "bug_type": null,
+   "run_outcome": "pass"
+  },
+  {
+   "id": "b",
+   "text": "    return price * 0.01",
+   "effect": "wrong_hidden",
+   "bug_type": "wrong_result",
+   "run_outcome": "fail"
+  },
+  {
+   "id": "c",
+   "text": "    return price * discount",
+   "effect": "crashes",
+   "bug_type": "runtime_error",
+   "run_outcome": "error"
+  },
+  {
+   "id": "d",
+   "text": "    return price - price * 0.1",
+   "effect": "correct_small_flaw",
+   "bug_type": "sloppy_fix",
+   "run_outcome": "pass"
+  }
+ ],
+ "glossary": {
+  "==": "Checks whether two things are equal.",
+  "if": "Runs the next block only when the condition is true.",
+  "*": "Multiplication."
+ }
+}

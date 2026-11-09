@@ -1,0 +1,40 @@
+{
+ "id": "dev1",
+ "name": "Ines",
+ "role": "Developer",
+ "voice": "Dry, sarcastic, secretly kind.",
+ "secret": "she is interviewing at another company",
+ "example_line": "Fine, I looked. Line three smells odd.",
+ "fallback_lines": {
+  "ping_clue": [
+   "That line with the multiplication looks odd to me.",
+   "Run the script before you trust it.",
+   "Compare what it returns with the doc's examples."
+  ],
+  "ping_noise": [
+   "Coffee machine is broken again. Day three.",
+   "Someone used my mug. War is coming.",
+   "The build light is blinking. Probably fine."
+  ],
+  "ping_trap": [
+   "Tests pass? Then push. Nobody reads the checklist.",
+   "Just push it, you can patch it next sprint.",
+   "The security box is for people with free time."
+  ],
+  "help_call": [
+   "Hey, can you walk me through this ticket? I am stuck.",
+   "Got a minute? My patch will not behave.",
+   "Could you coach me through this one?"
+  ],
+  "standup_question": [
+   "Standup: your last push, did it match the doc?",
+   "What happened with your last push, honestly?",
+   "Did your last push actually work, or just look like it?"
+  ],
+  "status_demand": [
+   "Management is asking for status again. Ideas?",
+   "Where are we on this? They keep asking.",
+   "I told them it is in progress. Is that true?"
+  ]
+ }
+}

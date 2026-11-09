@@ -1,0 +1,292 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Fix it with Scrum - UI Example</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@700;800&family=JetBrains+Mono:wght@500;700&family=Lilita+One&family=Nunito+Sans:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+:root{
+  --paper:#FFF4D6; --ink:#202020; --yellow:#FFD65A; --coral:#FF786B;
+  --sky:#72C8F2; --mint:#91D8A7; --lav:#B9A4F5; --white:#fff;
+  --h:'Lilita One','Baloo 2',system-ui,sans-serif;
+  --b:'Baloo 2',system-ui,sans-serif;
+  --t:'Nunito Sans','Atkinson Hyperlegible',system-ui,sans-serif;
+  --m:'JetBrains Mono',ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+body{
+  margin:0; padding:20px 16px 40px; color:var(--ink); font:600 15px/1.4 var(--t);
+  background-color:var(--paper);
+  /* paper grain */
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.8' numOctaves='2'/%3E%3CfeColorMatrix values='0 0 0 0 .5 0 0 0 0 .35 0 0 0 0 .1 0 0 0 .09 0'/%3E%3C/filter%3E%3Crect width='200' height='200' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+h1,h2,h3{font-family:var(--h);font-weight:400;margin:0;letter-spacing:.02em}
+button{font:inherit;color:inherit}
+
+/* ---------- hand-inked outline: wobbly border + fill + offset shadow live on ::before ---------- */
+.ink{position:relative;isolation:isolate;--fill:var(--white);--r:22px 8px 26px 10px/10px 24px 8px 22px;--bw:3px;--sh:5px;--f:url(#rough)}
+.ink::before,.ink::after{content:"";position:absolute;pointer-events:none;border-radius:var(--r)}
+.ink::before{inset:0;z-index:-1;background:var(--fill);border:var(--bw) solid var(--ink);box-shadow:var(--sh) var(--sh) 0 var(--ink);filter:var(--f)}
+/* second sketchy pass: thin, offset, partial = visible hand correction */
+.ink::after{inset:-3px 2px 2px -2px;z-index:-1;border:1.5px solid var(--ink);opacity:.55;border-top-color:transparent;border-left-color:transparent;filter:url(#rough2)}
+.ink.s::before{--f:url(#rough-s)} .ink.s::after{display:none}
+
+/* ---------- desktop shell ---------- */
+.shell{max-width:1320px;margin:0 auto;padding:6px}
+.win{--fill:var(--paper);--sh:8px;padding:14px 16px 18px}
+.bar{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.dots{display:flex;gap:7px}
+.dot{width:16px;height:16px;border-radius:50%;border:3px solid var(--ink);filter:url(#rough-s)}
+.url{flex:1;--fill:var(--white);--sh:2px;padding:4px 14px;font:700 14px var(--m);min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.tabs{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:14px}
+.tab{--sh:3px;--fill:var(--white);padding:6px 14px 6px 10px;display:flex;align-items:center;gap:7px;font:700 15px var(--b);cursor:pointer;background:none;border:0;transition:transform .08s}
+.tab:hover{transform:translateY(-2px) rotate(-1deg)}
+.tab[aria-selected=true]{--fill:var(--sky);transform:translateY(-2px)}
+.tab:focus-visible,.btn:focus-visible{outline:3px dashed var(--ink);outline-offset:4px}
+.tab .ico{font-size:18px}
+.badge{background:var(--coral);border:2px solid var(--ink);border-radius:50%;min-width:22px;height:22px;display:inline-grid;place-items:center;font:800 12px var(--t);padding:0 4px;animation:pop .4s}
+
+/* ---------- status strip ---------- */
+.status{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:12px;margin-bottom:16px}
+.stat{--sh:4px;padding:8px 12px;display:flex;flex-direction:column;gap:2px}
+.stat small{font:800 11px var(--t);text-transform:uppercase;letter-spacing:.06em}
+.stat b{font:400 24px/1 var(--h)}
+.meter{height:12px;border:2.5px solid var(--ink);border-radius:8px 3px 9px 4px;overflow:hidden;background:#fff;margin-top:3px}
+.meter i{display:block;height:100%;background:var(--c,var(--mint));width:var(--w)}
+.cash b{animation:pop .5s}
+
+/* ---------- main grid ---------- */
+.grid{display:grid;grid-template-columns:minmax(260px,320px) minmax(0,1fr) minmax(260px,330px);gap:20px;align-items:start}
+@media(max-width:1050px){.grid{grid-template-columns:1fr}}
+.panel{padding:14px 16px 16px;--sh:6px}
+.panel>h2{font-size:22px;margin-bottom:10px;display:flex;align-items:center;gap:8px}
+.col{display:flex;flex-direction:column;gap:22px}
+
+/* ---------- chat ---------- */
+.msg{display:flex;gap:10px;margin-bottom:14px;animation:pop .35s both}
+.msg:nth-child(2){animation-delay:.12s}.msg:nth-child(3){animation-delay:.24s}
+.av{flex:none;width:46px;height:46px;filter:url(#rough-s)}
+.bub{--sh:3px;--fill:var(--white);padding:7px 12px;flex:1;--r:6px 20px 18px 16px/6px 16px 20px 18px}
+.bub.urgent{--fill:#FFD0CB}
+.bub b{font:800 14px var(--b);display:flex;gap:6px;align-items:center}
+.tag{font:800 10px var(--t);text-transform:uppercase;border:2px solid var(--ink);border-radius:6px;padding:0 5px;background:var(--coral)}
+.react{display:inline-block;margin-top:4px;background:var(--yellow);border:2px solid var(--ink);border-radius:12px 5px 12px 6px;padding:0 7px;font-size:13px}
+.typing{font:700 13px var(--t);opacity:.8}
+
+/* ---------- code review ---------- */
+.pr-head{display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between;margin-bottom:10px}
+.chip{display:inline-flex;align-items:center;gap:5px;border:2.5px solid var(--ink);border-radius:14px 5px 15px 6px;padding:1px 10px;font:800 13px var(--b);background:var(--lav)}
+.files{display:flex;gap:8px;flex-wrap:wrap;margin:8px 0 12px}
+.file{font:700 13px var(--m);padding:2px 9px;border:2.5px solid var(--ink);border-radius:8px 3px 9px 4px;background:var(--white)}
+.file.chg{background:var(--yellow)}
+pre.code{margin:0 0 14px;padding:12px 14px;font:500 13.5px/1.55 var(--m);overflow:auto;--fill:#FFFDF4;--sh:4px}
+.add{background:#cdeed6;display:block}.del{background:#ffd0cb;display:block;text-decoration:line-through;text-decoration-thickness:1.5px}
+.docs{--fill:#EDE6FF;--sh:4px;padding:10px 14px;margin-bottom:14px}
+.docs h3{font-size:17px;margin-bottom:2px}
+.tests{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:12px;margin-bottom:16px}
+.test{--sh:3px;padding:8px 12px;display:flex;gap:9px;align-items:flex-start}
+.test.ok{--fill:#d6f3de}
+.test.bad{--fill:#FFC4BD;animation:shake .5s .4s 2}
+.test .big{font:400 26px/1 var(--h)}
+.test small{display:block;font:500 12px var(--m)}
+.warn{--fill:#FFC4BD;padding:12px 16px;margin-bottom:16px;--sh:5px}
+.warn h3{font-size:20px;display:flex;gap:8px;align-items:center}
+.warn ul{margin:6px 0 0;padding-left:20px}
+.actions{display:flex;flex-wrap:wrap;gap:14px}
+
+/* ---------- buttons ---------- */
+.btn{--sh:4px;--fill:var(--white);--r:16px 7px 18px 8px/8px 16px 7px 18px;position:relative;isolation:isolate;border:0;background:none;padding:8px 18px;font:800 16px var(--b);cursor:pointer;transition:transform .08s;display:inline-flex;gap:7px;align-items:center}
+.btn::before{content:"";position:absolute;inset:0;z-index:-1;border-radius:var(--r);background:var(--fill);border:3px solid var(--ink);box-shadow:var(--sh) var(--sh) 0 var(--ink);filter:url(#rough-s);transition:box-shadow .08s}
+.btn:hover:not(:disabled){transform:translate(-1px,-2px) rotate(-1deg)}
+.btn:hover:not(:disabled)::before{box-shadow:6px 7px 0 var(--ink)}
+.btn:active:not(:disabled),.btn.pressed{transform:translate(4px,4px)}
+.btn:active:not(:disabled)::before,.btn.pressed::before{box-shadow:0 0 0 var(--ink)}
+.btn.sel{--fill:var(--sky)} .btn.go,.btn.success{--fill:var(--mint)} .btn.warning{--fill:var(--yellow)}
+.btn.error{--fill:var(--coral);animation:shake .4s} .btn.lav{--fill:var(--lav)}
+.btn:disabled{opacity:.5;cursor:not-allowed;--fill:#e6e0cc}
+.btn:disabled::before{box-shadow:2px 2px 0 var(--ink);border-style:dashed}
+.btn.loading::after{content:"";width:14px;height:14px;border:3px solid var(--ink);border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite}
+.btn.big{font-size:19px;padding:10px 24px}
+
+/* ---------- side cards ---------- */
+.review{--sh:3px;padding:8px 12px;margin-bottom:14px}
+.review.neg{--fill:#FFD0CB}
+.stars{font-size:17px;letter-spacing:2px}
+.review p{margin:2px 0 0}
+.upg{--fill:#EDE6FF;--sh:4px;padding:8px 12px;display:flex;justify-content:space-between;gap:10px;align-items:center;transform:rotate(-1deg)}
+.upg b{font:800 15px var(--b)}.upg small{display:block;font-weight:700}
+.pbl-wrap{text-align:center}
+.pbl-wrap svg{width:100%;max-width:260px;height:auto}
+.pbl-note{font:700 12px var(--t);margin-top:6px}
+
+.legend{margin-top:26px;padding:16px 18px 20px}
+.legend .row{display:flex;flex-wrap:wrap;gap:16px;margin-top:12px}
+.legend figure{margin:0;text-align:center;font:800 12px var(--t);text-transform:uppercase;letter-spacing:.05em}
+.legend figure .btn{display:flex;margin-bottom:6px}
+
+@keyframes pop{from{transform:scale(.7) translateY(8px);opacity:0}to{transform:none;opacity:1}}
+@keyframes shake{0%,100%{transform:translateX(0)}20%{transform:translateX(-5px) rotate(-1deg)}40%{transform:translateX(5px) rotate(1deg)}60%{transform:translateX(-3px)}80%{transform:translateX(3px)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+
+<!-- Roughening filters: displacement of each outline = wobble + uneven thickness; speckle erodes edges = dry brush -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <filter id="rough" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency=".035" numOctaves="3" seed="4" result="n"/>
+    <feDisplacementMap in="SourceGraphic" in2="n" scale="7" xChannelSelector="R" yChannelSelector="G" result="d"/>
+    <feTurbulence type="fractalNoise" baseFrequency=".9" numOctaves="2" seed="9" result="g"/>
+    <feColorMatrix in="g" type="matrix" values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 -2.2 1.9" result="m"/>
+    <feComposite in="d" in2="m" operator="in"/>
+  </filter>
+  <filter id="rough2" x="-5%" y="-5%" width="110%" height="110%">
+    <feTurbulence type="fractalNoise" baseFrequency=".05" numOctaves="2" seed="21" result="n"/>
+    <feDisplacementMap in="SourceGraphic" in2="n" scale="9" xChannelSelector="G" yChannelSelector="R"/>
+  </filter>
+  <filter id="rough-s" x="-8%" y="-8%" width="116%" height="116%">
+    <feTurbulence type="fractalNoise" baseFrequency=".07" numOctaves="2" seed="13" result="n"/>
+    <feDisplacementMap in="SourceGraphic" in2="n" scale="3.5" xChannelSelector="R" yChannelSelector="G"/>
+  </filter>
+  <!-- reusable cartoon face; head colour via CSS var -->
+  <symbol id="face" viewBox="0 0 48 48">
+    <ellipse cx="24" cy="25" rx="19" ry="18" fill="var(--c,#FFD65A)" stroke="#202020" stroke-width="3"/>
+    <circle cx="17" cy="21" r="3.2" fill="#fff" stroke="#202020" stroke-width="2"/><circle cx="31" cy="21" r="3.2" fill="#fff" stroke="#202020" stroke-width="2"/>
+    <circle cx="18" cy="22" r="1.4" fill="#202020"/><circle cx="30" cy="22" r="1.4" fill="#202020"/>
+    <path d="M14 33 Q24 41 34 32" fill="none" stroke="#202020" stroke-width="3" stroke-linecap="round" class="mouth"/>
+  </symbol>
+</svg>
+
+<main class="shell">
+<div class="win ink">
+
+  <div class="bar">
+    <div class="dots" aria-label="Window controls">
+      <span class="dot" style="background:var(--coral)"></span><span class="dot" style="background:var(--yellow)"></span><span class="dot" style="background:var(--mint)"></span>
+    </div>
+    <div class="url ink s">https://scrumcorp.fake/github/pull/42 &nbsp;★</div>
+    <button class="btn s" aria-label="Notifications, 3 new">🔔 <span class="badge">3</span></button>
+  </div>
+
+  <nav class="tabs" role="tablist" aria-label="Applications">
+    <button class="tab ink s" role="tab" aria-selected="false"><span class="ico">💬</span>Team Chat <span class="badge">3</span></button>
+    <button class="tab ink s" role="tab" aria-selected="true"><span class="ico">🐙</span>Code</button>
+    <button class="tab ink s" role="tab" aria-selected="false"><span class="ico">▶️</span>App Feedback</button>
+    <button class="tab ink s" role="tab" aria-selected="false"><span class="ico">👍</span>Reputation</button>
+    <button class="tab ink s" role="tab" aria-selected="false"><span class="ico">📺</span>Learning</button>
+    <button class="tab ink s" role="tab" aria-selected="false"><span class="ico">📦</span>Upgrades</button>
+    <button class="tab ink s" role="tab" aria-selected="false"><span class="ico">📄</span>Docs</button>
+    <button class="tab ink s" role="tab" aria-selected="false"><span class="ico">⚙️</span>PBL Machine</button>
+  </nav>
+
+  <section class="status" aria-label="Game status">
+    <div class="stat ink s" style="--fill:var(--lav)"><small>📅 Sprint 2 · Day 3</small><b>14:32</b><div class="meter"><i style="--w:62%;--c:var(--lav)"></i></div></div>
+    <div class="stat ink s cash" style="--fill:var(--yellow)"><small>💰 Cash</small><b>$4,250</b></div>
+    <div class="stat ink s" style="--fill:var(--sky)"><small>⭐ EXP</small><b>320 / 500</b><div class="meter"><i style="--w:64%;--c:var(--sky)"></i></div></div>
+    <div class="stat ink s"><small>📈 Performance</small><b>71%</b><div class="meter"><i style="--w:71%"></i></div></div>
+    <div class="stat ink s" style="--fill:#FFD0CB"><small>🔥 Boss patience ⚠</small><b>Low</b><div class="meter"><i style="--w:22%;--c:var(--coral)"></i></div></div>
+  </section>
+
+  <div class="grid">
+
+    <!-- Team chat -->
+    <section class="panel ink" aria-label="Team chat" style="--fill:#EAF7FE">
+      <h2>💬 Team Chat <span class="badge">3</span></h2>
+      <div class="msg"><svg class="av" style="--c:#FF786B"><use href="#face"/></svg>
+        <div class="bub ink s urgent"><b>Priya <span class="tag">URGENT</span></b>Pushing to prod in 5 min. Tests are "mostly" green 🙃<br><span class="react">😱 3</span></div></div>
+      <div class="msg"><svg class="av" style="--c:#91D8A7"><use href="#face"/></svg>
+        <div class="bub ink s"><b>Jeff (intern)</b>What's a merge conflict and is it my fault?<br><span class="react">🤔 1</span></div></div>
+      <div class="msg"><svg class="av" style="--c:#B9A4F5"><use href="#face"/></svg>
+        <div class="bub ink s"><b>Marcus</b>Hacker sent us a "friendly" message. Should we read it?</div></div>
+      <div class="typing">Priya is typing…</div>
+    </section>
+
+    <!-- Code review -->
+    <section class="panel ink" aria-label="Code review">
+      <div class="pr-head">
+        <h2>🐙 PR #42: Fix login button</h2>
+        <span class="chip">⏳ Waiting on YOU</span>
+      </div>
+      <div class="files"><span class="file chg">login.js ✎ +12 −3</span><span class="file chg">auth.test.js ✎ +20</span><span class="file">README.md</span></div>
+
+      <div class="docs ink s"><h3>📝 Docs from Priya</h3>When the user clicks "Login", check the password, then open the dashboard. If wrong, show a friendly error. (Trust me.)</div>
+
+      <pre class="code ink s"><span class="del">- if password == anything: open dashboard</span>
+<span class="add">+ if password matches saved password:</span>
+<span class="add">+     open dashboard</span>
+<span class="add">+ else:</span>
+<span class="add">+     show "Nope, try again!"</span>
+<span class="add">+ skip security check   // TODO later</span></pre>
+
+      <div class="tests">
+        <div class="test ink s ok"><span class="big">✔</span><div><b>Login works</b><small>PASS</small></div></div>
+        <div class="test ink s ok"><span class="big">✔</span><div><b>Error message shows</b><small>PASS</small></div></div>
+        <div class="test ink s bad"><span class="big">✘</span><div><b>Security check</b><small>FAIL: password logged in plain text</small></div></div>
+      </div>
+
+      <div class="warn ink">
+        <h3>⚠ BUG ALERT: Security hole</h3>
+        <ul><li><b>Possible cause:</b> debug line left in by Priya.</li><li><b>If you push anyway:</b> hackers may notice. Reputation −15, Boss −1 patience.</li></ul>
+      </div>
+
+      <div class="actions">
+        <button class="btn go big">🚀 Push it</button>
+        <button class="btn lav">🤖 Ask AI Assistant</button>
+        <button class="btn warning">🐞 Debug</button>
+        <button class="btn">↩ Send back</button>
+      </div>
+    </section>
+
+    <!-- Right column -->
+    <div class="col">
+      <section class="panel ink" aria-label="PBL Machine" style="--fill:#FFF9E5">
+        <h2>⚙️ PBL Machine</h2>
+        <div class="pbl-wrap">
+          <svg viewBox="0 0 260 220" role="img" aria-label="Cartoon PBL machine with a lever, a screen and an output chute" style="filter:url(#rough-s)">
+            <rect x="30" y="20" width="180" height="150" rx="16" fill="#72C8F2" stroke="#202020" stroke-width="5"/>
+            <rect x="52" y="40" width="136" height="54" rx="9" fill="#FFFDF4" stroke="#202020" stroke-width="4"/>
+            <text x="120" y="75" text-anchor="middle" font-family="JetBrains Mono" font-weight="700" font-size="16" fill="#202020">PBL READY</text>
+            <circle cx="70" cy="125" r="13" fill="#FF786B" stroke="#202020" stroke-width="4"/>
+            <circle cx="112" cy="125" r="13" fill="#FFD65A" stroke="#202020" stroke-width="4"/>
+            <circle cx="154" cy="125" r="13" fill="#91D8A7" stroke="#202020" stroke-width="4"/>
+            <path d="M210 70 L242 40" stroke="#202020" stroke-width="6" stroke-linecap="round"/><circle cx="244" cy="38" r="10" fill="#B9A4F5" stroke="#202020" stroke-width="4"/>
+            <rect x="80" y="170" width="80" height="26" rx="6" fill="#FFD65A" stroke="#202020" stroke-width="4"/>
+            <path d="M52 170 v30 M188 170 v30" stroke="#202020" stroke-width="5" stroke-linecap="round"/>
+          </svg>
+          <div class="pbl-note">Mock appearance only. Mechanics unchanged.</div>
+        </div>
+      </section>
+
+      <section class="panel ink" aria-label="Public feedback">
+        <h2>▶️ Play Store Reviews</h2>
+        <div class="review ink s neg"><b>😡 Karen_92</b> <span class="stars" aria-label="1 star">★☆☆☆☆</span><p>Login shows my password on screen?? DELETED.</p></div>
+        <div class="review ink s"><b>😄 bob_dev</b> <span class="stars" aria-label="4 stars">★★★★☆</span><p>Cute app. Please fix the crash.</p></div>
+        <h2 style="margin-top:6px">📺 Learning &amp; Upgrades</h2>
+        <div class="upg ink s"><div><b>⌨ Keyboard Master</b><small>+10% typing speed · Lv 1</small></div><button class="btn lav">$300</button></div>
+      </section>
+    </div>
+  </div>
+
+  <!-- Interaction states -->
+  <section class="legend ink" aria-label="Interaction states" style="--fill:#fff">
+    <h2>Interaction states</h2>
+    <div class="row">
+      <figure><button class="btn">Push</button>Default</figure>
+      <figure><button class="btn" style="transform:translate(-1px,-2px) rotate(-1deg)">Push</button>Hover</figure>
+      <figure><button class="btn pressed">Push</button>Pressed</figure>
+      <figure><button class="btn sel">Push</button>Selected</figure>
+      <figure><button class="btn" disabled>Push</button>Disabled</figure>
+      <figure><button class="btn loading">Pushing</button>Loading</figure>
+      <figure><button class="btn success">✔ Pushed</button>Success</figure>
+      <figure><button class="btn warning">⚠ Risky</button>Warning</figure>
+      <figure><button class="btn error">✘ Failed</button>Error</figure>
+    </div>
+  </section>
+
+</div>
+</main>
+</body>
+</html>

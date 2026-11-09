@@ -39,6 +39,23 @@ def _reject_constant(name):
     raise ValueError(f"{name} is not valid JSON")
 
 
+def ensure_json_encodable(response: dict) -> dict:
+    """Turn a result with Infinity/NaN (e.g. huge relevance sums) into a JSON-safe INTERNAL_ERROR."""
+    try:
+        json.dumps(response, allow_nan=False)
+        return response
+    except ValueError:
+        return {
+            "job_id": response.get("job_id"),
+            "algorithm": response.get("algorithm"),
+            "engine_version": response.get("engine_version"),
+            "status": "error",
+            "error": {"code": "INTERNAL_ERROR",
+                      "message": "engine result contains non-finite numbers that cannot be encoded as JSON"},
+            "metrics": response.get("metrics", {}),
+        }
+
+
 def http_status_for(response: dict) -> int:
     if response.get("status") == "ok":
         return 200
@@ -58,5 +75,5 @@ async def solve_endpoint(request: Request):
     except ValueError as e:
         return JSONResponse(status_code=400, content={"detail": f"Request body is not valid JSON: {e}"})
     # solve() is CPU-bound; run it off the event loop so other requests are not blocked.
-    response = await run_in_threadpool(solve, payload)
+    response = ensure_json_encodable(await run_in_threadpool(solve, payload))
     return JSONResponse(status_code=http_status_for(response), content=response)

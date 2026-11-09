@@ -109,6 +109,17 @@ def test_internal_error_maps_to_500(monkeypatch):
     assert "boom" not in r.text
 
 
+def test_non_finite_result_returns_json_500():
+    req = copy.deepcopy(CWC_FSM)
+    for seg in req["input"]["segments"]:
+        seg["relevance"] = 1e308   # finite input, but the selected sum overflows to Infinity
+    r = client.post(URL, json=req)
+    assert r.status_code == 500
+    body = r.json()
+    assert body["status"] == "error" and body["error"]["code"] == "INTERNAL_ERROR"
+    assert body["job_id"] == "context-demo-01" and "runtime_ms" in body["metrics"]
+
+
 @pytest.mark.parametrize("raw", ["{not json", '{"job_id": NaN}', ""])
 def test_invalid_json_body_returns_400(raw):
     r = client.post(URL, content=raw, headers={"Content-Type": "application/json"})

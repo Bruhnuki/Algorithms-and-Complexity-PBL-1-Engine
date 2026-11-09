@@ -4,10 +4,20 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Fix it with Scrum</title>
+  <link rel="stylesheet" href="/theme.css">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
-  <header id="top"><h1>Fix it with Scrum</h1><nav id="nav"></nav></header>
+  <svg class="defs" aria-hidden="true">
+    <symbol id="face" viewBox="0 0 48 48"><ellipse class="face-head" cx="24" cy="25" rx="19" ry="18"/><circle class="eye" cx="17" cy="21" r="3.2"/><circle class="eye" cx="31" cy="21" r="3.2"/><circle class="pupil" cx="18" cy="22" r="1.4"/><circle class="pupil" cx="30" cy="22" r="1.4"/><path class="mouth" d="M14 33 Q24 41 34 32"/></symbol>
+    <symbol id="face-mad" viewBox="0 0 48 48"><ellipse class="face-head" cx="24" cy="25" rx="19" ry="18"/><circle class="eye" cx="17" cy="22" r="3.2"/><circle class="eye" cx="31" cy="22" r="3.2"/><circle class="pupil" cx="18" cy="23" r="1.4"/><circle class="pupil" cx="30" cy="23" r="1.4"/><path class="mouth" d="M14 36 Q24 30 34 36"/><path class="mouth" d="M11 14 L21 18 M37 14 L27 18"/></symbol>
+    <symbol id="face-panic" viewBox="0 0 48 48"><ellipse class="face-head" cx="24" cy="25" rx="19" ry="18"/><circle class="eye" cx="17" cy="21" r="4.2"/><circle class="eye" cx="31" cy="21" r="4.2"/><circle class="pupil" cx="17" cy="21" r="1.2"/><circle class="pupil" cx="31" cy="21" r="1.2"/><ellipse class="mouth open" cx="24" cy="35" rx="5" ry="4.5"/></symbol>
+  </svg>
+  <header id="top" class="bar">
+    <h1>Fix it with Scrum</h1>
+    <nav id="nav"></nav>
+  </header>
+  <nav id="tabs" class="tabs" aria-label="Jump to a part of the game"></nav>
   <main id="root" aria-live="polite"></main>
   <script type="module" src="/app.js"></script>
 </body>

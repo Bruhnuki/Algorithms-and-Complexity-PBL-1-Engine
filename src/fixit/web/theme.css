@@ -1,0 +1,24 @@
+/* THEME: edit this file to restyle the game. style.css only reads these tokens. */
+:root {
+  /* surface + text */
+  --bg:#FFFFFF; --panel:#FFFFFF; --soft:#F7F7F7; --line:#E5E5E5; --text:#4B4B4B; --muted:#777777;
+
+  /* brand colours: each has a main shade and a darker "lift" shade used for the 3D button edge */
+  --green:#58CC02;  --green-d:#58A700;  --green-soft:#D7FFB8;
+  --blue:#1CB0F6;   --blue-d:#1899D6;   --blue-soft:#DDF4FF;
+  --red:#FF4B4B;    --red-d:#EA2B2B;    --red-soft:#FFDFE0;
+  --yellow:#FFC800; --yellow-d:#E5B400; --yellow-soft:#FFF5CC;
+  --purple:#CE82FF; --purple-d:#A568CC; --purple-soft:#F3E3FF;
+  --orange:#FF9600; --orange-d:#E08600;
+
+  /* shape */
+  --radius:16px;      /* cards, buttons */
+  --radius-s:12px;    /* inputs, chips */
+  --bw:2px;           /* card outline */
+  --lift:4px;         /* height of the 3D button edge; 0 = flat buttons */
+
+  /* fonts (rounded system fonts; to use Nunito, add .woff2 files in /fonts and an @font-face rule) */
+  --font-head:"Nunito","DIN Round Pro","Varela Round","Arial Rounded MT Bold","Segoe UI",system-ui,sans-serif;
+  --font-body:"Nunito","Segoe UI",system-ui,sans-serif;
+  --font-code:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}

@@ -1,0 +1,45 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI-Scrum Algorithm Engine</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header>
+    <h1>AI-Scrum Algorithm Engine</h1>
+    <p>Sends your JSON request to <code>POST /api/v1/algorithm/solve</code> and shows the engine's actual response.</p>
+  </header>
+
+  <main>
+    <section class="panel">
+      <h2>1. Choose an algorithm</h2>
+      <div class="options">
+        <label class="option">
+          <input type="radio" name="algorithm" value="context_chaining" checked>
+          <span><strong>CWC-FSM</strong><br><small>Context Window Chaining + stage state machine (<code>context_chaining</code>)</small></span>
+        </label>
+        <label class="option">
+          <input type="radio" name="algorithm" value="learning_gain">
+          <span><strong>NLG-SPA</strong><br><small>Normalized Learning Gain + saturating process accumulator (<code>learning_gain</code>)</small></span>
+        </label>
+      </div>
+
+      <h2>2. Edit the JSON request</h2>
+      <textarea id="request" spellcheck="false" aria-label="JSON request"></textarea>
+      <div class="actions">
+        <button id="submit" type="button">Submit</button>
+        <button id="reset" type="button" class="secondary">Reset example</button>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>3. Response <span id="status" class="status"></span></h2>
+      <pre id="response">Submit a request to see the response.</pre>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>

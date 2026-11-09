@@ -1,0 +1,256 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fixitwithscrum.example/schemas/solve-request.json",
+  "title": "SolveRequest",
+  "type": "object",
+  "required": [
+    "algorithm",
+    "job_id",
+    "input"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "algorithm": {
+      "enum": [
+        "context_chaining",
+        "learning_gain"
+      ]
+    },
+    "job_id": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{1,64}$"
+    },
+    "input": {
+      "type": "object"
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "algorithm": {
+          "const": "context_chaining"
+        },
+        "input": {
+          "$ref": "#/$defs/ContextChainingInput"
+        }
+      }
+    },
+    {
+      "properties": {
+        "algorithm": {
+          "const": "learning_gain"
+        },
+        "input": {
+          "$ref": "#/$defs/LearningGainInput"
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "Stage": {
+      "enum": [
+        "PLANNING",
+        "STANDUP",
+        "BUILD",
+        "REVIEW"
+      ]
+    },
+    "Segment": {
+      "type": "object",
+      "required": [
+        "id",
+        "tokens",
+        "relevance",
+        "stage"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "tokens": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 32000
+        },
+        "relevance": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "stage": {
+          "$ref": "#/$defs/Stage"
+        },
+        "pinned": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    },
+    "ContextChainingInput": {
+      "type": "object",
+      "required": [
+        "token_budget",
+        "current_stage",
+        "segments"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "token_budget": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 32000
+        },
+        "current_stage": {
+          "$ref": "#/$defs/Stage"
+        },
+        "advance_to": {
+          "$ref": "#/$defs/Stage"
+        },
+        "segments": {
+          "type": "array",
+          "maxItems": 2000,
+          "items": {
+            "$ref": "#/$defs/Segment"
+          }
+        },
+        "mode": {
+          "enum": [
+            "auto",
+            "exact",
+            "greedy"
+          ],
+          "default": "auto"
+        }
+      }
+    },
+    "Student": {
+      "type": "object",
+      "required": [
+        "id",
+        "pre",
+        "post"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "pre": {
+          "type": "number",
+          "minimum": 0
+        },
+        "post": {
+          "type": "number",
+          "minimum": 0
+        }
+      }
+    },
+    "LearningGainInput": {
+      "type": "object",
+      "required": [
+        "max_score",
+        "students"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "max_score": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "maximum": 1000
+        },
+        "students": {
+          "type": "array",
+          "maxItems": 10000,
+          "items": {
+            "$ref": "#/$defs/Student"
+          }
+        },
+        "bootstrap_B": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 10000,
+          "default": 1000
+        },
+        "seed": {
+          "type": "integer"
+        },
+        "process_events": {
+          "$ref": "#/$defs/ProcessEvents"
+        }
+      }
+    },
+    "ProcessEvents": {
+      "type": "object",
+      "required": [
+        "categories",
+        "events"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "categories": {
+          "type": "object",
+          "maxProperties": 32,
+          "additionalProperties": {
+            "type": "object",
+            "required": [
+              "weight",
+              "eta"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "weight": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              },
+              "eta": {
+                "type": "number",
+                "exclusiveMinimum": 0,
+                "maximum": 1
+              }
+            }
+          }
+        },
+        "events": {
+          "type": "array",
+          "maxItems": 100000,
+          "items": {
+            "type": "object",
+            "required": [
+              "id",
+              "stage",
+              "category",
+              "quality"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64
+              },
+              "stage": {
+                "$ref": "#/$defs/Stage"
+              },
+              "category": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 32
+              },
+              "quality": {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 1
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

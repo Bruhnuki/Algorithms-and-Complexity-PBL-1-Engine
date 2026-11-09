@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://fixitwithscrum.example/schemas/solve-response.json",
+  "title": "SolveResponseCertificate",
+  "type": "object",
+  "required": [
+    "job_id",
+    "algorithm",
+    "status",
+    "engine_version",
+    "metrics"
+  ],
+  "properties": {
+    "job_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "algorithm": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "status": {
+      "enum": [
+        "ok",
+        "error"
+      ]
+    },
+    "engine_version": {
+      "type": "string"
+    },
+    "result": {
+      "type": "object"
+    },
+    "error": {
+      "type": "object",
+      "required": [
+        "code",
+        "message"
+      ],
+      "properties": {
+        "code": {
+          "enum": [
+            "MALFORMED_REQUEST",
+            "VALIDATION_ERROR",
+            "UNKNOWN_ALGORITHM",
+            "LIMIT_EXCEEDED",
+            "INFEASIBLE",
+            "ILLEGAL_TRANSITION",
+            "INTERNAL_ERROR"
+          ]
+        },
+        "message": {
+          "type": "string"
+        }
+      }
+    },
+    "metrics": {
+      "type": "object",
+      "required": [
+        "runtime_ms"
+      ],
+      "properties": {
+        "runtime_ms": {
+          "type": "number",
+          "minimum": 0
+        },
+        "dp_cells": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "bootstrap_draws": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "events_processed": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "oneOf": [
+    {
+      "properties": {
+        "status": {
+          "const": "ok"
+        }
+      },
+      "required": [
+        "result"
+      ]
+    },
+    {
+      "properties": {
+        "status": {
+          "const": "error"
+        }
+      },
+      "required": [
+        "error"
+      ]
+    }
+  ]
+}

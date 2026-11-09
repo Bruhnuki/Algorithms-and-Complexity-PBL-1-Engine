@@ -1,6 +1,7 @@
 // Front end: draws server state, sends commands. No game rules live here (scores, costs, results all come from the server).
 const root = document.getElementById("root");
 const nav = document.getElementById("nav");
+const tabs = document.getElementById("tabs");
 let csrf = "";
 let me = null;
 let seqCounter = 0;
@@ -15,7 +16,15 @@ const h = (tag, attrs = {}, ...kids) => {
   for (const kid of kids.flat()) if (kid != null) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));  // text nodes only
   return el;
 };
-const mount = (...nodes) => root.replaceChildren(...nodes.filter(Boolean));
+const mount = (...nodes) => { tabs.replaceChildren(); root.replaceChildren(...nodes.filter(Boolean)); };
+const SVG = "http://www.w3.org/2000/svg";
+// cartoon teammate; the face changes with the message tone
+function avatar(who, tone) {
+  const svg = document.createElementNS(SVG, "svg"), use = document.createElementNS(SVG, "use");
+  svg.setAttribute("class", "av av-" + who); svg.setAttribute("aria-hidden", "true");
+  use.setAttribute("href", tone === "panicked" ? "#face-panic" : tone === "pushy" ? "#face-mad" : "#face");
+  svg.append(use); return svg;
+}
 
 async function api(path, method = "GET", body) {
   const opt = { method, headers: { "Content-Type": "application/json" }, credentials: "same-origin" };
@@ -75,12 +84,12 @@ async function questions(kind, next) {
   const { questions: qs } = await api("/api/v1/assessments/questions");
   const answers = {};
   const err = h("div", { class: "err", role: "alert" });
-  mount(h("section", { class: "card narrow" }, h("h2", {}, kind === "pre" ? "Quick pre-test" : "Quick post-test"),
-    qs.map((q) => h("fieldset", {}, h("legend", {}, q.text), q.choices.map((c, i) => h("label", {}, h("input", { type: "radio", name: q.id, onchange: () => { answers[q.id] = i; } }), " " + c)))),
+  mount(h("section", { class: "card narrow" }, h("h2", {}, kind === "pre" ? "Quick warm-up quiz" : "Quick final quiz"), h("p", { class: "lead" }, kind === "pre" ? "Five easy questions so we know where you start. No grades, and guessing is fine." : "The same kind of questions again, so we can see what you learned."),
+    qs.map((q) => h("fieldset", {}, h("legend", {}, q.text), q.choices.map((c, i) => h("label", {}, h("input", { type: "radio", name: q.id, onchange: () => { answers[q.id] = i; } }), h("span", {}, c))))),
     err, h("div", { class: "row" }, h("button", { class: "primary", onclick: async () => {
       try { await api("/api/v1/assessments/" + kind, "POST", { answers }); next(); }
       catch (e) { if (e.code === "ALREADY_SUBMITTED") next(); else err.textContent = e.message; }
-    } }, "Submit"), h("button", { onclick: next }, "Skip"))));
+    } }, "Submit answers"), h("button", { onclick: next }, "Skip for now"))));
 }
 const preTest = () => questions("pre", newRun);
 
@@ -139,20 +148,24 @@ async function cmd(type, payload = {}) {
 
 function meters(s) {
   const m = s.meters;
-  const box = (k, v, low) => h("div", { class: "meter" + (low ? " low" : "") }, h("span", { class: "muted" }, k), h("b", {}, v));
-  return h("div", { id: "meters" }, box("Points", m.points), box("Rating", Number(m.rating).toFixed(2), m.rating < 3),
-    box("Cover", m.cover, m.cover >= 70), box("Focus", Math.round(m.focus), m.focus < 30),
-    box("Stage", s.stage + " · day " + s.day), box("Clock", s.clock_min + " min"), box("Warnings", s.warnings));
+  const box = (k, v, low, hint, icon, tone, pct) => {
+    const bar = pct == null ? null : h("div", { class: "bar" }, h("i", {}));
+    if (bar) bar.firstChild.style.width = Math.max(0, Math.min(100, pct)) + "%";
+    return h("div", { class: `meter t-${tone}` + (low ? " low" : ""), title: hint }, h("span", { class: "lbl" }, icon + " " + k), h("b", {}, v), bar, h("span", { class: "hint" }, hint));
+  };
+  return h("div", { id: "meters" }, box("Points", m.points, false, "Your score. Spend it on upgrades.", "💰", "yellow"), box("Rating", Number(m.rating).toFixed(2), m.rating < 3, "How happy people are with you. Don't let it fall too low.", "⭐", "sky"),
+    box("Cover", m.cover, m.cover >= 70, "How close you are to being found out. Keep it low.", "🕵", "lav", m.cover), box("Focus", Math.round(m.focus), m.focus < 30, "Your energy. Rest if it runs low.", "⚡", "mint", m.focus),
+    box("Stage", s.stage + " · day " + s.day, false, "Where you are in the sprint.", "📅", "white"), box("Clock", s.clock_min + " min", false, "Time passed in the game.", "⏱", "white"), box("Warnings", s.warnings, false, "Too many and you get demoted.", "⚠", "coral"));
 }
 
 function pilePanel(s) {
   const moves = (c) => s.stage !== "BUILD" || c.state === "delegated" ? [] : [
-    c.state !== "open" ? h("button", { onclick: () => cmd("open_card", { card_id: c.id }), disabled: !!s.open_card }, c.state === "returned" ? "Review" : "Work") : h("button", { onclick: () => cmd("hold") }, "Hold"),
-    h("button", { onclick: () => cmd("delegate", { card_id: c.id }) }, "Delegate"),
-    c.type === "help_call" ? h("button", { onclick: () => cmd("coach", { card_id: c.id }) }, "Coach") : null,
-    h("button", { onclick: () => cmd("defer", { card_id: c.id }) }, "Defer")];
+    c.state !== "open" ? h("button", { title: "Start on this request yourself", onclick: () => cmd("open_card", { card_id: c.id }), disabled: !!s.open_card }, c.state === "returned" ? "Review" : "Work") : h("button", { title: "Put this down for now", onclick: () => cmd("hold") }, "Hold"),
+    h("button", { title: "Hand this to a teammate", onclick: () => cmd("delegate", { card_id: c.id }) }, "Delegate"),
+    c.type === "help_call" ? h("button", { title: "Help the teammate work it out", onclick: () => cmd("coach", { card_id: c.id }) }, "Coach") : null,
+    h("button", { title: "Push this to later", onclick: () => cmd("defer", { card_id: c.id }) }, "Defer")];
   const live = s.pile.filter((c) => c.state !== "done");
-  return h("section", { class: "card", "aria-label": "Pile" }, h("h2", {}, "Pile (" + live.length + ")"),
+  return h("section", { class: "card", id: "pile", "aria-label": "Pile" }, h("h2", {}, "📥 Pile (" + live.length + ")"), h("p", { class: "sub" }, "Everything your team is asking you for."),
     live.map((c) => h("div", { class: `pile-item esc${c.escalation}` + (c.state === "open" ? " open" : "") },
       h("b", {}, c.title || c.type.replace("_", " ")), h("div", { class: "tag" }, `${c.type} from ${NAMES[c.sender] || c.sender} · ${c.state}` + (c.deadline_min != null ? ` · due ${c.deadline_min} min` : " · escalated")),
       h("div", { class: "tag" }, ["escalation: " + ["message", "call", "meeting"][c.escalation], c.payoff.points ? ` · +${c.payoff.points} pts` : "", c.penalty.cover ? ` · +${c.penalty.cover} cover if ignored` : ""].join("")),
@@ -171,24 +184,24 @@ function codeDesk(s) {
   if (s.stage === "PLANNING") return h("section", { class: "card" }, h("h2", {}, "Planning"), h("p", {}, "Look at the Pile, then start the sprint."), h("button", { class: "primary", onclick: () => cmd("advance_stage", { to: "STANDUP" }) }, "Go to standup"));
   if (s.stage === "BUILD" && !w) {
     const next = s.day >= 2 ? ["REVIEW", "End sprint (Review)"] : ["STANDUP", "End day 1 (next standup)"];
-    return h("section", { class: "card" }, h("h2", {}, "CodeDesk"), h("p", { class: "muted" }, s.open_card ? "This card has no code. Send your reply." : "Open a card from the Pile."),
+    return h("section", { class: "card" }, h("h2", {}, "💻 Fix-it desk"), h("p", { class: "muted" }, s.open_card ? "This card has no code. Send your reply." : "Open a card from the Pile."),
       s.open_card ? h("button", { onclick: () => cmd("push") }, "Send reply") : null,
       h("div", { class: "row" }, h("button", { onclick: () => cmd("advance_stage", { to: next[0] }), disabled: !!s.open_card }, next[1])));
   }
   if (!w) return h("section", { class: "card" }, h("h2", {}, "CodeDesk"));
   const lastRun = run.runs;
   const perks = s.perks.includes("ai_assistant");
-  return h("section", { class: "card", "aria-label": "CodeDesk" }, h("h2", {}, w.title), h("p", {}, w.doc),
+  return h("section", { class: "card", "aria-label": "CodeDesk" }, h("h2", {}, "💻 " + w.title), h("p", {}, w.doc),
     h("pre", { class: "code" }, w.lines.map((t, i) => h("div", { class: "line" + (w.flagged === i + 1 ? " flagged" : ""), role: w.kind === "fix" ? "button" : null, tabindex: w.kind === "fix" ? "0" : null,
       onclick: () => w.kind === "fix" && cmd("flag_line", { line_no: i + 1 }), onkeydown: (e) => { if (e.key === "Enter" && w.kind === "fix") cmd("flag_line", { line_no: i + 1 }); } }, h("span", { class: "n" }, i + 1), t))),
-    h("p", { class: "muted" }, w.kind === "fix" ? "Click the line you think is wrong, then pick a replacement." : "Fill the blank line from the tray."),
+    h("p", { class: "muted" }, w.kind === "fix" ? "Step 1: click the line you think is wrong. Step 2: pick the replacement below. Step 3: run the script to check." : "Fill the blank line from the tray."),
     w.options.map((o) => h("button", { class: "opt" + (w.selected === o.id ? " sel" : "") + (w.assistant === o.id ? " hint" : ""), onclick: () => cmd("select_patch", { option_id: o.id }) }, o.text.trim())),
     w.assistant ? h("p", { class: "muted" }, "AI Assistant suggests the highlighted option (it can be wrong).") : null,
-    h("div", { class: "row" }, h("button", { onclick: runScript }, "Run Script"), perks ? h("button", { onclick: () => cmd("use_assistant") }, "AI Assistant") : null),
+    h("div", { class: "row" }, h("button", { title: "Test your fix and see if it works", onclick: runScript }, "▶ Run Script"), perks ? h("button", { onclick: () => cmd("use_assistant") }, "AI Assistant") : null),
     lastRun ? h("div", {}, lastRun.map((r) => h("div", { class: "run " + (r.pass ? "pass" : "fail") }, r.text))) : null,
-    h("h3", {}, "Definition of Done"),
-    ["tests", "matches_doc", "no_security"].map((b) => h("label", {}, h("input", { type: "checkbox", checked: w.dod[b], onchange: () => cmd("toggle_dod", { box: b }) }), " " + { tests: "Tests pass", matches_doc: "Matches the doc", no_security: "No security concern" }[b])),
-    h("div", { class: "row" }, h("button", { class: "primary", onclick: () => cmd("push"), disabled: !w.selected }, "Push"), h("button", { onclick: () => cmd("hold") }, "Hold")));
+    h("h3", {}, "Checklist: is it really done?"),
+    ["tests", "matches_doc", "no_security"].map((b) => h("label", { class: "check" }, h("input", { type: "checkbox", checked: w.dod[b], onchange: () => cmd("toggle_dod", { box: b }) }), h("span", {}, { tests: "Tests pass", matches_doc: "Matches the doc", no_security: "No security concern" }[b]))),
+    h("div", { class: "row" }, h("button", { class: "primary", title: "Send your fix live to the customers", onclick: () => cmd("push"), disabled: !w.selected }, "🚀 Push (send it live)"), h("button", { onclick: () => cmd("hold") }, "Hold")));
 }
 
 async function runScript() {
@@ -201,8 +214,8 @@ async function runScript() {
 
 function chatPanel(s) {
   const call = s.call ? h("div", { class: "card call" }, h("b", {}, "☎ Call from " + (NAMES[s.call.sender] || s.call.sender)), h("p", { class: "muted" }, "Answer it (15 min) or ignore it."), h("button", { onclick: () => cmd("answer_call") }, "Answer")) : null;
-  return h("section", { class: "card", "aria-label": "TeamChat" }, h("h2", {}, "TeamChat"), call,
-    h("div", { class: "chat" }, run.lines.slice(-12).map((l) => h("div", { class: "msg " + l.tone }, h("b", {}, (NAMES[l.speaker] || l.speaker) + ": "), l.text))));
+  return h("section", { class: "card", id: "chat", "aria-label": "TeamChat" }, h("h2", {}, "💬 Team chat"), h("p", { class: "sub" }, "What your team is saying."), call,
+    h("div", { class: "chat" }, run.lines.slice(-12).map((l) => h("div", { class: "msg " + l.tone }, avatar(l.speaker, l.tone), h("div", { class: "bub" }, h("b", {}, NAMES[l.speaker] || l.speaker), h("div", {}, l.text))))));
 }
 
 function starWall() {
@@ -212,11 +225,11 @@ function starWall() {
     attack_check_resolved: `Security attack on ${e.ticket}: ${e.rating} rating, ${e.points} points`, warning_issued: `Demotion warning ${e.warnings}`,
     contradiction_detected: "A teammate caught your earlier answer contradicting the result: +" + e.cover + " Cover", card_escalated: `Card ${e.card_id} escalated to ${["message", "call", "meeting"][e.level]}`, call_missed: "Missed call " + e.misses,
   }[e.type]);
-  return h("section", { class: "card", "aria-label": "StarWall" }, h("h2", {}, "StarWall"), h("div", { class: "chat" }, run.wall.slice(-10).reverse().map((e) => h("div", { class: "msg" }, text(e)))));
+  return h("section", { class: "card", id: "wall", "aria-label": "StarWall" }, h("h2", {}, "⭐ What just happened"), h("div", { class: "chat" }, run.wall.slice(-10).reverse().map((e) => h("div", { class: "msg plain" }, h("div", { class: "bub" }, "⭐ " + text(e))))));
 }
 
 function learnLoop(s) {
-  return h("section", { class: "card", "aria-label": "LearnLoop" }, h("h2", {}, "LearnLoop"),
+  return h("section", { class: "card", id: "learn", "aria-label": "LearnLoop" }, h("h2", {}, "📺 Learn & upgrade"), h("p", { class: "sub" }, "Watch short videos to learn, or buy a helper."),
     TUTORIALS.map((t) => h("div", { class: "row" }, h("span", {}, s.unlocked.includes(t.id) ? "✔ " + t.title : "??? " + t.title), h("button", { onclick: () => cmd("watch_tutorial", { tutorial_id: t.id }), disabled: s.unlocked.includes(t.id) }, "Watch (30 min)"))),
     h("h3", {}, "Toolbox"), h("button", { onclick: () => cmd("buy_perk", { perk_id: "ai_assistant" }), disabled: s.perks.includes("ai_assistant") }, s.perks.includes("ai_assistant") ? "AI Assistant owned" : "Buy AI Assistant (150 pts)"));
 }
@@ -227,8 +240,12 @@ function render() {
   const sig = JSON.stringify({ ...s, clock_min: 0, day_used_min: 0 }) + run.lines.length + run.wall.length + JSON.stringify(run.runs || null) + (run.error || "");
   if (sig === run.sig && document.getElementById("meters")) { document.getElementById("meters").replaceWith(meters(s)); return; }  // keep buttons stable between polls
   run.sig = sig;
+  const live = s.pile.filter((c) => c.state !== "done").length;
+  const go = (id) => document.getElementById(id)?.scrollIntoView({ behavior: "smooth", block: "start" });
+  const tab = (id, label, badge) => h("button", { class: "tab", onclick: () => go(id) }, label, badge ? h("span", { class: "badge" }, badge) : null);
   mount(meters(s), run.error ? h("div", { class: "err", role: "alert" }, run.error) : null,
-    h("div", { id: "game" }, pilePanel(s), h("div", {}, codeDesk(s)), h("div", {}, chatPanel(s), h("div", { style: null }, starWall()), learnLoop(s))));
+    h("div", { id: "game" }, pilePanel(s), h("div", { id: "desk" }, codeDesk(s)), h("div", {}, chatPanel(s), h("div", { style: null }, starWall()), learnLoop(s))));
+  tabs.replaceChildren(tab("pile", "📥 Pile", live), tab("desk", "💻 Fix-it desk"), tab("chat", "💬 Team chat"), tab("wall", "⭐ What happened"), tab("learn", "📺 Learn & upgrade"));
 }
 
 async function debrief() {

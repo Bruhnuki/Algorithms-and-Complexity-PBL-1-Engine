@@ -1,4 +1,4 @@
-// Example requests copied from the demo scripts in the repository README.
+// Example requests copied from the demo scripts in README-pbl-engine.md.
 const EXAMPLES = {
   context_chaining: {
     job_id: "context-demo-01",

@@ -9,7 +9,7 @@ import engine.solve as engine_solve  # noqa: E402  (must come after main)
 client = TestClient(app)
 URL = "/api/v1/algorithm/solve"
 
-# Same request shapes as the demo scripts in the repository README.
+# Same request shapes as the demo scripts in README-pbl-engine.md.
 CWC_FSM = {
     "job_id": "context-demo-01",
     "algorithm": "context_chaining",

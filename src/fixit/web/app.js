@@ -1,5 +1,5 @@
 import { runWelcome, flowChart, SPRINT_NODES } from "/welcome.js";
-import { TERMS, CONCEPTS, SCORING, CORE_TERMS } from "/guide.js";
+import { TERMS, CONCEPTS } from "/guide.js";
 // Front end: draws server state, sends commands. No game rules live here (scores, costs, results all come from the server).
 const root = document.getElementById("root");
 const nav = document.getElementById("nav");
@@ -14,7 +14,7 @@ const h = (tag, attrs = {}, ...kids) => {
     else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
     else if (v !== false && v != null) el.setAttribute(k, v === true ? "" : v);
   }
-  for (const kid of kids.flat()) if (kid != null) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));  // text nodes only
+  for (const kid of kids.flat(Infinity)) if (kid != null) el.append(kid.nodeType ? kid : document.createTextNode(String(kid)));  // text nodes only
   return el;
 };
 const REDUCED = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
@@ -171,15 +171,12 @@ async function setupRun() {
       h("div", { class: "nr-mate" }, avatar(id, "calm"), h("b", {}, n), h("small", {}, r)))),
     h("ol", { class: "nr-path", "aria-label": "Three Sprints" }, [["1", "Checkout"], ["2", "Rewards"], ["3", "Privacy"]].map(([n, l]) =>
       h("li", { class: "nr-stop" }, h("span", { class: "nr-dot" }, n), h("b", {}, "Sprint " + n), h("small", {}, l))), h("li", { class: "nr-finish", "aria-label": "Finish" }, ic("flag"))),
-    un.heat.length ? h("fieldset", {}, h("legend", {}, "Heat: make it harder for a bigger run score"),
-      un.heat.map((k) => h("label", { class: "check" }, h("input", { type: "checkbox", onchange: (e) => { e.target.checked ? picked.add(k) : picked.delete(k); } }), h("span", {}, HEAT_TEXT[k] || k))))
-      : null,
     un.unlocks.length ? h("p", { class: "muted" }, "Unlocked from earlier runs: " + un.unlocks.filter((u) => u !== "heat").map(practiceName).join(", ")) : null,
     err, h("div", { class: "row" }, h("button", { class: "primary", onclick: () => {
-      const opts = { heat: [...picked] };
+      const opts = { heat: [] };
       (tutorialDone() ? newRun(opts) : startTutorial(opts, false)).catch((e) => { err.textContent = e.message; });   // first time: the tutorial comes first
     } }, "Start the run"),
-      tutorialDone() ? h("button", { onclick: () => startTutorial({ heat: [...picked] }, true).catch((e) => { err.textContent = e.message; }) }, "Replay the tutorial") : null)));
+      tutorialDone() ? h("button", { onclick: () => startTutorial({ heat: [] }, true).catch((e) => { err.textContent = e.message; }) }, "Replay the tutorial") : null)));
 }
 
 // ------------------------------------------------------------ game
@@ -250,7 +247,6 @@ function showConcept(id) {
   conceptLayer.hidden = false;
   ok.focus();
 }
-const TUTORIALS = [{ id: "conditions", title: "Reading if / else" }, { id: "definition_of_done", title: "Definition of Done" }];
 let run = null;      // {id, lastSeq, lastLine, state, lines[], wall[]}
 let timers = [];
 
@@ -267,7 +263,7 @@ async function newRun(opts = {}) {
 async function startTutorial(after = {}, replay = false) {
   const r = await api("/api/v1/runs", "POST", { tutorial: true });
   run = { id: r.id, lastSeq: 0, lastLine: 0, state: r.state, lines: [], wall: [], lastTick: performance.now(), busy: false, notes: [], railOpen: true,
-    tut: { step: 0, bubble: 0, phase: "talk", clicks: 0, key: null, after, replay, finished: false } };
+    tut: { step: 0, bubble: 0, phase: "talk", clicks: 0, key: null, view: null, cache: {}, after, replay, finished: false }, unread: {} };
   loadSeen();
   timers.forEach(clearInterval);
   timers = [setInterval(poll, 1000)];
@@ -279,6 +275,7 @@ async function poll() {
   try {
     const r = await api(`/api/v1/runs/${run.id}/state?since=${run.lastSeq}&since_line=${run.lastLine}`);
     run.lastSeq = r.seq; run.state = r.state;
+    if (run.chatSprint != null && r.state.sprint !== run.chatSprint) { run.lines = []; run.chatSprint = r.state.sprint; }   // a new Sprint starts with an empty chat, and its first lines still arrive
     for (const l of r.lines) { run.lines.push(l); run.lastLine = l.id; }
     collect(r.events);
     render();
@@ -287,7 +284,7 @@ async function poll() {
 
 async function tick() {
   const st = run && run.state;
-  const feeding = !!(st && st.x && st.x.calm && !st.x.tutorial && st.x.feed && st.x.feed.left > 0);   // learning mode: the only thing on a clock is the live feed of new items
+  const feeding = !!(st && st.x && st.x.calm && !st.x.tutorial && st.x.feed && st.x.feed.left_today > 0);   // learning mode: the only thing on a clock is the live feed of new items
   if (!st || st.status !== "active" || st.stage !== "BUILD" || run.modal || (st.x && st.x.calm && !feeding)) { run && (run.lastTick = performance.now()); return; }
   const now = performance.now(), ms = Math.round(now - run.lastTick);
   run.lastTick = now;
@@ -296,6 +293,11 @@ async function tick() {
 
 // experimental mechanics: what each new event says when it happens
 const XTOAST = {
+  penalty: (e) => ["bad", `Mistake: Grade −${e.grade}, trust −${e.trust} for the whole team`],
+  item_put_down: (e) => ["bad", `Put down "${e.title}": Grade −${e.grade}, trust −${e.trust} for both teammates` + (e.rating > 0 ? `, rating −${e.rating.toFixed(1)} stars` : "")],
+  help_answered: (e) => [e.delta >= 0 ? "good" : "bad", `${e.feedback} (trust ${e.delta >= 0 ? "+" : "−"}${Math.abs(e.delta)})`],
+  help_solved: () => ["good", "Solved! They trust their own work more."],
+  help_challenge: () => ["bad", "That did not work. They lose some trust."],
   practice_gained: (e) => ["good", (e.duo ? "Combo unlocked: " : "New practice: ") + practiceName(e.practice)],
   practice_evolved: (e) => ["good", practiceName(e.practice) + " levelled up"],
   practice_unlocked: (e) => ["info", practiceName(e.practice) + " can now appear in the shop"],
@@ -315,7 +317,7 @@ const XTOAST = {
   release_shipped: (e) => e.failed ? ["bad", `Release shipped with a bug inside: bonus lost (${e.points} pts)`] : ["good", `Release shipped: ${e.base} × ${e.mult} = ${e.points} pts`],
   trust_changed: (e) => e.delta ? [e.delta > 0 ? "good" : "warn", `${who(e.dev)}'s trust ${e.delta > 0 ? "+" : "−"}${Math.abs(e.delta)}%`] : null,   // only when something you did changed it
   offload_result: (e) => [e.ok ? "good" : "bad", e.ok ? `${who(e.dev)} finished “${e.title}”` : `${who(e.dev)} couldn't finish “${e.title}”. It's back with you`],
-  hidden_problem: () => ["bad", "A problem you hid in the Daily Scrum came out at the Review"],
+  hidden_problem: (e) => e.harder ? ["warn", `A hidden problem came out: ${e.items} harder item${e.items > 1 ? "s" : ""} will be in your next Sprint`] : ["bad", "A problem you hid in the Daily Scrum came out and cost you rating"],
   standup_answered: (e) => e.rating ? ["good", `Rating +${e.rating}`] : null,
   card_sent_back: () => ["info", "Sent back to the team"],
   change_fixed: () => ["good", "Change fixed"],
@@ -344,6 +346,8 @@ const XTOAST = {
 function collect(events) {
   for (const e of events) {
     const t = e.type;
+    if (t === "card_revealed" || t === "offload_result" || (t === "card_spawned" && e.card_type === "help_call")) bump("github");   // something new to look at in GitHab
+    if (REVIEWABLE.has(t) || t === "rating_resolved") bump("play");                                                                   // users have said something
     if (XTOAST[t]) { const r = XTOAST[t](e); if (r) toast(r[0], r[1]); if (["clutch", "practice_gained", "combo", "outage_fixed", "quick_save", "wave_clear"].includes(t) || (t === "speed_result" && e.tier === "perfect")) burst(); if (["last_stand", "outage", "dev_stuck", "combo_broken", "wave"].includes(t)) shakeScreen(); }
     if (t === "dev_started") markSeen("demo_give");
     if (["pushed", "push_blocked", "review_resolved", "rating_resolved", "attack_check_resolved", "warning_issued", "contradiction_detected", "card_escalated", "call_missed"].includes(t)) {
@@ -369,6 +373,7 @@ function react(e) {
 }
 
 async function cmd(type, payload = {}) {
+  if (type !== "run_script") run.runs = null;   // test results show only until the player does anything else
   run.busy = true;
   seqCounter = Math.max(seqCounter + 1, Date.now());
   try {
@@ -433,7 +438,6 @@ const APPS = [
   { id: "slack", name: "Slackish", icon: "chat", tag: "Team chat", url: "slackish.fake/scrumcorp/team-chat" },
   { id: "github", name: "GitHab", icon: "branch", tag: "Your to-do list and the code", url: "githab.fake/scrumcorp/app/issues" },
   { id: "play", name: "Play Storey", icon: "store", tag: "What users say", url: "playstorey.fake/store/apps/scrumcorp" },
-  { id: "youtube", name: "ToobYou", icon: "tv", tag: "Videos and the word book", url: "toobyou.fake/learn" },
   { id: "shop", name: "Amazin'", icon: "cart", tag: "Upgrades", url: "amazin.fake/upgrades" },
 ];
 const appName = (id) => APPS.find((a) => a.id === id).name;
@@ -468,6 +472,7 @@ function guide(s) {
     if (!Object.values(w.dod).every(Boolean)) return g("Tick the Done checklist, but only what's true", "Teams agree on what 'finished' means. Tests cannot spot security holes, so read the code before ticking that box.", "dod", "github");
     return g("Send your fix to users", "Users get your change and leave reviews, which move your app rating.", "push", "github");
   }
+  if (s.help) return g("Answer the Help request", "Pick the answer you would really give. It changes how much they trust their own work.", null, "github");
   if (s.open_card) return g("Send your reply", "This request only needs an answer, no code.", "push", "github");
   const live = s.pile.filter((c) => c.state !== "done");
   const open = run.reviewing && live.find((c) => c.id === run.reviewing && c.review);
@@ -504,6 +509,7 @@ function guide(s) {
     const m = x.team[busy];
     return g(`${who(busy)} is working on it: about ${m.eta_min} min left`, `When ${who(busy)} finishes, the work comes back for you to check. Ending the ${s.day >= 2 ? "sprint" : "day"} now would leave it unfinished.`, null, "github");
   }
+  if (todoLeft(s) > 0) return g(`${todoLeft(s)} item${todoLeft(s) > 1 ? "s" : ""} still to do`, "Every item must be finished, handed to a teammate and checked, or put down before the " + (s.day >= 2 ? "Sprint" : "day") + " can end. More may still be arriving.", null, "github");
   return s.day >= 2 ? g("Finish the sprint", "Users see the result and you get your sprint review.", "end-sprint", "github")
     : g("End the day", "Tomorrow starts with another standup.", "end-day", "github");
 }
@@ -531,15 +537,16 @@ function pilePanel(s) {
   const f = new Set((s.x && s.x.features) || []), canDelegate = !s.x || f.has("delegate");
   const isCode = (c) => c.type === "fix" || c.type === "build";
   const team = s.x && s.x.team;
-  const give = (c, d) => h("button", { class: "give", "data-guide": `give:${c.id}:${d}`, title: team[d].task ? `${who(d)} is busy right now` : `Give it to ${who(d)}` + needs(s, "delegate"),
-    disabled: !hasCard(s, "delegate") || !!team[d].task, onclick: () => cmd("delegate", { card_id: c.id, to: d }) }, avatar(d, "calm"), who(d));
+  const giveWhy = (c, d) => c.sender === d ? `${who(d)} wrote this request, so it can't go to them` : (c.failed_devs || []).includes(d) ? `${who(d)} already tried this item and it did not work out` : team[d].task ? `${who(d)} is busy right now` : "";
+  const give = (c, d) => h("button", { class: "give", "data-guide": `give:${c.id}:${d}`, title: giveWhy(c, d) || `Give it to ${who(d)}` + needs(s, "delegate"),
+    disabled: !hasCard(s, "delegate") || !!giveWhy(c, d), onclick: () => cmd("delegate", { card_id: c.id, to: d }) }, avatar(d, "calm"), who(d));
   // each card has ONE main action, an optional "give to" group and a quiet "later"
   const actions = (c) => {
     if (s.stage !== "BUILD" || c.state === "delegated") return null;
     if (c.review) return h("div", { class: "pactions" }, h("button", { class: "pmain primary", "data-guide": "review:" + c.id, title: "Check their work change by change", onclick: () => { run.reviewing = c.id; run.sig = null; render(); } }, "Check their work"));
     const help = c.type === "help_call";
-    const main = c.state === "open" ? h("button", { class: "pmain", title: "Put it back on the list for now", onclick: () => cmd("hold") }, "Put it down")
-      : help ? h("button", { class: "pmain", "data-guide": "coach:" + c.id, title: "Teach them how to solve it" + needs(s, "coach"), disabled: !hasCard(s, "coach"), onclick: () => cmd("coach", { card_id: c.id }) }, "Help them")
+    const main = c.state === "open" ? (help ? null : h("button", { class: "pmain", title: "Remove this item for good. It costs a lot", onclick: () => confirmPutDown(s) }, "Put it down"))
+      : help ? h("button", { class: "pmain", "data-guide": "coach:" + c.id, title: "Help them out", disabled: !!s.open_card, onclick: () => cmd("open_card", { card_id: c.id }) }, "Help them")
       : h("button", { class: "pmain", "data-guide": "work:" + c.id, title: (isCode(c) ? "Read the code and fix it yourself" : "Open it and reply") + needs(s, "work"), disabled: !!s.open_card || !hasCard(s, "work"), onclick: () => cmd("open_card", { card_id: c.id }) },
         c.state === "returned" ? "Check their work" : isCode(c) ? "Fix it myself" : "Open");
     const gives = canDelegate && c.state === "pile" && !help
@@ -547,7 +554,6 @@ function pilePanel(s) {
         : h("button", { class: "give", title: "Hand it to a developer. You check their work when it comes back." + needs(s, "delegate"), disabled: !hasCard(s, "delegate"), onclick: () => cmd("delegate", { card_id: c.id }) }, "Ask the team"))
       : null;
     return h("div", { class: "pactions" }, main, gives,
-      c.state === "open" ? null : h("button", { class: "quiet", title: "Move it down the list. It gets a little louder." + needs(s, "defer"), disabled: !hasCard(s, "defer"), onclick: () => cmd("defer", { card_id: c.id }) }, "Later"),
       s.x && s.x.retro_left > 0 && c.escalation > 0 ? h("button", { class: "quiet", title: "Retrospective: calm this card back down", onclick: () => cmd("retro", { card_id: c.id }) }, "Calm it down") : null);
   };
   const live = s.pile.filter((c) => c.state !== "done" && c.state !== "backlog");
@@ -562,6 +568,7 @@ function pilePanel(s) {
       c.outage ? h("span", { class: "chip danger" }, ic("alert"), " Outage! Users can't use the app") : null,
       c.urgent ? h("span", { class: "chip goal" }, ic("bolt"), " Urgent: bonus if done on time") : null,
       c.wave ? h("span", { class: "chip danger" }, ic("alert"), " Bug wave") : null,
+      c.harder ? h("span", { class: "chip danger" }, ic("alert"), " Hidden problem: harder work") : null,
       c.bounty ? h("span", { class: "chip good" }, "Bounty: extra points for a clean fix") : null,
       h("div", { class: "ptitle" }, ic(typeIcon(c.type)), h("b", {}, (c.spot ? "Spot check: " : "") + (c.title || typeLabel(c.type)))),
       h("div", { class: "pmeta", title: [c.payoff.points ? `Reward: +${c.payoff.points} points.` : "", c.penalty.cover ? `Ignore it and Suspicion goes up by ${c.penalty.cover}.` : ""].join(" ").trim() },
@@ -571,7 +578,7 @@ function pilePanel(s) {
       c.failed_by ? h("div", { class: "pstate back" }, `${who(c.failed_by)} couldn't finish this. It's back with you.`) : c.state === "delegated" ? h("div", { class: "pstate" }, `${who(c.assignee || "dev1")} is on it`) : c.state === "returned" ? h("div", { class: "pstate back" }, `Back from ${who(c.assignee || "dev1")}: check it`) : null,
       c.escalation ? h("div", { class: "tag louder" }, term("escalation", louder[c.escalation] || louder[2])) : null,
       s.x ? priceTag(s, c) : null,
-      actions(c))), s.x && s.x.feed && s.x.feed.left > 0 ? h("p", { class: "muted small" }, "More items are on their way...") : null);
+      actions(c))), s.x && s.x.feed && s.x.feed.left_today > 0 ? h("p", { class: "muted small" }, "More items are on their way...") : null);
 }
 
 // What a move costs right now, and which other requests would slip while you do it
@@ -596,7 +603,11 @@ function codeDesk(s) {
     const label = calmMode ? { accurate: "Say honestly where it stands", vague: "Stay vague", wrong: "Say what sounds good (not true)" }
       : { accurate: "Explain honestly", vague: "Keep it vague", wrong: "Make something up" };
     const sg = (n) => (n > 0 ? "+" : n < 0 ? "−" : "±") + Math.abs(n);
-    const eff = (c) => { const f = s.x.standup_outcomes && s.x.standup_outcomes[c]; return f ? `${sg(f.rating)} rating · ${sg(f.trust)} trust` + (f.hidden ? " · hidden problem" : "") : ""; };
+    const eff = (c) => { const f = s.x.standup_outcomes && s.x.standup_outcomes[c];
+      if (!f) return "";
+      const stars = String(+Math.abs(f.rating * 0.05).toFixed(2));
+      return [h("span", { class: "term-rating" }, `${f.rating > 0 ? "+" : f.rating < 0 ? "−" : "±"}${stars}★ rating`), " · ", h("span", { class: "term-trust" }, `${sg(f.trust)} trust`),
+        f.items ? [" · ", h("span", { class: "term-hidden" }, term("hidden", `+${f.items} hidden problem${f.items > 1 ? "s" : ""}`))] : null]; };
     const say = calmMode ? { accurate: eff("accurate"), vague: eff("vague"), wrong: eff("wrong") }
       : { accurate: pr && `${sus(pr.standup.accurate)} now. If that fix later turns out broken: ${sus(pr.contradiction_cover)}.`,
       vague: pr && `${sus(pr.standup.vague * pr.vague_multiplier)}. A small bluff.`, wrong: pr && `${sus(pr.standup.wrong)}. A big bluff.` };
@@ -605,7 +616,7 @@ function codeDesk(s) {
       h("p", {}, `"How did your last fix go?"`),
       calmMode ? h("p", { class: "muted small" }, `The Daily Scrum works only when what we say is true. Trust changes are for ${who(q.teammate)}. A hidden problem comes out at the Sprint Review.`) : null, timer,
       h("div", { class: "row", "data-guide": "standup" }, q.choices.map((c) => h("button", { class: pr ? "deal" : "", "data-answer": c, onclick: () => { replyInChat(c); cmd("reply_standup", { answer: c }); } }, label[c] || c, pr ? h("small", {}, say[c]) : null))),
-      q.choices.includes("accurate") || calmMode ? null : h("p", { class: "muted small" }, "Watch a video in ToobYou to unlock the honest answer."));
+      null);
   }
   if (s.stage === "REVIEW" && s.guide) return reviewStage(s);
   if (s.stage === "RETRO" && s.guide) return retroStage(s);
@@ -622,6 +633,7 @@ function codeDesk(s) {
         h("button", { class: "primary", "data-guide": "start-sprint", onclick: () => cmd("advance_stage", { to: "STANDUP" }) }, "Start the sprint"),
         null));
   }
+  if (!w && s.help) return helpCard(s);
   const rev = s.stage === "BUILD" && !w && run.reviewing && s.pile.find((c) => c.id === run.reviewing && c.review);
   if (rev) return reviewDesk(s, rev);
   if (s.stage === "BUILD" && !w) {
@@ -632,10 +644,11 @@ function codeDesk(s) {
       s.open_card ? h("button", { class: "primary", "data-guide": "push", onclick: () => cmd("push") }, "Send reply") : null,
       short && !s.x.calm ? h("p", { class: "cost risk" }, `Sprint goal not met yet (${s.x.goal.shipped} of ${s.x.goal.target}). Finishing now means a strike.`) : null,
       s.x ? releaseEl(s) : null,
-      h("div", { class: "row" }, h("button", { "data-guide": next[2], onclick: () => endStage(s, next[0]), disabled: !!s.open_card || needsWork(s, next[0]), title: needsWork(s, next[0]) ? "Pick an item first: fix it yourself or give it to Ines or Tobi" : "" }, next[1])));
+      endNote(s, next[0]), h("div", { class: "row" }, h("button", { "data-guide": next[2], onclick: () => endStage(s, next[0]), disabled: !!s.open_card || needsWork(s, next[0]), title: endWhy(s, next[0]) }, next[1])));
   }
   if (!w) return h("section", { class: "card" }, h("h2", {}, "Your desk"));
   const lastRun = run.runs;
+  const testWhy = (s2, w2) => (w2.kind === "fix" && w2.flag_ok !== true) ? "Click the faulty line first" : !w2.selected ? "Pick a replacement first" : (w2.last_run && w2.last_run.all_pass) ? "This fix already passed" : "";
   const perks = s.perks.includes("ai_assistant");
   const box = { tests: "The test passed", matches_doc: "It does what the description says", no_security: "It's safe: strangers can't misuse it" };
   return h("section", { class: "card", "aria-label": "Code desk" }, h("h2", {}, ic(w.kind === "fix" ? "bug" : "hammer"), " " + w.title),
@@ -645,17 +658,19 @@ function codeDesk(s) {
     h("pre", { class: "code", "data-guide": "code" }, w.lines.map((t, i) => h("div", { class: "line" + (w.flagged === i + 1 ? " flagged" : ""), role: w.kind === "fix" ? "button" : null, tabindex: w.kind === "fix" ? "0" : null,
       onclick: () => w.kind === "fix" && cmd("flag_line", { line_no: i + 1 }), onkeydown: (e) => { if (e.key === "Enter" && w.kind === "fix") cmd("flag_line", { line_no: i + 1 }); } }, h("span", { class: "n" }, i + 1), t))),
     h("h3", {}, w.kind === "fix" ? "Replace it with" : "Fill the gap with"),
-    h("div", { class: "opts", "data-guide": "patch" }, w.options.map((o) => h("button", { class: "opt" + (w.selected === o.id ? " sel" : "") + (w.assistant === o.id ? " hint" : ""), onclick: () => cmd("select_patch", { option_id: o.id }) }, o.text.trim()))),
+    w.intro ? h("p", { class: "muted" }, w.intro) : null,
+    w.kind === "fix" && w.flag_ok !== true ? h("p", { class: "muted small" }, "Click the faulty line first. The options unlock after that.") : null,
+    h("div", { class: "opts", "data-guide": "patch" }, w.options.map((o) => h("button", { class: "opt" + (w.selected === o.id ? " sel" : "") + (w.assistant === o.id ? " hint" : ""), disabled: w.kind === "fix" && w.flag_ok !== true, title: w.kind === "fix" && w.flag_ok !== true ? "Click the faulty line first" : "", onclick: () => cmd("select_patch", { option_id: o.id }) }, o.text.trim()))),
     w.assistant ? h("p", { class: "muted" }, "The AI Assistant suggests the highlighted option. It can be wrong.") : null,
-    h("div", { class: "row" }, h("button", { "data-guide": "test", title: "Run the description's examples on your fix" + needs(s, "test"), disabled: !hasCard(s, "test"), onclick: runScript }, ic("play"), " Test my fix" + (s.x ? ` (${s.x.move_costs.test} min)` : "")),
+    h("div", { class: "row" }, h("button", { "data-guide": "test", title: testWhy(s, w) || "Run the description's examples on your fix" + needs(s, "test"), disabled: !hasCard(s, "test") || !!testWhy(s, w), onclick: runScript }, ic("play"), " Test my fix" + (s.x && !s.x.calm ? ` (${s.x.move_costs.test} min)` : "")),
       perks ? h("button", { disabled: !hasCard(s, "assist"), title: needs(s, "assist"), onclick: () => cmd("use_assistant") }, "Ask the AI") : null),
     lastRun ? h("div", {}, lastRun.map((r) => h("div", { class: "run " + (r.pass ? "pass" : "fail") }, ic(r.pass ? "check" : "cross"), " ", r.text))) : null,
     w.scan ? h("div", { class: "run " + (w.scan === "hole" ? "fail" : "pass") }, ic(w.scan === "hole" ? "alert" : "search"), w.scan === "hole" ? " Security Scan: this fix leaves a security hole." : " Security Scan: no security problem found.") : null,
-    h("h3", {}, term("dod")),
-    h("div", { "data-guide": "dod" }, ["tests", "matches_doc", "no_security"].map((b) => h("label", { class: "check" }, h("input", { type: "checkbox", checked: w.dod[b], onchange: () => cmd("toggle_dod", { box: b }) }), h("span", {}, box[b])))),
-    s.x ? pushDeal(s, w) : null,
-    h("div", { class: "row" }, h("button", { class: "primary", "data-guide": "push", title: "Put your fix into the live app", onclick: () => cmd("push"),
-      disabled: !w.selected || (s.x && s.x.boss_live && s.x.boss === "friday_deploy" && !Object.values(w.dod).every(Boolean)) }, ic("rocket"), " ", term("ship")), h("button", { onclick: () => cmd("hold") }, "Put it down")));
+    w.challenge ? null : h("h3", {}, term("dod")),
+    w.challenge ? null : h("div", { "data-guide": "dod" }, ["tests", "matches_doc", "no_security"].map((b) => h("label", { class: "check" }, h("input", { type: "checkbox", checked: w.dod[b], onchange: () => cmd("toggle_dod", { box: b }) }), h("span", {}, box[b])))),
+    s.x && !w.challenge ? pushDeal(s, w) : null,
+    w.challenge ? null : h("div", { class: "row" }, h("button", { class: "primary", "data-guide": "push", title: "Put your fix into the live app", onclick: () => cmd("push"),
+      disabled: !w.selected || (s.x && s.x.boss_live && s.x.boss === "friday_deploy" && !Object.values(w.dod).every(Boolean)) }, ic("rocket"), " ", term("ship")), w.challenge ? null : h("button", { onclick: () => confirmPutDown(s) }, "Put it down")));
 }
 
 
@@ -663,7 +678,7 @@ function codeDesk(s) {
 const WHEN_LABEL = { planning: "Sprint Planning", daily_1: "Daily Scrum", daily_2: "Daily Scrum", review: "Sprint Review", retro: "Retrospective" };
 function backlogList(g) {
   return h("ol", { class: "backlog", "aria-label": "Product Backlog" }, g.backlog.map((b) => h("li", { class: b.in_sprint && g.committed ? "in" : "" },
-    h("span", { class: "btitle" }, b.title), b.in_sprint && g.committed ? h("span", { class: "chip good" }, ic("check"), " In this Sprint") : (g.committed ? h("span", { class: "chip faint" }, "Stays in the Product Backlog") : null))));
+    h("span", { class: "btitle" }, b.title), b.harder ? h("span", { class: "chip danger" }, ic("alert"), " Hidden problem") : b.in_sprint && g.committed ? h("span", { class: "chip good" }, ic("check"), " In this Sprint") : (g.committed ? h("span", { class: "chip faint" }, "Stays in the Product Backlog") : null))));
 }
 function planningStage(s) {
   const g = s.guide, last = s.sprint >= s.x.sprints_total;
@@ -718,7 +733,7 @@ function syncScene(s) {
   const card = h("div", { class: "scene-card", role: "dialog", "aria-modal": "true", "aria-labelledby": "scene-title" },
     h("div", { class: "scene-head" }, speakerAvatar(p.speaker),
       h("div", {}, h("small", { class: "newidea" }, `${WHEN_LABEL[p.when] || p.when} · scene ${p.step} of ${p.of}`), h("h2", { id: "scene-title" }, p.concept))),
-    prem, h("p", { class: "scene-text" }, p.scene),
+    prem, h("p", { class: "scene-text" }, p.scene), p.list ? h("ol", { class: "scene-list" }, p.list.map((x) => h("li", {}, x))) : null,
     h("h3", { class: "scene-q" }, p.question),
     h("div", { class: "scene-choices" }, p.choices.map(choice)),
     last ? h("div", { class: "scene-fb " + (last.ok ? "ok" : "no"), role: "status" }, h("b", {}, last.ok ? (p.kind === "pick" ? "Decision made. " : "Right. ") : "Not quite. "), last.feedback) : null,
@@ -735,9 +750,34 @@ function syncScene(s) {
 
 
 // ---- Ending a day or a sprint (learning mode): day 1 needs some work first; finishing a sprint asks you to look at what is done
-const needsWork = (s, to) => !!(s.guide && to === "STANDUP" && !s.guide.worked);
+const todoLeft = (s) => (s.x && s.x.todo && s.x.todo.blocking) || 0;
+const needsWork = (s, to) => !!(s.guide && to === "STANDUP" && !s.guide.worked) || todoLeft(s) > 0;
+const endWhy = (s, to) => todoLeft(s) > 0 ? `${todoLeft(s)} item${todoLeft(s) > 1 ? "s" : ""} still to do. Finish or put down every item first.`
+  : needsWork(s, to) ? "Pick an item first: fix it yourself or give it to Ines or Tobi" : "";
+const endNote = (s, to) => todoLeft(s) > 0 ? h("p", { class: "cost risk endnote" }, endWhy(s, to)) : null;
 const confirmLayer = h("div", { id: "confirm", hidden: true });
 document.body.append(confirmLayer);
+function helpCard(s) {
+  const hp = s.help;
+  return h("section", { class: "card helpcard", "aria-label": "Help request" }, h("h2", {}, avatar(hp.dev, "calm"), " " + hp.title),
+    h("p", { class: "helpq" }, `${who(hp.dev)}: "${hp.prompt}"`),
+    h("p", { class: "muted small" }, "Pick the answer you would really give. Each one changes how much they trust their own work."),
+    h("div", { class: "opts helpopts" }, hp.answers.map((a) => h("button", { class: "opt", "data-answer": a.id, onclick: () => cmd("help_answer", { answer_id: a.id }) }, a.text))));
+}
+
+function confirmPutDown(s) {
+  const P = s.x.penalties.put_down;
+  const close = () => { confirmLayer.hidden = true; confirmLayer.replaceChildren(); run.modal = null; };
+  run.modal = "confirm";
+  confirmLayer.replaceChildren(h("div", { class: "scene-card", role: "dialog", "aria-modal": "true", "aria-labelledby": "confirm-title" },
+    h("h2", { id: "confirm-title" }, "Put this item down?"),
+    h("p", {}, "The item is removed and counts as finished, but it costs the whole team:"),
+    h("ul", { class: "penlist" }, h("li", {}, `Grade −${P.grade}`), h("li", {}, `Trust −${P.trust} for Ines and Tobi`), h("li", {}, `App rating −${P.rating} stars (never below ${P.rating_floor})`)),
+    h("div", { class: "row" }, h("button", { class: "primary", onclick: () => { close(); cmd("hold"); } }, "Yes, put it down"), h("button", { onclick: () => { close(); run.sig = null; render(); } }, "Keep working on it"))));
+  confirmLayer.hidden = false;
+  confirmLayer.querySelector("button.primary").focus();
+}
+
 function endStage(s, to) {
   if (!(s.guide && to === "REVIEW")) return cmd("advance_stage", { to });
   const items = s.pile.filter((c) => c.ticket && c.state !== "backlog");
@@ -769,55 +809,65 @@ function successBars(s) {
 }
 
 // ---- The tutorial: a practice Sprint that runs BEFORE the real Sprint 1 (so no Scrum scene can interrupt it).
-// Every step: Herb talks (short bubbles, the last one ends with "Got it"), then you do the real action on the one highlighted
-// control. Everything else is dimmed and cannot be clicked. A step with no action is just Herb talking. Tab switches go
-// action first (you click the highlighted tab), explanation second. Dots show progress inside the current section only.
+// Every step: a guide talks (short bubbles; the dots show which bubble you are on, the last one ends with "Got it"), then you do
+// the real action on the one highlighted control. Everything else is dimmed and cannot be clicked. A step with no action is just
+// talking. Tab switches go action first (you click the highlighted tab), explanation second. "Back" replays earlier dialogue
+// read-only: it never undoes anything in the game. Bubbles are a string (Herb) or { who: "po", text } (Marlo and friends);
+// {rating} {trust} {hidden} are the three terms the tester wanted readable.
 const tinfo = (s) => (s.work && s.work.tutorial) || {};
 const lineSel = (n) => `pre.code .line:nth-child(${n})`;
 const wrongOpt = (s) => !!(s.work && s.work.selected && tinfo(s).answer_option && s.work.selected !== tinfo(s).answer_option);
 const answerOptSel = (s) => { const i = s.work ? s.work.options.findIndex((o) => o.id === tinfo(s).answer_option) : -1; return i >= 0 ? `.opts .opt:nth-child(${i + 1})` : ".opts .opt"; };
+const MARLO = (text) => ({ who: "po", text });
 const TUT = [
-  { id: "flow", sec: "map", at: () => ".rail", act: () => ".rail .rdot[aria-current=step]", click: true,
-    say: ["Hi, I'm Herb! Let's walk through your first Sprint together, nice and slow.",
+  { id: "flow", at: () => ".rail", act: () => ".rail .rdot[aria-current=step]", click: true,
+    say: ["Hi, I'm Herb! I'm a heron, and I'll be your guide. Let's walk through your first Sprint together, nice and slow.",
       "A Sprint is a short, fixed stretch of work, the heartbeat of Scrum. Here, one Sprint lasts just two days.",
       "Every Sprint has the same five moments, and this map shows where you are. Let's click the glowing one."],
     todo: () => "Click the glowing dot on the map." },
-  { id: "planning", sec: "plan", at: () => ".stagecard", act: () => "[data-guide=start-sprint]", spot: () => "[data-guide=start-sprint]", done: (s) => s.stage !== "PLANNING",
-    say: ["This is Sprint Planning. It's where the team decides why this Sprint matters, what to work on, and how to start.",
-      "Marlo is the Product Owner, so she lined up the list. The Sprint Goal is the one thing we're all aiming for.",
+  { id: "planning", at: () => ".stagecard", act: () => "[data-guide=start-sprint]", spot: () => "[data-guide=start-sprint]", done: (s) => s.stage !== "PLANNING",
+    say: ["This is Sprint Planning. It's where the team decides why this Sprint matters, what to work on, and how to get started.",
+      MARLO("Team! Quick sync! I've groomed the backlog and aligned it to our checkout KPIs. We need to move the needle, like, yesterday!"),
+      "That's Marlo, our Product Owner. She's always in a hurry, but she owns the order of the list. The Sprint Goal is the one thing we're all aiming for.",
       "Everything looks good to me. Let's begin the Sprint with the green button."],
     todo: () => "Press “Begin the Sprint: Daily Scrum”." },
-  { id: "slackGo", sec: "daily", at: () => "[data-guide='tab:slack']", act: () => "[data-guide='tab:slack']", click: true,
+  { id: "slackGo", at: () => "[data-guide='tab:slack']", act: () => "[data-guide='tab:slack']", click: true,
     say: ["Next comes the Daily Scrum, and that happens in Slackish, your team chat. Click the Slackish tab and let's go there."],
     todo: () => "Click the Slackish tab." },
-  { id: "slackSee", sec: "daily", at: () => "section[aria-label='Team chat']", act: null,
+  { id: "slackSee", at: () => "section[aria-label='Team chat']", act: null,
     say: ["Here we are! This is where you chat with Marlo, Ines and Tobi.",
       "Everyone sees the same messages, so nothing is hidden. Scrum calls that transparency, and it keeps a team honest.",
+      "They'll answer what you do, too. The more they trust you, the friendlier they sound.",
       "Now let's hold the Daily Scrum."] },
-  { id: "daily", sec: "daily", at: (s) => s.standup ? "[data-guide=standup]" : "[data-guide=start-build]", act: (s) => s.standup ? "[data-answer=accurate]" : "[data-guide=start-build]",
+  { id: "daily", at: (s) => s.standup ? "[data-guide=standup]" : "[data-guide=start-build]", act: (s) => s.standup ? "[data-answer=accurate]" : "[data-guide=start-build]",
     spot: (s) => s.standup ? "[data-answer=accurate]" : "[data-guide=start-build]", done: (s) => s.stage === "BUILD",
-    say: (s) => ["This is the Daily Scrum, a quick check, fifteen minutes at most, on how we're doing toward the Sprint Goal.",
-      `${s.standup ? who(s.standup.teammate) : "Your teammate"} is asking how your last fix went. Look at what each answer does: a change to your rating, a change to their trust, and sometimes a hidden problem for later.`,
-      "A lie looks great today, but it costs you trust and bites back at the Review. Let's be honest, then start the work day."],
+    say: (s) => ["This is the Daily Scrum: a quick check, fifteen minutes at most, on how we're doing toward the Sprint Goal.",
+      `${s.standup ? who(s.standup.teammate) : "Your teammate"} is asking how your last fix went. Look at what each answer does.`,
+      "Each one changes your {rating}, moves your teammate's {trust}, and sometimes leaves a {hidden} for later.",
+      "A lie looks great today, but it costs you trust and comes back as harder work. Let's be honest, then start the work day."],
     todo: (s) => s.standup ? "Pick “Say honestly where it stands”." : "Now press “Start the work day”." },
-  { id: "githabGo", sec: "tabs", at: () => "[data-guide='tab:github']", act: () => "[data-guide='tab:github']", click: true,
+  { id: "githabGo", at: () => "[data-guide='tab:github']", act: () => "[data-guide='tab:github']", click: true,
     say: ["Time to work! That happens in GitHab. Click the GitHab tab."], todo: () => "Click the GitHab tab." },
-  { id: "githabSee", sec: "tabs", at: () => "#pile", act: null,
-    say: ["This is GitHab, where your team's tasks and the code live. You'll spend most of your time right here."] },
-  { id: "playGo", sec: "tabs", at: () => "[data-guide='tab:play']", act: () => "[data-guide='tab:play']", click: true,
+  { id: "githabSee", at: () => "#pile", act: null,
+    say: ["This is GitHab, where your team's tasks and the code live. You'll spend most of your time right here.",
+      MARLO("Those are our deliverables, people! Ship them and we hit our targets!")] },
+  { id: "playGo", at: () => "[data-guide='tab:play']", act: () => "[data-guide='tab:play']", click: true,
     say: ["Quick detour. Play Storey is where real users review your app. Click its tab."], todo: () => "Click the Play Storey tab." },
-  { id: "playSee", sec: "tabs", at: () => ".play .store-head", act: null,
-    say: ["This is what users think of your app. The rating up here is the average of these reviews.",
+  { id: "playSee", at: () => ".play .store-head", act: null,
+    say: ["This is what users think of your app. The number up here is your {rating}: the app's star score, from 1 to 5.",
+      "Each teammate has {trust} too. It's how much you can rely on them, and it's also their success rate: the chance their work succeeds when you give it to them.",
+      "And watch out for a {hidden}. Give a vague or untrue answer at the Daily Scrum and a harder problem builds up. It shows up at the Sprint Review and lands in your next Sprint Backlog.",
       "Scrum teams look at what really happened, then adjust. That's called inspection and adaptation, and it's the heart of Scrum.",
       "No reviews of ours yet. We'll be back after some work."] },
-  { id: "backGo", sec: "tabs", at: () => "[data-guide='tab:github']", act: () => "[data-guide='tab:github']", click: true,
+  { id: "backGo", at: () => "[data-guide='tab:github']", act: () => "[data-guide='tab:github']", click: true,
     say: ["Let's head back to GitHab and start on some work. Click its tab."], todo: () => "Click the GitHab tab." },
-  { id: "backlog", sec: "work", at: () => "#pile", act: () => "#pile .pile-item [data-guide^='work:']", done: (s) => !!s.work,
+  { id: "backlog", at: () => "#pile", act: () => "#pile .pile-item [data-guide^='work:']", done: (s) => !!s.work,
     say: ["This is your Sprint Backlog. In Scrum, it's the work the team picked for the Sprint, together with a plan for getting it done.",
+      MARLO("Those are our commitments, folks! Let's operationalize them, stat!"),
       "Here, you manage the tasks the team committed to. You can fix one yourself or give it to Ines or Tobi, and we'll try both.",
       "Let's fix the first one ourselves. Press “Fix it myself”."],
     todo: () => "Press “Fix it myself” on the first item." },
-  { id: "findbug", sec: "work", at: () => "pre.code", act: () => "pre.code .line", spot: (s) => (tinfo(s).buggy_line ? lineSel(tinfo(s).buggy_line) : "pre.code"),
+  { id: "findbug", at: () => "pre.code", act: () => "pre.code .line", spot: (s) => (tinfo(s).buggy_line ? lineSel(tinfo(s).buggy_line) : "pre.code"),
     done: (s) => !!(s.work && s.work.flag_ok === true),
     say: ["This is the code desk. The box at the top says what the code should do, and exactly one line doesn't match it.",
       "Checking work carefully is how a team keeps its quality up.",
@@ -830,40 +880,53 @@ const TUT = [
       if (w.flag_misses === 2) return `${note} ${ti.hints[0] || ""}`.trim();
       return `${note} Try another line.`;
     } },
-  { id: "fixPick", sec: "work", at: () => ".opts", act: (s) => wrongOpt(s) ? answerOptSel(s) : ".opts .opt", spot: (s) => wrongOpt(s) ? answerOptSel(s) : ".opts",
+  { id: "fixPick", at: () => ".opts", act: (s) => wrongOpt(s) ? answerOptSel(s) : ".opts .opt", spot: (s) => wrongOpt(s) ? answerOptSel(s) : ".opts",
     done: (s) => !!(s.work && s.work.selected && s.work.selected === tinfo(s).answer_option),
     say: ["Nice spotting! Now pick the replacement that makes the code do what the description says."],
     todo: (s) => wrongOpt(s) ? `${(tinfo(s).option_notes || {})[s.work.selected] || "That one isn't it."} Let's pick the highlighted one instead.` : "Pick the fix you think is right." },
-  { id: "fixWhy", sec: "work", at: () => ".opts", act: null,
+  { id: "fixWhy", at: () => ".opts", act: null,
     say: (s) => [tinfo(s).right_why || "That one does exactly what the description says.", "A test will show us the truth before users ever see it."] },
-  { id: "fixTest", sec: "work", at: () => "[data-guide=test]", act: () => "[data-guide=test]", done: (s) => !!(s.work && s.work.last_run && s.work.last_run.all_pass),
+  { id: "fixTest", at: () => "[data-guide=test]", act: () => "[data-guide=test]", done: (s) => !!(s.work && s.work.last_run && s.work.last_run.all_pass),
     say: ["Let's test it. A test runs the examples from the description and checks the answers.", "Press “Test my fix”."],
     todo: () => "Press “Test my fix”." },
-  { id: "done", sec: "work", at: () => "[data-guide=dod]", act: () => "[data-guide=dod] label", spot: () => "[data-guide=dod]", done: (s) => !!(s.work && Object.values(s.work.dod).every(Boolean)),
+  { id: "done", at: () => "[data-guide=dod]", act: () => "[data-guide=dod] label", spot: () => "[data-guide=dod]", done: (s) => !!(s.work && Object.values(s.work.dod).every(Boolean)),
     say: ["Passing the test is great, but is it really finished? Scrum uses a Definition of Done for that: a shared checklist of what “finished” means.",
       "It keeps quality up and keeps us honest, so we only tick what's true.", "The test passed, so go ahead and tick all three boxes."],
     todo: () => "Tick all three boxes." },
-  { id: "send", sec: "work", at: () => "[data-guide=push]", act: () => "[data-guide=push]", done: (s) => !s.work && s.pile.some((c) => c.state === "done"),
+  { id: "send", at: () => "[data-guide=push]", act: () => "[data-guide=push]", done: (s) => !s.work && s.pile.some((c) => c.state === "done"),
     say: ["Only work that meets the Definition of Done counts as part of the Increment, the usable result of the Sprint.", "Yours does, so let's send it to users."],
     todo: () => "Press “Send to users”." },
-  { id: "delegate", sec: "team", at: () => "#pile", act: () => "[data-guide^='give:'][data-guide$=':dev1']", spot: () => "[data-guide^='give:'][data-guide$=':dev1']",
+  { id: "delegate", at: () => "#pile", act: () => "[data-guide^='give:'][data-guide$=':dev1']", spot: () => "[data-guide^='give:'][data-guide$=':dev1']",
     done: (s) => !!(s.x.team && s.x.team.dev1 && s.x.team.dev1.last),
     say: ["You're not on your own. Ines and Tobi are the Developers, and the Developers are the ones who decide how the work gets done.",
       "As Scrum Master you help them and clear their way. You can also hand them an item, and the result comes back right away. Let's give this one to Ines.",
       "Press “Ines” under “Give to”."],
     todo: () => "Press “Ines” under “Give to”." },
-  { id: "trust", sec: "team", at: () => "[data-trust=dev1]", act: () => "[data-trust]", click: true,
-    say: (s) => ["Look at the number on each teammate. That's their success rate: the chance their work succeeds when you give it to them. It starts at 80% and moves with what you do.",
+  { id: "trust", at: () => "[data-trust=dev1]", act: () => "[data-trust]", click: true,
+    say: (s) => ["Look at the number on each teammate. That's their {trust}, and it's their success rate too: the chance their work succeeds when you give it to them. It starts at 80% and moves with what you do.",
       `Giving Ines that item just lowered hers by 2, to ${s.x.team.dev1.trust}%. Every offload does that, so you can't lean on the team for everything.`,
-      "Trust and success rate are one thing. Honest answers, coaching and honest checks raise it. In this practice Sprint it always works, so your result stays. Click her success rate to see."],
+      "Honest answers, coaching and honest checks raise it. In this practice Sprint it always works, so your result stays. Click her success rate to see."],
     todo: () => "Click Ines's success rate." },
-  { id: "endday", sec: "wrap", at: () => "[data-guide=end-day]", act: () => "[data-guide=end-day]", done: (s) => s.stage !== "BUILD" || s.day >= 2,
+  { id: "endday", at: () => "[data-guide=end-day]", act: () => "[data-guide=end-day]", done: (s) => s.stage !== "BUILD" || s.day >= 2,
     say: ["Nice work today! A Sprint is timeboxed, which means it has a fixed length, so we wrap up the day and move on.",
+      MARLO("Great hustle, team! Let's circle back tomorrow and keep the momentum!"),
       "Tomorrow starts with another Daily Scrum. After day two come the Sprint Review and the Retrospective, and you'll meet those for real in a moment.",
       "Press “End the day”."],
     todo: () => "Press “End the day”." },
 ];
+const TERM_WORDS = { rating: "Rating", trust: "Trust", hidden: "Hidden Problem" };
+const richText = (text) => String(text).split(/(\{rating\}|\{trust\}|\{hidden\})/).filter(Boolean).map((part) => {
+  const m = part.match(/^\{(rating|trust|hidden)\}$/);
+  return m ? h("span", { class: "term-" + m[1] }, TERM_WORDS[m[1]]) : part;
+});
 const sayOf = (step, s) => (typeof step.say === "function" ? step.say(s) : step.say);
+const bub = (b) => (typeof b === "string" ? { who: "herb", text: b } : b);
+// the dialogue of a step as first shown (some steps use the game state, which is gone once you move on)
+function sayList(i, s) {
+  const t = run.tut, id = TUT[i].id;
+  if (!t.cache[id]) { try { t.cache[id] = sayOf(TUT[i], s).map(bub); } catch (_) { t.cache[id] = [bub("Let's keep going.")]; } }
+  return t.cache[id];
+}
 
 const tourLayer = h("div", { id: "tour", hidden: true });
 const tdim = ["main", "hole"].map((k) => h("div", { class: "tdim " + k }));   // one dimmer with a cut-out (no seams), plus a blocker over the cut-out
@@ -874,17 +937,17 @@ document.body.append(tourLayer);
 
 const tutorialDone = () => { try { return localStorage.getItem("tutorialDone:" + me.id) === "1"; } catch (_) { return false; } };
 const markTutorialDone = () => { try { localStorage.setItem("tutorialDone:" + me.id, "1"); } catch (_) { /* storage can be blocked */ } };
-const tutStep = () => (run && run.tut ? TUT[run.tut.step] : null);
+const tutStep = () => (run && run.tut ? TUT[run.tut.view ? run.tut.view.step : run.tut.step] : null);
 const firstVisible = (sel) => (sel ? [...document.querySelectorAll(sel)].find((e) => e.offsetParent !== null) : null);
 
-// Only the one required control works, and only once Herb has finished talking. The dimmed area blocks the rest.
+// Only the one required control works, and only once the guide has finished talking. The dimmed area blocks the rest.
 function lockGuard(e) {
   if (!run || !run.tut || run.tut.finished) return;
   if (e.type === "wheel" || e.type === "touchmove") { if (!(e.target instanceof Element && e.target.closest(".tbox"))) e.preventDefault(); return; }
   if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
   const t = e.target, step = tutStep();
   if (t instanceof Element && t.closest(".tbox")) return;
-  const sel = run.tut.phase === "do" && step && step.act ? step.act(run.state) : null;
+  const sel = run.tut.phase === "do" && !run.tut.view && step && step.act ? step.act(run.state) : null;
   if (sel && t instanceof Element && t.closest(sel)) {
     if (step.click && e.type === "click") { run.tut.clicks++; setTimeout(() => { if (run && run.state) syncTour(run.state); }, 0); }
     return;
@@ -895,7 +958,7 @@ function lockGuard(e) {
 ["wheel", "touchmove"].forEach((t) => document.addEventListener(t, lockGuard, { capture: true, passive: false }));
 
 function tutGo(i) {
-  run.tut.step = i; run.tut.bubble = 0; run.tut.phase = "talk"; run.tut.clicks = 0; run.tut.key = null;
+  run.tut.step = i; run.tut.bubble = 0; run.tut.phase = "talk"; run.tut.clicks = 0; run.tut.key = null; run.tut.view = null;
   if (i >= TUT.length) finishTutorial();
 }
 
@@ -904,30 +967,58 @@ function finishTutorial() {
   run.tut.finished = true;
   timers.forEach(clearInterval);
   if (!run.tut.replay) markTutorialDone();
-  const after = run.tut.after, replay = run.tut.replay;
+  const after = run.tut.after;
   tourLayer.hidden = true;
   document.documentElement.classList.remove("tour-lock");
   document.body.classList.remove("tutorial-on");
   run = null;
   mount(h("section", { class: "card narrow herbsays" }, h("div", { class: "hero", "aria-hidden": "true" }, ic("c-heron-cheer")),
-    h("div", { class: "w-bubble" }, replay ? "That's the tutorial again. Nice!" : "You did it! That was a practice Sprint. Now for the real one: Sprint 1 starts with Marlo's list."),
+    h("div", { class: "w-bubble w-below" }, "Well done finishing the tutorial! I'll be leaving you to practice your first ever Sprint!"),
     h("div", { class: "row" }, h("button", { class: "primary", onclick: () => newRun(after).catch((e) => { toast("bad", e.message); }) }, "Start Sprint 1"))));
 }
 
-function tutBox(step, s) {
-  const t = run.tut, say = sayOf(step, s);
-  const talking = t.phase === "talk", last = t.bubble >= say.length - 1;
-  const text = talking ? say[Math.min(t.bubble, say.length - 1)] : (step.todo(s) || "");
-  const sec = TUT.filter((x) => x.sec === step.sec), at = sec.indexOf(step);   // dots count only this section
-  const dots = h("div", { class: "tdots", role: "img", "aria-label": `Step ${at + 1} of ${sec.length} in this part` }, sec.map((_, i) => h("i", { class: i < at ? "done" : i === at ? "now" : "" })));
+// Where the player is looking: the live step, or an earlier one they went Back to.
+function tutPos() {
+  const t = run.tut;
+  if (t.view) return { step: t.view.step, bubble: t.view.bubble, talk: true, review: true };
+  return { step: t.step, bubble: t.bubble, talk: t.phase === "talk", review: false };
+}
+function tutBack() {
+  const t = run.tut, say = (i) => sayList(i, run.state);
+  let p = t.view ? { step: t.view.step, bubble: t.view.bubble } : { step: t.step, bubble: t.phase === "do" ? say(t.step).length : t.bubble };
+  if (p.bubble > 0) p = { step: p.step, bubble: p.bubble - 1 };
+  else if (p.step > 0) p = { step: p.step - 1, bubble: say(p.step - 1).length - 1 };
+  else return;
+  t.view = p; t.key = null; syncTour(run.state);
+}
+function tutNext() {   // forward through earlier dialogue until you are back where you were
+  const t = run.tut, v = t.view, len = sayList(v.step, run.state).length;
+  const liveEnd = v.step === t.step ? (t.phase === "do" ? len - 1 : t.bubble) : -1;
+  if (v.step === t.step && v.bubble >= liveEnd) t.view = null;
+  else if (v.bubble < len - 1) v.bubble++;
+  else { v.step++; v.bubble = 0; }
+  t.key = null; syncTour(run.state);
+}
+
+function tutBox(s) {
+  const t = run.tut, pos = tutPos(), step = TUT[pos.step], say = sayList(pos.step, s);
+  const talking = pos.talk, last = pos.bubble >= say.length - 1;
+  const cur = talking ? say[Math.min(pos.bubble, say.length - 1)] : { who: "herb", text: step.todo(s) || "" };
+  // the dots count the bubbles of THIS step only: they fill as you move through it and reset at the next step
+  const dots = h("div", { class: "tdots", role: "img", "aria-label": `Bubble ${Math.min(pos.bubble, say.length - 1) + 1} of ${say.length} in this step` },
+    say.map((_, i) => h("i", { class: !talking || i < pos.bubble ? "done" : i === pos.bubble ? "now" : "" })));
+  const canBack = t.view ? (t.view.step > 0 || t.view.bubble > 0) : (t.step > 0 || t.bubble > 0 || t.phase === "do");
   const buttons = [];
-  if (talking) buttons.push(h("button", { class: "primary", onclick: () => {
+  if (canBack) buttons.push(h("button", { class: "back", onclick: tutBack }, "Back"));
+  if (pos.review) buttons.push(h("button", { class: "primary", onclick: tutNext }, "Next"));
+  else if (talking) buttons.push(h("button", { class: "primary", onclick: () => {
     if (!last) { t.bubble++; t.key = null; syncTour(run.state); }
     else if (!step.act) { tutGo(t.step + 1); if (run && run.tut && !run.tut.finished) syncTour(run.state); }
     else { t.phase = "do"; t.key = null; run.sig = null; render(); }
   } }, last ? "Got it" : "Next"));
   if (t.replay) buttons.push(h("button", { class: "quiet", onclick: finishTutorial }, "Skip tutorial"));   // returning players only: the first run cannot be skipped
-  return [dots, h("div", { class: "tspeak" }, h("span", { class: "heron", "aria-hidden": "true" }, ic("c-heron")), h("p", { class: "tsay" }, text)), buttons.length ? h("div", { class: "row" }, buttons) : null];
+  const who_ = cur.who === "herb" ? h("span", { class: "heron", "aria-hidden": "true" }, ic("c-heron")) : h("span", { class: "heron", "aria-hidden": "true" }, avatar(cur.who, "calm"));
+  return [dots, h("div", { class: "tspeak" }, who_, h("p", { class: "tsay" }, richText(cur.text))), buttons.length ? h("div", { class: "row" }, buttons) : null];
 }
 
 function syncTour(s) {
@@ -936,15 +1027,17 @@ function syncTour(s) {
   document.body.classList.toggle("tutorial-on", on);
   if (!on) { tourLayer.hidden = true; return; }
   const t = run.tut;
+  t.cache = t.cache || {};
   let step = TUT[t.step];
-  if (step && t.phase === "do") {
+  if (step && t.phase === "do" && !t.view) {
     const complete = step.click ? t.clicks >= 1 : step.done(s);
     if (complete) { tutGo(t.step + 1); if (!run || !run.tut || run.tut.finished) return; step = TUT[run.tut.step]; }
   }
   if (!step) return;
-  const key = `${t.step}|${t.phase}|${t.bubble}|${t.phase === "do" ? step.todo(s) : ""}`;
+  const v = t.view;
+  const key = `${t.step}|${t.phase}|${t.bubble}|${v ? v.step + ":" + v.bubble : ""}|${t.phase === "do" && !v ? step.todo(s) : ""}`;
   tourLayer.hidden = false;
-  if (t.key !== key) { t.key = key; tbox.replaceChildren(...tutBox(step, s).filter(Boolean)); }
+  if (t.key !== key) { t.key = key; tbox.replaceChildren(...tutBox(s).filter(Boolean)); }
   t.needScroll = true;
   tourGeometry();
 }
@@ -952,10 +1045,11 @@ function syncTour(s) {
 // Spotlight, dimming and box placement. Runs on every state change, resize and a short timer (layouts move).
 function tourGeometry() {
   if (!run || !run.tut || run.tut.finished || tourLayer.hidden) return;
-  const s = run.state, step = TUT[run.tut.step];
+  const s = run.state, pos = tutPos(), step = TUT[pos.step];
   if (!step || !s) return;
-  const talking = run.tut.phase === "talk";
-  const sel = talking ? step.at(s) : ((step.spot ? step.spot(s) : null) || (step.act ? step.act(s) : null) || step.at(s));
+  const talking = pos.talk;
+  let sel = null;
+  try { sel = talking ? step.at(s) : ((step.spot ? step.spot(s) : null) || (step.act ? step.act(s) : null) || step.at(s)); } catch (_) { sel = null; }
   const el = firstVisible(sel);
   const vw = innerWidth, vh = innerHeight, pad = 6;
   const cls = (e, x, y, w, h_) => { e.style.left = x + "px"; e.style.top = y + "px"; e.style.width = Math.max(0, w) + "px"; e.style.height = Math.max(0, h_) + "px"; };
@@ -966,7 +1060,7 @@ function tourGeometry() {
   const x1 = Math.max(0, Math.floor(b.left - pad)), y1 = Math.max(0, Math.floor(b.top - pad)), x2 = Math.min(vw, Math.ceil(b.right + pad)), y2 = Math.min(vh, Math.ceil(b.bottom + pad));
   dim.style.clipPath = `polygon(evenodd, 0 0, ${vw}px 0, ${vw}px ${vh}px, 0 ${vh}px, 0 0, ${x1}px ${y1}px, ${x2}px ${y1}px, ${x2}px ${y2}px, ${x1}px ${y2}px, ${x1}px ${y1}px)`;
   cls(hole, x1, y1, x2 - x1, y2 - y1);
-  hole.style.pointerEvents = talking ? "auto" : "none";     // while Herb talks the spotlight is for looking only
+  hole.style.pointerEvents = talking ? "auto" : "none";     // while the guide talks the spotlight is for looking only
   cls(tring, x1, y1, x2 - x1, y2 - y1); tring.style.display = "block";
   placeBox({ x1, y1, x2, y2 });
 }
@@ -1090,7 +1184,7 @@ function teamBoard(s) {
     x.calm ? (s.guide && !s.guide.worked && s.day < 2 ? h("p", { class: "muted small" }, "Start on an item first: fix it yourself, or give it to Ines or Tobi.") : null)
       : short ? h("p", { class: "cost risk" }, `Sprint goal not met yet (${x.goal.shipped} of ${x.goal.target}). Finishing now means a strike.`) : null,
     releaseEl(s),
-    h("div", { class: "row" }, h("button", { "data-guide": next[2], onclick: () => endStage(s, next[0]), disabled: !!s.open_card || needsWork(s, next[0]), title: needsWork(s, next[0]) ? "Pick an item first: fix it yourself or give it to Ines or Tobi" : "" }, next[1]))),
+    endNote(s, next[0]), h("div", { class: "row" }, h("button", { "data-guide": next[2], onclick: () => endStage(s, next[0]), disabled: !!s.open_card || needsWork(s, next[0]), title: endWhy(s, next[0]) }, next[1]))),
     (id) => cmd("open_card", { card_id: id }));
   const mates = ["dev1", "dev2"].map((d) => {
     const m = x.team[d], [nm, trait] = TEAM_INFO[d];
@@ -1139,7 +1233,7 @@ function syncTeam(s) {
 }
 
 function githubApp(s) {
-  const board = s.x && s.x.team && s.stage === "BUILD" && !s.work && !(run.reviewing && s.pile.some((c) => c.id === run.reviewing && c.review));
+  const board = s.x && s.x.team && s.stage === "BUILD" && !s.work && !s.help && !(run.reviewing && s.pile.some((c) => c.id === run.reviewing && c.review));
   if (board) return h("div", { class: "gh board-mode" }, h("aside", {}, pilePanel(s), intentsEl(s)), h("div", { class: "main" }, teamBoard(s)));
   const holdBacklog = s.x && s.x.calm && (s.stage === "PLANNING" || s.stage === "RETRO");
   const holdText = s.stage === "RETRO" ? "The Sprint is over. Unfinished items went back to the Product Backlog." : "Empty for now. The team fills it in Sprint Planning, and it shows up here when the Sprint begins.";
@@ -1215,26 +1309,6 @@ function playApp(s) {
         return h("div", { class: "review" + (it.e && it.idx >= run.wallFresh ? " new" : "") }, h("span", { class: "rv rv" + (it.idx % 5), "aria-hidden": "true" }, who[0]),
           h("div", {}, h("b", {}, who), h("div", { class: "stars sm", "aria-label": k + " stars" }, stars(k), " ", h("span", { class: "muted" }, QUIP[k])), h("div", {}, reviewBody(it))));
       })));
-}
-
-function youtubeApp(s) {
-  const card = ([icon, title, text, chip]) => h("div", { class: "w-card" }, h("span", { class: "w-icon" }, ic(icon, "w-cardic")),
-    h("div", { class: "w-ctext" }, h("div", { class: "w-head" }, h("b", {}, title), chip ? h("span", { class: "w-chip info" }, chip) : null), h("span", {}, text)));
-  return h("div", {},
-    h("section", { class: "card", "aria-label": "Videos" }, h("h2", {}, "Learn something new"),
-      h("p", { class: "sub" }, "Each short video teaches one topic (30 game minutes). Afterwards you can explain that kind of code honestly at standups."),
-      h("div", { class: "videos" }, TUTORIALS.map((t, i) => {
-        const got = s.unlocked.includes(t.id);
-        return h("div", { class: "video" }, h("div", { class: "thumb th" + i, "aria-hidden": "true" }, ic(got ? "check" : "play")), h("b", {}, t.title),
-          h("button", { onclick: () => cmd("watch_tutorial", { tutorial_id: t.id }), disabled: got || !hasCard(s, "learn"), title: needs(s, "learn") }, got ? "Watched" : hasCard(s, "learn") ? "Watch (30 min)" : "Needs a Learn card"));
-      }))),
-    h("details", { class: "card fold wordbook" }, h("summary", {}, ic("clipboard"), " Key words ", h("small", {}, `${CORE_TERMS.length} words`)),
-      h("p", { class: "sub" }, "The words you need most. Tap any underlined word in the game for the others."),
-      h("dl", {}, CORE_TERMS.map((k) => TERMS[k]).flatMap(([w, d]) => [h("dt", {}, w), h("dd", {}, d)]))),
-    h("details", { class: "card fold welcome-like" }, h("summary", {}, ic("coin"), " How scoring works"),
-      h("h3", {}, "What earns you points"), h("div", { class: "w-cards n4" }, SCORING.earn.map(card)),
-      h("h3", {}, "What costs you"), h("div", { class: "w-cards n4" }, SCORING.lose.map(card)),
-      h("p", { class: "w-note" }, ic("flag"), " " + SCORING.lose_when)));
 }
 
 // Skills you can buy any time with Points. Prices come from the server; wording stays free of numbers.
@@ -1471,22 +1545,23 @@ function roadmap(s) {
   return nav;
 }
 
-const PAGES = { slack: slackApp, github: githubApp, play: playApp, youtube: youtubeApp, shop: shopApp };
+const PAGES = { slack: slackApp, github: githubApp, play: playApp, shop: shopApp };
 
 // ---- tabs and sticky notes: pull a tab down out of the browser and it becomes a floating note
-const laterApp = (id) => !!(run && run.state && run.state.x && run.state.x.calm && (id === "shop" || (run.state.sprint === 1 && id === "youtube")));   // nothing is for sale: Points became the Grade
+const laterApp = (id) => !!(run && run.state && run.state.x && run.state.x.calm && (id === "shop"));   // nothing is for sale: Points became the Grade
 const attached = () => APPS.filter((a) => !run.notes.some((n) => n.id === a.id) && !laterApp(a.id));   // apps still in the browser
 const isNote = (id) => run.notes.some((n) => n.id === id);
 const visible = (id) => run.app === id || isNote(id);                               // on screen, so not "unread"
 let noteZ = 0, swallow = false;
 
+// Badges are unread counters, like a real notification: they count what is new since you last looked, and clear when you open the tab.
 function badgeFor(id, s) {
-  if (id === "github") return s.pile.filter((c) => c.state !== "done").length;
-  if (id === "slack") return visible("slack") ? 0 : run.lines.filter((l) => l.id > (run.slackSeen ?? 0)).length;
-  if (id === "play") return visible("play") ? 0 : run.wall.slice(run.playSeen ?? 0).filter((e) => REVIEWABLE.has(e.type)).length;
-  return 0;
+  if (visible(id)) return 0;
+  if (id === "slack") return run.lines.filter((l) => l.id > (run.slackSeen ?? 0) && l.speaker !== "you").length;
+  return (run.unread && run.unread[id]) || 0;
 }
-const badgeLabel = (id, n) => n + (id === "github" ? " open issues" : " new");
+function bump(app) { if (run && !visible(app)) { run.unread = run.unread || {}; run.unread[app] = (run.unread[app] || 0) + 1; } }
+const badgeLabel = (id, n) => n + " new";
 
 function openApp(id) { if (!run || isNote(id)) return; run.app = id; run.sig = null; render(); applyGuide(run.state); }
 const clampPos = (n) => { n.x = Math.max(-n.w + 90, Math.min(innerWidth - 90, n.x)); n.y = Math.max(0, Math.min(innerHeight - 44, n.y)); };
@@ -1584,6 +1659,7 @@ function tabsEl(s) {
 }
 // unread counts change often: update them in place instead of rebuilding the tabs
 function syncBadges(s) {
+  for (const a of APPS) if (visible(a.id) && run.unread) run.unread[a.id] = 0;   // looking at it clears it
   document.querySelectorAll("#browser .btab").forEach((b) => {
     const id = b.dataset.app, n = badgeFor(id, s);
     b.classList.toggle("active", id === run.app); b.setAttribute("aria-selected", String(id === run.app));
@@ -1717,7 +1793,6 @@ const PAGE_DEPS = {
       s.x.hand, s.x.release, s.x.mult, s.x.review, run.reviewing,
       s.x.team && Object.values(s.x.team).map((m) => [m.task, m.stuck]), s.x.combo] : null],
   play: (s) => [Number(s.meters.rating), reviewList().length],
-  youtube: (s) => [s.unlocked],
   shop: (s) => [s.perks, s.x ? [s.x.shop, s.meters.points, s.x.heat, s.x.hand] : null],
 };
 const REGIONS = {
@@ -1759,6 +1834,10 @@ function updateScreen(s) {
 function render() {
   if (!run || !run.state || run.dragging) return;   // never rebuild the screen under a drag
   const s = run.state;
+  if (run.chatSprint !== s.sprint) {   // a new Sprint: a clean team chat
+    if (run.chatSprint != null) { run.lines = []; run.slackSeen = run.lastLine; }
+    run.chatSprint = s.sprint;
+  }
   const sig = JSON.stringify({ ...s, clock_min: 0, day_used_min: 0 }) + run.lines.length + run.wall.length + JSON.stringify(run.runs || null) + (run.error || "");
   if (sig === run.sig && document.getElementById("meters")) { syncMeters(s); syncLive(s); return; }  // nothing changed but the clock
   run.sig = sig;
@@ -1789,12 +1868,30 @@ async function debrief() {
   const d = await api(`/api/v1/runs/${run.id}/debrief`);
   const names = { win: d.x && d.x.scrum ? "You ran all " + d.x.sprints_played + " Sprints" : d.x ? "You survived all " + d.x.sprints_played + " sprints" : "You survived the sprint", lose_rating: "Fired: Rating fell below 2.0", lose_cover: "Exposed: Cover hit 100", lose_warnings: "Demoted twice" };
   mount(h("section", { class: "card narrow" }, h("div", { class: "hero", "aria-hidden": "true" }, ic(d.ending === "win" ? "c-heron-cheer" : "c-heron-oops")), h("h2", {}, names[d.ending] || d.ending),
-    h("table", {}, (d.x && d.x.scrum ? [["App rating", Number(d.rating).toFixed(1)], ["Points", d.points]]
+    h("table", {}, (d.x && d.x.scrum ? (d.x.final ? [["App rating", Number(d.rating).toFixed(1)], ["Grade", d.x.final.grade], ["Final Grade", d.x.final.final + " / 100"]] : [["App rating", Number(d.rating).toFixed(1)], ["Grade", d.points]])
       : [["Rating", Number(d.rating).toFixed(2)], ["Cover", d.cover], ["Points", d.points], ["Process score", d.process_score], ["Gap (rating % minus process)", d.gap]]).map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, v)))),
     d.x && d.x.scrum ? null : h("p", { class: "muted" }, "Points never count toward your process score: honest process does."),
     d.x ? xDebrief(d.x) : null,
-    h("div", { class: "row" }, h("button", { class: "primary", onclick: setupRun }, "Play again"))));
+    d.x && d.x.summary ? summaryEl(d.x.summary) : null,
+    h("div", { class: "row" }, h("button", { class: "primary", onclick: d.x && d.x.summary ? endingScreen : setupRun }, d.x && d.x.summary ? "Continue" : "Play again"))));
   if (d.ending === "win") { lastPt = null; burst(40); setTimeout(() => burst(30), 350); }
+}
+
+function summaryEl(m) {
+  const list = (title, items, cls) => items && items.length ? h("div", { class: "sumblock " + cls }, h("h3", {}, title), h("ul", {}, items.map((i) => h("li", {}, i)))) : null;
+  return h("div", { class: "summary tier-" + m.tier },
+    h("h3", {}, m.headline), h("p", {}, m.intro),
+    list("What you did well", m.well, "ok"), list("What went wrong", m.wrong, "no"), list("How to do better", m.improve, "tip"),
+    m.learned.length ? h("div", { class: "sumblock learned" }, h("h3", {}, "What you learned"), h("ul", {}, m.learned.map((l) => h("li", {}, h("b", {}, l.concept + ": "), l.teach)))) : null);
+}
+
+function endingScreen() {
+  mount(h("section", { class: "card narrow ending" }, h("div", { class: "cheer", "aria-hidden": "true" }, ["po", "dev1", "dev2"].map((id) => avatar(id, "calm")), ic("c-heron-cheer")),
+    h("h2", {}, "The prototype ends here"),
+    h("p", {}, "You ran three Sprints with Marlo, Ines, Tobi and Herb. Thank you for playing."),
+    h("p", { class: "muted" }, "Coming soon: Heat, timers and the other New run modifiers."),
+    h("div", { class: "row" }, h("button", { class: "primary", onclick: setupRun }, "Play again"))));
+  lastPt = null; burst(40); setTimeout(() => burst(30), 350);
 }
 
 function xDebrief(x) {

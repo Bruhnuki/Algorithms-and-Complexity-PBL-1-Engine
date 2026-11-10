@@ -55,10 +55,14 @@
 /* bottom bar */
 .w-foot { display:flex; justify-content:flex-end; padding-top:14px; }
 .w-go { min-width:180px; padding:14px 28px; font:800 16px var(--font-head); text-transform:uppercase; letter-spacing:.8px; color:#fff; background:var(--green); border:var(--bw) solid var(--green-d); border-bottom-width:calc(var(--bw) + var(--lift)); border-radius:var(--radius); cursor:pointer; transition:transform .08s, background .12s; }
-.w-go:hover { background:#61D90A; } .w-go:active { transform:translateY(var(--lift)); border-bottom-width:var(--bw); }
+.w-go:hover:not(:disabled) { background:#61D90A; color:#fff; } .w-go:active { transform:translateY(var(--lift)); border-bottom-width:var(--bw); }
 
 @media (max-width:760px) {
   .welcome { padding:14px 16px 18px; border-radius:18px; }
   .w-cards.n4, .w-cards.n3 { grid-template-columns:minmax(0,1fr); } .w-cards.n3 .w-card { flex-direction:row; gap:14px; }
   .w-ask { gap:10px; } .welcome .w-mascot { width:78px; height:78px; } .w-bubble { font-size:18px; } .w-go { width:100%; }
 }
+
+.w-bubble.w-below::before { left:50%; top:-9px; margin-left:-7px; border-bottom:0; border-right:0; }
+.herbsays .w-bubble { text-align:center; }
+.herbsays .row { justify-content:center; }

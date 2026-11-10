@@ -1,0 +1,90 @@
+{
+ "id": "story_service_fee",
+ "kind": "fix",
+ "difficulty": 1,
+ "concept": "conditions",
+ "title": "Express orders skip the fee",
+ "doc": "service_fee(express) must return 4 for express orders (express is 1) and 0 for normal orders (express is 0). Right now express orders skip the fee.",
+ "params": [
+  "express"
+ ],
+ "examples": [
+  {
+   "input": [
+    1
+   ],
+   "expected": 4
+  },
+  {
+   "input": [
+    0
+   ],
+   "expected": 0
+  },
+  {
+   "input": [
+    1
+   ],
+   "expected": 4
+  },
+  {
+   "input": [
+    0
+   ],
+   "expected": 0
+  },
+  {
+   "input": [
+    1
+   ],
+   "expected": 4
+  }
+ ],
+ "source": [
+  "function service_fee(express) {",
+  "  if express == 1 {",
+  "    return 0",
+  "  } else {",
+  "    return 0",
+  "  }",
+  "}"
+ ],
+ "buggy_line": 3,
+ "blank_line": null,
+ "run_shows_failure": true,
+ "options": [
+  {
+   "id": "a",
+   "text": "    return 4",
+   "effect": "correct",
+   "bug_type": null,
+   "run_outcome": "pass"
+  },
+  {
+   "id": "b",
+   "text": "    return 40",
+   "effect": "wrong_hidden",
+   "bug_type": "wrong_result",
+   "run_outcome": "fail"
+  },
+  {
+   "id": "c",
+   "text": "    return fee",
+   "effect": "crashes",
+   "bug_type": "runtime_error",
+   "run_outcome": "error"
+  },
+  {
+   "id": "d",
+   "text": "    return 2 + 2",
+   "effect": "correct_small_flaw",
+   "bug_type": "sloppy_fix",
+   "run_outcome": "pass"
+  }
+ ],
+ "glossary": {
+  "==": "Checks whether two things are equal.",
+  "if": "Runs the next block only when the condition is true."
+ },
+ "original_outcome": "fail"
+}

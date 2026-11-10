@@ -52,3 +52,21 @@ All numbers are in `content/balance.yaml` under `calm:`. Beats, answers and feed
 - **Live feed.** Nothing is in GitHab before Work. The first item arrives when Work starts and then one new item every 60 real seconds (all at once on day 2 and in the practice Sprint). This is the one real-time element; items have no deadline or penalty.
 - **Practice Sprint uses its own problems** (`practice_*` tickets, never dealt in real Sprints), so nothing stale carries into Sprint 1. It validates the clicked line and the chosen fix against the item, and Herb coaches wrong answers.
 - **Hints:** only the big stage buttons (Begin the Sprint, Start the work day, End the day, ...) ever glow. The drag-and-drop hint animation is removed.
+
+## Tester round 3 (Game Tester Remarks-3)
+- **Hidden Problem is now harder work.** A vague answer leaves 1 harder item, a lie leaves 2. They are added to the NEXT Sprint's backlog (marked "Hidden problem") when the Review happens. The four items are new difficulty-2 tickets (`hidden_*`, listed in `scrum_guide.json` under `hard_pool`, never in the arcade pool). In the last Sprint there is no next Sprint, so a hidden problem costs rating at the Review instead. The numbers are in `calm.standup` in `balance.yaml`.
+- **The team chat is alive.** It starts empty each Sprint. Teammates react to the Daily Scrum answer, an offload (done or failed), coaching, a send, the Sprint Review and a new Sprint, using current facts (item name, trust, rating) and sounding colder when trust is under 60. Prompts are built in `gateway/gateway.py`; events are mapped in `gateway/context.py`; with no model the authored `reactions` / `reactions_low` lines in `content/teammates/*.json` are used. Set `MODEL_URL` (a llama-server) to use a real model. The practice Sprint has no reactions.
+- **Tutorial:** dots count the bubbles of the current step; a Back button replays earlier dialogue (read-only); Marlo has lines of his own; the Play Storey step explains Rating, Trust and Hidden Problem.
+- **Notifications are unread counters** that clear when you open the tab: GitHab for new items and results, Slackish for new messages, Play Storey for new reviews.
+- **Removed:** ToobYou (client, landing page, CSS), the "Later" button, the "(5 min)" on the Test button. Old test results clear on Send to users / Put it down; a teammate's last result clears each Sprint.
+
+## Tester round 4
+
+All numbers live in `content/balance.yaml` under `calm:` (`penalties`, `standup`, `help`, `feed_min_s`/`feed_max_s`, `day1_items`, `final_grade`).
+
+- **Items**: five per Sprint, arriving one at a time every 10-20 s. Day 1 batch is 3; items 4-5, the Help request and any harder items arrive on day 2. End the day needs the day-1 batch resolved; Finish the Sprint needs everything resolved (pending items count). The disabled buttons say why.
+- **Put it down**: confirm dialog, then Grade -30, trust -20 for both teammates, rating -2 stars (never below 2.0). The item counts as resolved.
+- **Daily Scrum**: vague -0.5 stars and +15 trust; "sounds good (not true)" +0.5 stars and -15 trust; honest +0.15 stars and +3 trust. Labels read the same numbers.
+- **Mistakes**: wrong line or failed test Grade -1 and trust -1 for the team; wrong scene answer Grade -2 and trust -1. Fix items need the faulty line first; Test my fix greys out after a pass. Give-to buttons grey out for the item's author and for a teammate who failed it.
+- **Help requests**: a scenario (answers move the asker's trust) or a coding challenge (-3 trust per failure, +3 when solved), alternating. Authored in `content/help_requests/`.
+- **Final Grade**: 70% in-game Grade + 30% rating score. The summary has three tiers (<50, 50-85, >85) and always recaps what was learned, then an ending screen ("the prototype ends here") with Play again. The New run screen no longer has Heat checkboxes.

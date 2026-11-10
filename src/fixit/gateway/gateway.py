@@ -22,7 +22,31 @@ from ..engines import e1
 from ..rules.content import Content
 
 EVENT_TYPES = ("ping_clue", "ping_noise", "ping_trap", "help_call", "standup_question", "status_demand")
+# Reactions to what the player does (a Daily Scrum answer, a push, an offload...). Each teammate has authored lines for the ones they handle,
+# with {item} {trust} {rating} {sprint} {goal} {done} {total} {n_hidden} {next} filled in, and colder lines when trust is below 60.
+REACTION_TYPES = ("react_standup_honest", "react_standup_vague", "react_standup_lie", "react_offload_ok", "react_offload_fail", "react_coached",
+                  "react_push", "react_review", "react_review_hidden", "sprint_open")
+EVENT_DESC = {
+    "react_standup_honest": "The player just gave an HONEST Daily Scrum answer. Respond to it.",
+    "react_standup_vague": "The player just gave a VAGUE Daily Scrum answer. You can tell they're dodging.",
+    "react_standup_lie": "The player just gave an UNTRUE Daily Scrum answer. You suspect it.",
+    "react_offload_ok": "The player gave you an item and you finished it.",
+    "react_offload_fail": "The player gave you an item and you could not finish it. It went back to them.",
+    "react_coached": "The player just coached you through a problem.",
+    "react_push": "The player just sent an item to users.",
+    "react_review": "The Sprint Review just happened. Comment on the rating and how many items were done.",
+    "react_review_hidden": "The Sprint Review just happened and earlier vague or untrue answers turned into harder items for the next Sprint.",
+    "sprint_open": "A new Sprint is starting. Open it by stating the Sprint Goal.",
+}
 TONES = ("calm", "pushy", "panicked")
+LOW_TRUST = 60
+_TONE_FOR = {"ping_trap": "pushy", "status_demand": "pushy", "help_call": "panicked", "react_standup_vague": "pushy", "react_standup_lie": "pushy",
+             "react_offload_fail": "panicked", "react_review_hidden": "pushy"}
+
+
+class _Facts(dict):
+    def __missing__(self, key):
+        return "it"
 MAX_WORDS = 40
 SCHEMA = {"type": "object", "properties": {"text": {"type": "string"}, "tone": {"enum": list(TONES)}},
           "required": ["text", "tone"], "additionalProperties": False}
@@ -165,7 +189,11 @@ class Gateway:
         segs = e1.select_segments([{"id": "persona", "text": system, "seq": 0, "pinned": True},
                                    {"id": "dod", "text": DOD_TEXT, "seq": 0, "pinned": True}] + req.memory, req.stage)
         memory = "\n".join(s["text"] for s in segs if not s.get("pinned"))
-        user = f"Event: {req.event_type}\nFacts: {json.dumps(req.facts, sort_keys=True)}\nRemembered:\n{memory or '(nothing)'}"
+        desc = EVENT_DESC.get(req.event_type)
+        mood = ("Your trust in the player is in facts.trust (a percent). Below 60 sound cold, short or annoyed; 80 or more, sound warm. "
+                "Use the specific facts (item names, numbers) in what you say. " if desc else "")
+        user = (f"Event: {req.event_type}\n" + (f"Situation: {desc}\n" if desc else "") + (mood if mood else "")
+                + f"Facts: {json.dumps(req.facts, sort_keys=True)}\nRemembered:\n{memory or '(nothing)'}")
         return [{"role": "system", "content": system + "\n" + DOD_TEXT}, {"role": "user", "content": user}]
 
     def validate(self, raw, req: Request) -> str | None:
@@ -188,7 +216,19 @@ class Gateway:
         return None
 
     def _fallback(self, req: Request, latency: int, reason: str) -> Line:
-        pool = self.persona(req.teammate_id)["fallback_lines"][req.event_type]
+        p = self.persona(req.teammate_id)
+        low = req.facts.get("trust", 100) < LOW_TRUST
+        pool = None
+        if req.event_type in REACTION_TYPES:
+            pool = (p.get("reactions_low", {}).get(req.event_type) if low else None) or p.get("reactions", {}).get(req.event_type)
+        pool = pool or p["fallback_lines"][req.event_type]
         rnd = random.Random(f"{req.seed}:fallback:{req.teammate_id}:{req.event_type}:{req.n}")
-        tone = {"ping_trap": "pushy", "status_demand": "pushy", "help_call": "panicked"}.get(req.event_type, "calm")
-        return Line(rnd.choice(pool), tone, "fallback", latency, reason=reason)
+        tone = _TONE_FOR.get(req.event_type, "calm")
+        if low and req.event_type in REACTION_TYPES:
+            tone = "panicked" if req.teammate_id == "dev2" else "pushy"   # cold when trust is low
+        text = rnd.choice(pool)
+        try:
+            text = text.format_map(_Facts(req.facts))
+        except (ValueError, IndexError):
+            pass
+        return Line(text, tone, "fallback", latency, reason=reason)

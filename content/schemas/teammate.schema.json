@@ -19,6 +19,26 @@
      "type": "string"
     }
    }
+  },
+  "reactions": {
+   "type": "object",
+   "additionalProperties": {
+    "type": "array",
+    "minItems": 3,
+    "items": {
+     "type": "string"
+    }
+   }
+  },
+  "reactions_low": {
+   "type": "object",
+   "additionalProperties": {
+    "type": "array",
+    "minItems": 3,
+    "items": {
+     "type": "string"
+    }
+   }
   }
  }
 }

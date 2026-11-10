@@ -1,0 +1,30 @@
+{
+ "id": "hr_scenario_stuck",
+ "type": "scenario",
+ "title": "Stuck for two days and quiet about it",
+ "prompts": {
+  "dev2": "I've been stuck on this for two days and I didn't tell anyone. Sorry. Everyone seems so busy. What should I do?",
+  "dev1": "Fine, I'll say it: I've been stuck on this for two days and kept quiet. What now?"
+ },
+ "answers": [
+  {
+   "id": "a",
+   "text": "Try one more day alone, then see.",
+   "trust": -1,
+   "feedback": "Another day of silence is another day lost."
+  },
+  {
+   "id": "b",
+   "text": "Thanks for telling me. Let's clear it together and raise it at the Daily Scrum.",
+   "trust": 3,
+   "best": true,
+   "feedback": "Yes. Removing blockers openly is what a Scrum Master is for."
+  },
+  {
+   "id": "c",
+   "text": "Don't tell Marlo, he'll panic.",
+   "trust": -5,
+   "feedback": "Hiding a blocker from the team keeps the problem hidden too."
+  }
+ ]
+}

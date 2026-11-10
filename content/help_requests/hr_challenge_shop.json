@@ -1,0 +1,10 @@
+{
+ "id": "hr_challenge_shop",
+ "type": "challenge",
+ "ticket": "help_shop",
+ "title": "Shop day off",
+ "intros": {
+  "dev2": "The shop says it's open on its day off. Sorry! I really can't see the problem.",
+  "dev1": "The shop is \"open\" on its day off. Find the line, fix it, save my afternoon."
+ }
+}

@@ -41,29 +41,39 @@ def clear_scenes(s, content, mistakes=False):
 
 def start_sprint(s, content):
     s = clear_scenes(s, content)
-    s, _ = run(s, content, "advance_stage", to="STANDUP")
+    s, _ = run(settle(s), content, "advance_stage", to="STANDUP")
     s = clear_scenes(s, content)
     s, _ = run(s, content, "reply_standup", answer="accurate")
     s, _ = run(s, content, "advance_stage", to="BUILD")
-    reducer._g_reveal(s, [], 99)          # most tests want every item on the list (the live feed has its own tests)
+    reducer._g_reveal(s, [], 99, 2)       # most tests want every item on the list (the live feed has its own tests)
+    return s
+
+
+def settle(s):
+    """Test shortcut: resolve whatever is blocking End the day / Finish the Sprint right now (the real rules have their own tests)."""
+    if s["stage"] != "BUILD":
+        return s
+    upto = 1 if s["day"] < 2 else 99
+    for c in s["pile"]:
+        if c["state"] in ("pile", "open", "returned") and c.get("batch", 1) <= upto:
+            c["state"], c["hidden"] = "done", False
+    s["open_card"] = None
     return s
 
 
 def touch(s, content):
-    """Open an item and put it down again: enough to count as having started work today."""
-    cid = next(c["id"] for c in s["pile"] if c["ticket"] and c["state"] == "pile" and not c.get("hidden"))
-    s, _ = run(s, content, "open_card", card_id=cid)
-    return run(s, content, "hold")[0]
+    """Finish the day's work (see settle) and note that work started."""
+    s["guide"]["worked"] = True
+    return settle(s)
 
 
 def finish_sprint(s, content):
-    if not s["guide"]["worked"]:
-        s = touch(s, content)
-    s, _ = run(s, content, "advance_stage", to="STANDUP")
+    s = settle(s)
+    s, _ = run(settle(s), content, "advance_stage", to="STANDUP")
     s = clear_scenes(s, content)
     s, _ = run(s, content, "reply_standup", answer="accurate")
     s, _ = run(s, content, "advance_stage", to="BUILD")
-    s, _ = run(s, content, "advance_stage", to="REVIEW")
+    s, _ = run(settle(s), content, "advance_stage", to="REVIEW")
     s = clear_scenes(s, content)
     s, _ = run(s, content, "advance_stage", to="RETRO")
     s = clear_scenes(s, content)
@@ -80,13 +90,7 @@ def test_CALM1_no_real_time_clock(calm):
 def test_CALM2_nothing_is_due_and_nothing_gets_louder(calm):
     s = start_sprint(reducer.start_run(1, calm)[0], calm)
     assert all(c["deadline_s"] is None for c in s["pile"])
-    cid = next(c["id"] for c in s["pile"] if c["ticket"])
-    s, _ = run(s, calm, "open_card", card_id=cid)
-    s, _ = run(s, calm, "hold")
-    # burn most of the day: a card that used to escalate in an hour stays quiet
-    for _ in range(6):
-        s, _ = run(s, calm, "open_card", card_id=cid)
-        s, _ = run(s, calm, "hold")
+    reducer._advance(s, [], calm, 6 * 3600)          # burn most of the day: a card that used to escalate in an hour stays quiet
     assert all(c["escalation"] == 0 for c in s["pile"])
     pub = reducer.public_state(s, calm)
     assert all(c["deadline_min"] is None for c in pub["pile"])
@@ -116,9 +120,9 @@ def test_CALM4_calls_never_expire(calm):
 
 def test_CALM5_stable_sprint_backlog_all_items_at_planning(calm):
     s, _ = reducer.start_run(1, calm)
-    assert [c["ticket"] for c in s["pile"]] == ["final_price", "total_with_tax", "shipping_fee"]
+    assert [c["ticket"] for c in s["pile"] if c["ticket"]] == ["final_price", "total_with_tax", "shipping_fee", "story_service_fee", "split_bill"]
     pub = reducer.public_state(s, calm)["guide"]
-    assert [b["in_sprint"] for b in pub["backlog"]] == [True, True, True, False, False]
+    assert [b["in_sprint"] for b in pub["backlog"]] == [True] * 5
     assert not pub["committed"]                                    # the forecast scene is still open
 
 
@@ -126,7 +130,7 @@ def test_CALM5_stable_sprint_backlog_all_items_at_planning(calm):
 def test_GUIDE1_scene_blocks_the_sprint_until_answered(calm):
     s, _ = reducer.start_run(1, calm)
     with pytest.raises(GameError) as e:
-        run(s, calm, "advance_stage", to="STANDUP")
+        run(settle(s), calm, "advance_stage", to="STANDUP")
     assert "scene" in e.value.detail
     pub = reducer.public_state(s, calm)["guide"]["pending"]
     assert pub["id"] == "s1_backlog_owner" and pub["step"] == 1 and pub["of"] == 3
@@ -138,7 +142,7 @@ def test_GUIDE2_wrong_answer_teaches_then_retry(calm):
     b = next(x for x in calm.guide["beats"] if x["id"] == "s1_backlog_owner")
     wrong = next(c for c in b["choices"] if not c.get("correct"))
     s, ev = run(s, calm, "guide_answer", choice_id=wrong["id"])
-    assert ev[0]["ok"] is False
+    assert next(e for e in ev if e["type"] == "guide_answered")["ok"] is False
     pub = reducer.public_state(s, calm)["guide"]["pending"]
     assert not pub["resolved"] and pub["tried"][0]["feedback"] == wrong["feedback"] and "teach" not in pub
     with pytest.raises(GameError):
@@ -146,7 +150,8 @@ def test_GUIDE2_wrong_answer_teaches_then_retry(calm):
     with pytest.raises(GameError):
         run(s, calm, "guide_next")                                  # cannot skip an unanswered question
     s, ev = run(s, calm, "guide_answer", choice_id=correct_choice(calm, "s1_backlog_owner"))
-    assert ev[0]["ok"] is True and ev[0]["first_try"] is False
+    answered = next(e for e in ev if e["type"] == "guide_answered")
+    assert answered["ok"] is True and answered["first_try"] is False
     assert reducer.public_state(s, calm)["guide"]["pending"]["teach"]
     s, _ = run(s, calm, "guide_next")
     assert s["guide"]["pending"] == "s1_sprint_goal"
@@ -155,7 +160,7 @@ def test_GUIDE2_wrong_answer_teaches_then_retry(calm):
 def test_GUIDE3_standup_waits_for_the_daily_scrum_scene(calm):
     s, _ = reducer.start_run(1, calm)
     s = clear_scenes(s, calm)
-    s, _ = run(s, calm, "advance_stage", to="STANDUP")
+    s, _ = run(settle(s), calm, "advance_stage", to="STANDUP")
     assert s["guide"]["pending"] == "s1_daily_purpose" and s["pending_standup"]
     with pytest.raises(GameError):
         run(s, calm, "reply_standup", answer="accurate")
@@ -182,11 +187,11 @@ def test_GUIDE4_full_run_follows_the_five_scrum_events(calm):
 
 
 def _finish_last(s, calm):
-    s, _ = run(s, calm, "advance_stage", to="STANDUP")
+    s, _ = run(settle(s), calm, "advance_stage", to="STANDUP")
     s = clear_scenes(s, calm)
     s, _ = run(s, calm, "reply_standup", answer="accurate")
     s, _ = run(s, calm, "advance_stage", to="BUILD")
-    s, _ = run(s, calm, "advance_stage", to="REVIEW")
+    s, _ = run(settle(s), calm, "advance_stage", to="REVIEW")
     s = clear_scenes(s, calm)
     s, _ = run(s, calm, "advance_stage", to="RETRO")
     s = clear_scenes(s, calm)
@@ -198,23 +203,23 @@ def test_GUIDE5_review_scene_reports_what_is_really_done(calm):
     first, second = [c["id"] for c in s["pile"] if c["ticket"]][:2]
     s, _ = ship(s, calm, first)                                     # honest, fully ticked: Done
     s, _ = ship(s, calm, second, dod=False)                         # sent with the checklist skipped: not Done
-    s, _ = run(s, calm, "advance_stage", to="STANDUP")
+    s, _ = run(settle(s), calm, "advance_stage", to="STANDUP")
     s = clear_scenes(s, calm)
     s, _ = run(s, calm, "reply_standup", answer="accurate")
     s, _ = run(s, calm, "advance_stage", to="BUILD")
-    s, _ = run(s, calm, "advance_stage", to="REVIEW")
+    s, _ = run(settle(s), calm, "advance_stage", to="REVIEW")
     scene = reducer.public_state(s, calm)["guide"]["pending"]["scene"]
     assert "1 met the Definition of Done" in scene and "1 more went to users but are not truly Done" in scene
-    assert "1 not finished, so they go back to the Product Backlog" in scene
+    assert "3 not finished, so they go back to the Product Backlog" in scene
 
 
 def test_GUIDE6_retro_stage_gates_the_next_sprint_and_grants_the_pick(calm):
     s = touch(start_sprint(reducer.start_run(5, calm)[0], calm), calm)
-    s, _ = run(s, calm, "advance_stage", to="STANDUP")
+    s, _ = run(settle(s), calm, "advance_stage", to="STANDUP")
     s = clear_scenes(s, calm)
     s, _ = run(s, calm, "reply_standup", answer="accurate")
     s, _ = run(s, calm, "advance_stage", to="BUILD")
-    s, _ = run(s, calm, "advance_stage", to="REVIEW")
+    s, _ = run(settle(s), calm, "advance_stage", to="REVIEW")
     assert s["stage"] == "REVIEW" and s["sprint"] == 1              # the sprint does not roll over at the review
     with pytest.raises(GameError):
         run(s, calm, "advance_stage", to="PLANNING")
@@ -232,15 +237,15 @@ def test_GUIDE6_retro_stage_gates_the_next_sprint_and_grants_the_pick(calm):
     s, _ = run(s, calm, "guide_next")
     s, _ = run(s, calm, "advance_stage", to="PLANNING")
     assert s["sprint"] == 2 and s["stage"] == "PLANNING" and s["guide"]["pending"] == "s2_refine"
-    assert [c["ticket"] for c in s["pile"] if c["state"] == "pile"] == ["loyalty_discount", "points_balance", "average_rating"]
+    assert [c["ticket"] for c in s["pile"] if c["state"] == "pile" and c["ticket"]] == ["loyalty_discount", "points_balance", "average_rating", "story_birthday", "story_streak"]
 
 
-def test_GUIDE7_unfinished_items_return_to_the_product_backlog(calm):
+def test_GUIDE7_the_next_sprints_items_arrive_with_its_work(calm):
     s = start_sprint(reducer.start_run(2, calm)[0], calm)
     s = finish_sprint(s, calm)
     assert s["sprint"] == 2
     by_ticket = {c["ticket"]: c for c in s["pile"] if c["ticket"]}
-    assert by_ticket["final_price"]["state"] == "backlog"                      # unfinished: back to the Product Backlog
+    assert by_ticket["final_price"]["state"] == "done"                          # last Sprint's work stays done
     assert by_ticket["loyalty_discount"]["hidden"] and by_ticket["loyalty_discount"]["state"] == "pile"   # Sprint 2's items arrive with its Work
 
 
@@ -257,20 +262,9 @@ def test_GUIDE8_first_sprint_is_safe(calm):
 
 
 # ---------------------------------------------------------------- coaching and Definition of Done pay off
-def test_PAYOFF1_coaching_raises_a_teammates_trust(calm):
-    s = start_sprint(reducer.start_run(1, calm)[0], calm)
-    s["clock_s"] += 130 * 60
-    reducer._fire_schedule(s, [], calm)
-    help_card = next(c for c in s["pile"] if c["type"] == "help_call")
-    before = s["x"]["team_trust"][help_card["sender"]]
-    s, ev = run(s, calm, "coach", card_id=help_card["id"])
-    assert s["x"]["team_trust"][help_card["sender"]] == before + calm.balance["calm"]["coach_trust"]
-    assert any(e["type"] == "trust_changed" and e["why"] == "coached" for e in ev)
-
-
 def test_PAYOFF2_skipping_the_checklist_costs_trust_and_honest_work_rebuilds_it(calm):
     s = start_sprint(reducer.start_run(1, calm)[0], calm)
-    a, b, _c = [c["id"] for c in s["pile"] if c["ticket"]]
+    a, b = [c["id"] for c in s["pile"] if c["ticket"]][:2]
     C = calm.balance["calm"]
     base = dict(s["x"]["team_trust"])
     s, _ = ship(s, calm, a, dod=False)
@@ -303,15 +297,12 @@ def test_CONTENT1_every_beat_has_exactly_one_correct_choice_and_known_tickets(ca
 
 
 # ---------------------------------------------------------------- tester feedback
-def test_FEEDBACK1_cannot_end_day_one_before_touching_the_work(calm):
+def test_FEEDBACK1_cannot_end_day_one_with_work_left(calm):
     s = start_sprint(reducer.start_run(1, calm)[0], calm)
     with pytest.raises(GameError) as e:
-        run(s, calm, "advance_stage", to="STANDUP")
-    assert "at least one item" in e.value.detail
-    assert reducer.public_state(s, calm)["guide"]["worked"] is False
-    s = touch(s, calm)
-    assert reducer.public_state(s, calm)["guide"]["worked"] is True
-    run(s, calm, "advance_stage", to="STANDUP")
+        run(s, calm, "advance_stage", to="STANDUP")                              # not settled: the real rule applies
+    assert "3 items still to do" in e.value.detail and reducer.public_state(s, calm)["x"]["todo"]["blocking"] == 3
+    run(settle(s), calm, "advance_stage", to="STANDUP")
 
 
 def test_FEEDBACK2_suspicion_and_strikes_cannot_end_a_learning_run(calm):
@@ -328,11 +319,11 @@ def test_FEEDBACK2_suspicion_and_strikes_cannot_end_a_learning_run(calm):
 def test_FEEDBACK3_missing_the_goal_is_not_a_strike(calm):
     s = start_sprint(reducer.start_run(1, calm)[0], calm)
     s = touch(s, calm)
-    s, _ = run(s, calm, "advance_stage", to="STANDUP")
+    s, _ = run(settle(s), calm, "advance_stage", to="STANDUP")
     s = clear_scenes(s, calm)
     s, _ = run(s, calm, "reply_standup", answer="accurate")
     s, _ = run(s, calm, "advance_stage", to="BUILD")
-    s, ev = run(s, calm, "advance_stage", to="REVIEW")
+    s, ev = run(settle(s), calm, "advance_stage", to="REVIEW")
     assert s["warnings"] == 0 and not any(e["type"] == "warning_issued" for e in ev)
     assert any(e["type"] == "sprint_goal" and e["met"] is False for e in ev)
 
@@ -340,11 +331,11 @@ def test_FEEDBACK3_missing_the_goal_is_not_a_strike(calm):
 def test_FEEDBACK4_no_completion_codes_in_self_study(calm):
     s = start_sprint(reducer.start_run(5, calm)[0], calm)
     s = touch(s, calm)
-    s, _ = run(s, calm, "advance_stage", to="STANDUP")
+    s, _ = run(settle(s), calm, "advance_stage", to="STANDUP")
     s = clear_scenes(s, calm)
     s, _ = run(s, calm, "reply_standup", answer="accurate")
     s, _ = run(s, calm, "advance_stage", to="BUILD")
-    s, _ = run(s, calm, "advance_stage", to="REVIEW")
+    s, _ = run(settle(s), calm, "advance_stage", to="REVIEW")
     s = clear_scenes(s, calm)
     s, ev = run(s, calm, "advance_stage", to="RETRO")
     assert not any("code" in e["type"] for e in ev)
@@ -355,7 +346,7 @@ def test_FEEDBACK4_no_completion_codes_in_self_study(calm):
 def _standup_with(calm, answer, seed=1):
     s = start_sprint(reducer.start_run(seed, calm)[0], calm)
     s = touch(s, calm)
-    s, _ = run(s, calm, "advance_stage", to="STANDUP")
+    s, _ = run(settle(s), calm, "advance_stage", to="STANDUP")
     s = clear_scenes(s, calm)
     who = s["pending_standup"]["teammate"]
     before = (s["meters"]["rating"], s["x"]["team_trust"][who])
@@ -373,42 +364,133 @@ def test_FEEDBACK5_daily_scrum_answers_trade_rating_trust_and_a_hidden_problem(c
         assert s["x"]["team_trust"][who] == t0 + eff["trust"] and s["guide"]["hidden"] == eff["hidden"]
         out[ans] = (eff["rating"], eff["trust"], eff["hidden"])
     # the lie wins today (+10 rating) but loses over the Sprint: the hidden problem and the lost trust
-    assert out["wrong"][0] > out["accurate"][0] > out["vague"][0] and out["accurate"][1] > 0 > out["vague"][1] > out["wrong"][1]
+    assert out["wrong"][0] > out["accurate"][0] > 0 > out["vague"][0]                # vague LOWERS the rating, the lie RAISES it
+    assert out["vague"][1] > out["accurate"][1] > 0 > out["wrong"][1]                # vague RAISES trust, the lie LOWERS it
+    assert (out["vague"][0], out["vague"][1], out["wrong"][0], out["wrong"][1]) == (-10, 15, 10, -15)
     assert out["wrong"][0] - out["wrong"][2] < out["accurate"][0] - out["accurate"][2]
     pub = reducer.public_state(s, calm)["x"]["standup_outcomes"]
     assert pub["wrong"]["rating"] == 10 and pub["accurate"]["trust"] > 0
 
 
-def test_FEEDBACK6_the_hidden_problem_surfaces_at_the_review(calm):
+def test_FEEDBACK6_a_hidden_problem_comes_back_as_harder_items_in_the_next_sprint(calm):
     s, _, _, _ = _standup_with(calm, "wrong")
     s, _ = run(s, calm, "advance_stage", to="BUILD")
     r0 = s["meters"]["rating"]
-    s, ev = run(s, calm, "advance_stage", to="REVIEW")
+    s, ev = run(settle(s), calm, "advance_stage", to="REVIEW")
     found = next(e for e in ev if e["type"] == "hidden_problem")
-    assert found["points"] == calm.balance["calm"]["standup"]["wrong"]["hidden"] and s["guide"]["hidden"] == 0
-    assert s["meters"]["rating"] < r0
+    assert found["harder"] is True and found["items"] == calm.balance["calm"]["standup"]["wrong"]["items"] == 2 and found["delta"] == 0
+    assert s["meters"]["rating"] == r0 and s["guide"]["owed"] == 2 and s["guide"]["hidden"] == 0       # no rating penalty now: it is homework for Sprint 2
+    s = clear_scenes(s, calm)
+    s, _ = run(s, calm, "advance_stage", to="RETRO")
+    s = clear_scenes(s, calm)
+    s, _ = run(s, calm, "advance_stage", to="PLANNING")
+    harder = [c for c in s["pile"] if c.get("harder")]
+    assert s["sprint"] == 2 and len(harder) == 2 and s["guide"]["owed"] == 0
+    assert all(calm.tickets[c["ticket"]]["difficulty"] == 2 and c["ticket"].startswith("hidden_") for c in harder)
+    assert [b["ticket"] for b in reducer.public_state(s, calm)["guide"]["backlog"] if b.get("harder")] == [c["ticket"] for c in harder]
+    assert not any(t.startswith("hidden_") for t in calm.pool)
+
+
+def test_FEEDBACK6b_in_the_last_sprint_a_hidden_problem_still_costs_rating(calm):
+    s = start_sprint(reducer.start_run(1, calm)[0], calm)
+    s["sprint"], s["day"] = 3, 2
+    s["guide"]["hidden"], s["guide"]["hidden_items"] = 12, 2
+    r0 = s["meters"]["rating"]
+    s, ev = run(settle(s), calm, "advance_stage", to="REVIEW")
+    found = next(e for e in ev if e["type"] == "hidden_problem")
+    assert found["harder"] is False and found["items"] == 0 and round(r0 - s["meters"]["rating"], 4) == round(12 * calm.balance["calm"]["rating_per_point"], 4)
+
+
+def test_SPRINT_last_sprint_results_do_not_linger(calm):
+    s = start_sprint(reducer.start_run(4, calm)[0], calm)
+    s, _ = run(s, calm, "delegate", card_id=next(c["id"] for c in s["pile"] if c["ticket"] and c["sender"] != "dev2"), to="dev2")
+    assert s["x"]["last_offload"]
+    s = finish_sprint(s, calm)
+    assert s["sprint"] == 2 and s["x"]["last_offload"] == {}
+    assert reducer.public_state(s, calm)["x"]["team"]["dev2"]["last"] is None
+
+
+# ---------------------------------------------------------------- the team chat reacts to what you do
+def _chat_requests(calm, events, state):
+    from fixit.gateway import context as gctx
+    return gctx.requests_for(events, state, calm, "u1", 0)
+
+
+def test_CHAT1_teammates_react_to_the_daily_scrum_answer_with_the_current_facts(calm):
+    for ans, et in (("accurate", "react_standup_honest"), ("vague", "react_standup_vague"), ("wrong", "react_standup_lie")):
+        s, ev, who, _ = _standup_with(calm, ans)
+        reqs = [r for r in _chat_requests(calm, ev, s) if r.event_type.startswith("react_")]
+        assert [(r.teammate_id, r.event_type) for r in reqs] == [(who, et)]
+        f = reqs[0].facts
+        assert f["trust"] == s["x"]["team_trust"][who] and f["rating"] == round(s["meters"]["rating"], 1) and f["item"]
+
+
+def test_CHAT2_low_trust_changes_the_prompt_and_the_fallback_line(calm):
+    from fixit.gateway.gateway import Gateway
+    s, ev, who, _ = _standup_with(calm, "wrong")
+    s["x"]["team_trust"][who] = 30
+    r = next(r for r in _chat_requests(calm, ev, s) if r.event_type == "react_standup_lie")
+    r.facts["trust"], r.facts["mood"] = 30, "cold"
+    gw = Gateway(calm, None)
+    prompt = gw.build_messages(r)[1]["content"]
+    assert "UNTRUE" in prompt and '"trust": 30' in prompt and "cold" in prompt
+    low = gw.generate(r)
+    r.facts["trust"] = 90
+    high = gw.generate(r)
+    lows = set(calm.teammates[who]["reactions_low"]["react_standup_lie"])
+    assert low.source == "fallback" and any(low.text == ln.format_map({"item": r.facts["item"], "trust": 30}) for ln in lows)
+    assert low.text != high.text and low.tone in ("pushy", "panicked")
+
+
+def test_CHAT3_offloads_coaching_pushes_reviews_and_new_sprints_all_get_a_reaction(calm):
+    s = start_sprint(reducer.start_run(4, calm)[0], calm)
+    cid = next(c["id"] for c in s["pile"] if c["ticket"])
+    s2, ev = run(s, calm, "delegate", card_id=cid, to="dev2")
+    r = [r for r in _chat_requests(calm, ev, s2) if r.event_type.startswith("react_offload")]
+    assert len(r) == 1 and r[0].teammate_id == "dev2" and r[0].facts["item"] == calm.tickets[next(c["ticket"] for c in s["pile"] if c["id"] == cid)]["title"]
+    s3, ev = ship(s, calm, cid)
+    assert [r.teammate_id for r in _chat_requests(calm, ev, s3) if r.event_type == "react_push"] == ["po"]
+    reqs = _chat_requests(calm, reducer.start_run(1, calm)[1], reducer.start_run(1, calm)[0])
+    assert any(r.event_type == "sprint_open" and r.teammate_id == "po" and r.facts["goal"] for r in reqs)
+
+
+def test_CHAT4_the_practice_sprint_has_no_reactions(calm):
+    s = tutorial_run(calm)
+    s, _ = run(settle(s), calm, "advance_stage", to="STANDUP")
+    s, ev = run(s, calm, "reply_standup", answer="accurate")
+    assert not [r for r in _chat_requests(calm, ev, s) if r.event_type.startswith("react_")]
+
+
+def test_CHAT5_every_reaction_has_authored_lines_for_the_teammates_who_use_them(calm):
+    from fixit.gateway.gateway import REACTION_TYPES
+    mine = {"dev1": REACTION_TYPES[:6], "dev2": REACTION_TYPES[:6], "po": ("react_push", "react_review", "react_review_hidden", "sprint_open")}
+    for tid, types in mine.items():
+        for et in types:
+            assert len(set(calm.teammates[tid]["reactions"][et])) >= 3, (tid, et)
+            if et != "sprint_open":
+                assert len(set(calm.teammates[tid]["reactions_low"][et])) >= 3, (tid, et)
 
 
 # ---------------------------------------------------------------- instant offloading, trust = success rate
 def test_OFFLOAD1_giving_work_to_a_teammate_is_instant_and_lowers_their_trust(calm):
     s = start_sprint(reducer.start_run(4, calm)[0], calm)
     C = calm.balance["calm"]
-    base = s["x"]["team_trust"]["dev1"]
-    cid = next(c["id"] for c in s["pile"] if c["ticket"])
-    s, ev = run(s, calm, "delegate", card_id=cid, to="dev1")
+    base = s["x"]["team_trust"]["dev2"]
+    cid = next(c["id"] for c in s["pile"] if c["ticket"] and c["sender"] != "dev2")
+    s, ev = run(s, calm, "delegate", card_id=cid, to="dev2")
     res = next(e for e in ev if e["type"] == "offload_result")
     card = next(c for c in s["pile"] if c["id"] == cid)
     assert card["state"] == ("done" if res["ok"] else "pile") and not any(c["state"] == "delegated" for c in s["pile"])
-    assert s["x"]["team_trust"]["dev1"] == base - C["offload_cost"]
-    assert reducer.public_state(s, calm)["x"]["team"]["dev1"]["trust"] == base - C["offload_cost"]
-    assert reducer.public_state(s, calm)["x"]["team"]["dev1"]["last"]["ok"] is res["ok"]
+    assert s["x"]["team_trust"]["dev2"] == base - C["offload_cost"]
+    assert reducer.public_state(s, calm)["x"]["team"]["dev2"]["trust"] == base - C["offload_cost"]
+    assert reducer.public_state(s, calm)["x"]["team"]["dev2"]["last"]["ok"] is res["ok"]
 
 
 def test_OFFLOAD2_each_offload_drops_the_success_rate_by_two_points(calm):
     s = start_sprint(reducer.start_run(4, calm)[0], calm)
     start, other = s["x"]["team_trust"]["dev2"], s["x"]["team_trust"]["dev1"]
     rates = []
-    for cid in [c["id"] for c in s["pile"] if c["ticket"]]:
+    for cid in [c["id"] for c in s["pile"] if c["ticket"] and c["sender"] != "dev2"][:3]:
         s, _ = run(s, calm, "delegate", card_id=cid, to="dev2")
         rates.append(s["x"]["team_trust"]["dev2"])
     assert rates == [start - 2, start - 4, start - 6] and s["x"]["team_trust"]["dev1"] == other   # the other teammate is untouched
@@ -418,29 +500,33 @@ def test_OFFLOAD3_the_rate_is_80_percent_normally_and_100_in_the_tutorial(calm):
     wins, n = 0, 200
     for seed in range(n):
         s = start_sprint(reducer.start_run(seed, calm)[0], calm)
-        cid = next(c["id"] for c in s["pile"] if c["ticket"])
-        s, ev = run(s, calm, "delegate", card_id=cid, to="dev1")
+        cid = next(c["id"] for c in s["pile"] if c["ticket"] and c["sender"] != "dev2")
+        s, ev = run(s, calm, "delegate", card_id=cid, to="dev2")
         wins += next(e for e in ev if e["type"] == "offload_result")["ok"]
     assert 0.7 < wins / n < 0.9                                              # about 80%
     for seed in range(40):
         s = tutorial_run(calm, seed)
-        s, _ = run(s, calm, "advance_stage", to="STANDUP")
+        s, _ = run(settle(s), calm, "advance_stage", to="STANDUP")
         s, _ = run(s, calm, "reply_standup", answer="accurate")
         s, _ = run(s, calm, "advance_stage", to="BUILD")
-        cid = next(c["id"] for c in s["pile"] if c["ticket"])
+        cid = next(c["id"] for c in s["pile"] if c["ticket"] and c["sender"] != "dev2")
         s, ev = run(s, calm, "delegate", card_id=cid, to="dev2")
         assert next(e for e in ev if e["type"] == "offload_result")["ok"] is True
 
 
-def test_OFFLOAD4_a_failed_offload_comes_back_to_you(calm):
+def test_OFFLOAD4_a_failed_offload_comes_back_to_you_and_cannot_be_retried_by_the_same_teammate(calm):
     for seed in range(200):
         s = start_sprint(reducer.start_run(seed, calm)[0], calm)
-        cid = next(c["id"] for c in s["pile"] if c["ticket"])
-        s2, ev = run(s, calm, "delegate", card_id=cid, to="dev1")
+        cid = next(c["id"] for c in s["pile"] if c["ticket"] and c["sender"] != "dev2")
+        s2, ev = run(s, calm, "delegate", card_id=cid, to="dev2")
         if not next(e for e in ev if e["type"] == "offload_result")["ok"]:
             card = next(c for c in s2["pile"] if c["id"] == cid)
-            assert card["state"] == "pile" and card["failed_by"] == "dev1"
-            assert next(c for c in reducer.public_state(s2, calm)["pile"] if c["id"] == cid)["failed_by"] == "dev1"
+            assert card["state"] == "pile" and card["failed_by"] == "dev2" and card["failed_devs"] == ["dev2"]
+            pub = next(c for c in reducer.public_state(s2, calm)["pile"] if c["id"] == cid)
+            assert pub["failed_by"] == "dev2" and pub["failed_devs"] == ["dev2"]
+            with pytest.raises(GameError) as e:
+                run(s2, calm, "delegate", card_id=cid, to="dev2")           # the same teammate cannot take it again
+            assert "already failed" in e.value.detail
             s3, _ = run(s2, calm, "open_card", card_id=cid)                   # you can still do it yourself
             return
     raise AssertionError("no failure in 200 seeds")
@@ -450,36 +536,67 @@ def test_TRUST1_no_trust_notices_when_a_run_starts(calm):
     s, ev = reducer.start_run(1, calm)
     assert not any(e["type"] == "trust_changed" for e in ev)
     s = clear_scenes(s, calm)
-    s, ev = run(s, calm, "advance_stage", to="STANDUP")
+    s, ev = run(settle(s), calm, "advance_stage", to="STANDUP")
     assert not any(e["type"] == "trust_changed" for e in ev)
 
 
 # ---------------------------------------------------------------- live feed, grade, no energy
-def test_FEED1_nothing_in_github_before_work_then_one_item_per_minute(calm):
+def test_FEED1_items_arrive_one_at_a_time_every_10_to_20_seconds_in_two_batches(calm):
+    C = calm.balance["calm"]
     s, _ = reducer.start_run(1, calm)
     assert reducer.public_state(s, calm)["pile"] == []                         # committed at Planning, not yet on the list
     s = clear_scenes(s, calm)
     s, _ = run(s, calm, "advance_stage", to="STANDUP")
     s = clear_scenes(s, calm)
     s, _ = run(s, calm, "reply_standup", answer="accurate")
-    assert [c for c in reducer.public_state(s, calm)["pile"]] == []
+    assert reducer.public_state(s, calm)["pile"] == []
     s, _ = run(s, calm, "advance_stage", to="BUILD")
-    assert len([c for c in reducer.public_state(s, calm)["pile"]]) == 1          # the first item arrives with Work
-    assert reducer.public_state(s, calm)["x"]["feed"]["left"] == 2
-    s, _ = run(s, calm, "tick", real_ms=5000)
-    assert reducer.public_state(s, calm)["x"]["feed"]["left"] == 2               # not yet a minute
-    for _ in range(12):
-        s, _ = run(s, calm, "tick", real_ms=5000)
-    assert len(reducer.public_state(s, calm)["pile"]) == 2
+    tickets = lambda: [c for c in reducer.public_state(s, calm)["pile"] if c["ticket"]]       # noqa: E731
+    assert len(tickets()) == 1                                                  # the first item arrives with Work
+    feed = reducer.public_state(s, calm)["x"]["feed"]
+    assert feed["left_today"] == C["day1_items"] - 1 and feed["left"] == 5      # 5 items + the Help request, 1 shown
+    assert C["feed_min_s"] * 1000 <= s["guide"]["feed_gap_ms"] <= C["feed_max_s"] * 1000
+    gaps, seen = [], len(tickets())
+    for _ in range(40):
+        s, _ = run(s, calm, "tick", real_ms=1000)
+        if len(tickets()) > seen:
+            seen = len(tickets())
+            gaps.append(s["guide"]["feed_gap_ms"])
+    assert seen == C["day1_items"]                                              # day 1 stops at its batch
+    assert reducer.public_state(s, calm)["x"]["feed"]["left_today"] == 0 and reducer.public_state(s, calm)["x"]["feed"]["left"] == 3
     hidden = next(c for c in s["pile"] if c.get("hidden"))
     with pytest.raises(GameError):
         run(s, calm, "open_card", card_id=hidden["id"])                          # cannot be opened before it arrives
-    s = touch(s, calm)
+    with pytest.raises(GameError) as e:
+        run(s, calm, "advance_stage", to="STANDUP")                              # all of day 1's items first
+    assert "3 items still to do" in e.value.detail
+    s = settle(s)
     s, _ = run(s, calm, "advance_stage", to="STANDUP")
     s = clear_scenes(s, calm)
     s, _ = run(s, calm, "reply_standup", answer="accurate")
     s, _ = run(s, calm, "advance_stage", to="BUILD")
-    assert len([c for c in reducer.public_state(s, calm)["pile"] if c["ticket"]]) == 3        # day 2: everything has arrived
+    shown = [c for c in reducer.public_state(s, calm)["pile"] if c["state"] == "pile"]
+    assert len(shown) == 1 and reducer.public_state(s, calm)["x"]["feed"]["left_today"] == 2   # day 2's batch starts the same way
+    for _ in range(60):
+        s, _ = run(s, calm, "tick", real_ms=1000)
+    assert reducer.public_state(s, calm)["x"]["feed"]["left"] == 0
+    kinds = [c["type"] for c in reducer.public_state(s, calm)["pile"] if c["state"] == "pile"]
+    assert kinds.count("help_call") == 1 and len(kinds) == 3                    # 2 more items and the Help request
+
+
+def test_FEED3_the_sprint_cannot_finish_with_anything_left(calm):
+    s = start_sprint(reducer.start_run(1, calm)[0], calm)
+    s = settle(s)
+    s, _ = run(s, calm, "advance_stage", to="STANDUP")
+    s = clear_scenes(s, calm)
+    s, _ = run(s, calm, "reply_standup", answer="accurate")
+    s, _ = run(s, calm, "advance_stage", to="BUILD")
+    reducer._g_reveal(s, [], 99, 2)
+    n = sum(1 for c in s["pile"] if c["state"] == "pile")
+    with pytest.raises(GameError) as e:
+        run(s, calm, "advance_stage", to="REVIEW")
+    assert f"{n} item" in e.value.detail and reducer.public_state(s, calm)["x"]["todo"]["blocking"] == n   # items, harder items and the Help request all count
+    run(settle(s), calm, "advance_stage", to="REVIEW")
 
 
 def test_FEED2_the_tutorial_has_every_item_at_once(calm):
@@ -507,7 +624,7 @@ def test_TUTORIALTICKET1_practice_problems_stay_out_of_real_sprints(calm):
 
 def test_TUTORIALTICKET2_the_line_and_fix_are_validated_by_the_item_not_by_position(calm):
     s = tutorial_run(calm)
-    s, _ = run(s, calm, "advance_stage", to="STANDUP")
+    s, _ = run(settle(s), calm, "advance_stage", to="STANDUP")
     s, _ = run(s, calm, "reply_standup", answer="accurate")
     s, _ = run(s, calm, "advance_stage", to="BUILD")
     cid = next(c["id"] for c in s["pile"] if c["ticket"] == "practice_bag")
@@ -539,7 +656,7 @@ def test_TUTORIAL1_practice_sprint_has_no_scenes_and_plays_normally(calm):
     s = tutorial_run(calm)
     assert s["guide"]["pending"] is None and s["guide"]["queue"] == []
     assert reducer.public_state(s, calm)["x"]["tutorial"] is True
-    s, _ = run(s, calm, "advance_stage", to="STANDUP")      # ...a tutorial run does not: nothing blocks the stages
+    s, _ = run(settle(s), calm, "advance_stage", to="STANDUP")      # ...a tutorial run does not: nothing blocks the stages
     assert s["guide"]["pending"] is None and s["pending_standup"]
     s, _ = run(s, calm, "reply_standup", answer="accurate")
     s, _ = run(s, calm, "advance_stage", to="BUILD")
@@ -547,7 +664,7 @@ def test_TUTORIAL1_practice_sprint_has_no_scenes_and_plays_normally(calm):
     assert any(e["type"] == "pushed" for e in ev)
     cid = next(c["id"] for c in s["pile"] if c["state"] == "pile" and c["ticket"])
     s, _ = run(s, calm, "delegate", card_id=cid, to="dev1")
-    s, _ = run(s, calm, "advance_stage", to="STANDUP")      # day 1 can end once work has started
+    s, _ = run(settle(s), calm, "advance_stage", to="STANDUP")      # day 1 can end once work has started
     assert s["guide"]["pending"] is None and s["day"] == 2
 
 

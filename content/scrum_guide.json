@@ -8,10 +8,20 @@
    "You will play three short Sprints. In each one you go through the same five moments real Scrum teams do: Sprint Planning, the Daily Scrum, the work itself, the Sprint Review and the Retrospective. Nothing is timed. Take as long as you like."
   ]
  },
+ "hard_pool": [
+  "hidden_refund",
+  "hidden_bundle",
+  "hidden_kid_tax",
+  "hidden_stamps"
+ ],
  "tutorial_sprint": {
   "theme": "Practice Sprint",
   "goal": "Learn the screen by doing",
-  "tickets": ["practice_bag", "practice_late", "practice_wrap"],
+  "tickets": [
+   "practice_bag",
+   "practice_late",
+   "practice_wrap"
+  ],
   "backlog_more": [],
   "goal_ship_min": 1,
   "help_calls": 0
@@ -20,236 +30,591 @@
   "1": {
    "theme": "Checkout shows the right price",
    "goal": "Customers see the correct price at checkout",
-   "tickets": ["final_price", "total_with_tax", "shipping_fee"],
-   "backlog_more": ["loyalty_discount", "split_bill"],
+   "tickets": [
+    "final_price",
+    "total_with_tax",
+    "shipping_fee",
+    "story_service_fee",
+    "split_bill"
+   ],
+   "backlog_more": [],
    "goal_ship_min": 2,
    "help_calls": 1
   },
   "2": {
    "theme": "Reward loyal customers",
    "goal": "Loyal customers get the rewards they were promised",
-   "tickets": ["loyalty_discount", "points_balance", "average_rating"],
-   "backlog_more": ["stock_status", "split_bill"],
+   "tickets": [
+    "loyalty_discount",
+    "points_balance",
+    "average_rating",
+    "story_birthday",
+    "story_streak"
+   ],
+   "backlog_more": [
+    "stock_status"
+   ],
    "goal_ship_min": 2,
    "help_calls": 1
   },
   "3": {
    "theme": "Keep customer data safe",
    "goal": "Customer data stays private and the app tells the truth",
-   "tickets": ["find_user", "find_order", "stock_status"],
-   "backlog_more": ["split_bill"],
+   "tickets": [
+    "find_user",
+    "find_order",
+    "stock_status",
+    "story_order_status",
+    "story_account"
+   ],
+   "backlog_more": [],
    "goal_ship_min": 2,
    "help_calls": 1
   }
  },
  "retro_options": {
-  "definition_of_done_p": ["Write down a clearer Definition of Done", "Everyone agrees what Done means, so your first test run on each ticket costs no time."],
-  "pair_programming": ["Pair up on risky work", "Two people on one task: work you hand to the team comes back with fewer mistakes."],
-  "wip_limit": ["Limit how much we start at once", "Finish before starting something new: opening a card is quicker while few cards are open."],
-  "swarming": ["Swarm on blockers together", "When someone is stuck the whole team helps, so one coaching heads off the next call."],
-  "psychological_safety": ["Make it safe to say \"I don't know\"", "People speak up sooner, so an honest standup answer is always open to you."]
+  "definition_of_done_p": [
+   "Write down a clearer Definition of Done",
+   "Everyone agrees what Done means, so your first test run on each ticket costs no time."
+  ],
+  "pair_programming": [
+   "Pair up on risky work",
+   "Two people on one task: work you hand to the team comes back with fewer mistakes."
+  ],
+  "wip_limit": [
+   "Limit how much we start at once",
+   "Finish before starting something new: opening a card is quicker while few cards are open."
+  ],
+  "swarming": [
+   "Swarm on blockers together",
+   "When someone is stuck the whole team helps, so one coaching heads off the next call."
+  ],
+  "psychological_safety": [
+   "Make it safe to say \"I don't know\"",
+   "People speak up sooner, so an honest standup answer is always open to you."
+  ]
  },
  "beats": [
   {
-   "id": "s1_backlog_owner", "sprint": 1, "when": "planning", "kind": "quiz", "speaker": "po",
+   "id": "s1_backlog_owner",
+   "sprint": 1,
+   "when": "planning",
+   "kind": "quiz",
+   "speaker": "po",
    "concept": "Product Backlog",
-   "scene": "Sprint Planning. Marlo pins a list to the wall: the Product Backlog, everything the app might need, in order. 1) Coupon discount is wrong. 2) Add tax to the total. 3) Members pay for shipping. 4) Loyal customers get 5 off. 5) Split the bill. \"I put the checkout problems first because customers are leaving at payment.\"",
+   "scene": "Sprint Planning. Marlo pins a list to the wall: the Product Backlog, everything the app might need, in order. Here are the top five. \"I put the checkout problems first because customers are leaving at payment.\"",
+   "list": [
+    "Coupon discount is wrong",
+    "Add tax to the total",
+    "Members pay for shipping",
+    "Express orders skip the fee",
+    "Split the bill"
+   ],
    "question": "Ines asks: who decides the order of that list?",
    "choices": [
-    {"id": "a", "text": "You, the Scrum Master", "feedback": "Not quite. The Scrum Master helps the team use Scrum well but does not set priorities for the product."},
-    {"id": "b", "text": "Marlo, the Product Owner", "correct": true, "feedback": "Yes. One person, the Product Owner, is accountable for the Product Backlog and its order, so the team always knows what matters most. Others can advise, but one person decides."},
-    {"id": "c", "text": "Whoever shouts loudest", "feedback": "That is what Scrum avoids. A single Product Owner keeps the order clear and stops priorities changing with every loud voice."}
+    {
+     "id": "a",
+     "text": "You, the Scrum Master",
+     "feedback": "Not quite. The Scrum Master helps the team use Scrum well but does not set priorities for the product."
+    },
+    {
+     "id": "b",
+     "text": "Marlo, the Product Owner",
+     "correct": true,
+     "feedback": "Yes. One person, the Product Owner, is accountable for the Product Backlog and its order, so the team always knows what matters most. Others can advise, but one person decides."
+    },
+    {
+     "id": "c",
+     "text": "Whoever shouts loudest",
+     "feedback": "That is what Scrum avoids. A single Product Owner keeps the order clear and stops priorities changing with every loud voice."
+    }
    ],
    "teach": "Product Backlog: the ordered list of what the product needs. The Product Owner owns it."
   },
   {
-   "id": "s1_sprint_goal", "sprint": 1, "when": "planning", "kind": "quiz", "speaker": "po",
+   "id": "s1_sprint_goal",
+   "sprint": 1,
+   "when": "planning",
+   "kind": "quiz",
+   "speaker": "po",
    "concept": "Sprint and Sprint Goal",
    "scene": "A Sprint is a short, fixed-length round of work. Real teams use one to four weeks; here it is two days. Every Sprint has a Sprint Goal: the one reason the Sprint is worth doing. Marlo asks the team to agree on one.",
    "question": "Which of these is a Sprint Goal?",
    "choices": [
-    {"id": "a", "text": "Finish items 1 to 5", "feedback": "That is a list of tasks, not a goal. A goal says what will be better for users when the Sprint ends."},
-    {"id": "b", "text": "Customers see the correct price at checkout", "correct": true, "feedback": "Yes. One clear purpose that the work all points at. If something has to be dropped mid-Sprint, the team asks \"does this still serve the goal?\""},
-    {"id": "c", "text": "Keep everyone busy all Sprint", "feedback": "Being busy is not the same as delivering value. A goal is about the result for users."}
+    {
+     "id": "a",
+     "text": "Finish items 1 to 5",
+     "feedback": "That is a list of tasks, not a goal. A goal says what will be better for users when the Sprint ends."
+    },
+    {
+     "id": "b",
+     "text": "Customers see the correct price at checkout",
+     "correct": true,
+     "feedback": "Yes. One clear purpose that the work all points at. If something has to be dropped mid-Sprint, the team asks \"does this still serve the goal?\""
+    },
+    {
+     "id": "c",
+     "text": "Keep everyone busy all Sprint",
+     "feedback": "Being busy is not the same as delivering value. A goal is about the result for users."
+    }
    ],
    "teach": "Sprint Goal: the single objective of the Sprint. It gives the work a purpose and stays fixed."
   },
   {
-   "id": "s1_forecast", "sprint": 1, "when": "planning", "kind": "quiz", "speaker": "dev1",
+   "id": "s1_forecast",
+   "sprint": 1,
+   "when": "planning",
+   "kind": "quiz",
+   "speaker": "dev1",
    "concept": "Self-managing Developers",
-   "scene": "Ines looks at the list. \"Five items is too many for two days. I think we can finish three.\" Marlo frowns: \"Can't you just do all five?\"",
+   "scene": "Ines looks at the long list. \"There are eight items here. Five is what we can finish in two days.\" Marlo frowns: \"Can't you just do all eight?\"",
    "question": "Who decides how many items the team takes into the Sprint?",
    "choices": [
-    {"id": "a", "text": "Marlo, because she owns the backlog", "feedback": "Marlo decides what matters most, but she cannot force a workload on people who know how long the work takes."},
-    {"id": "b", "text": "The Developers, who forecast what they can finish", "correct": true, "feedback": "Yes. The Developers are self-managing: they choose how much they can take and how to do it. You can help the talk between Marlo and the team stay respectful."},
-    {"id": "c", "text": "The Scrum Master, by assigning work to each person", "feedback": "A Scrum Master does not hand out tasks. Developers decide who does what themselves."}
+    {
+     "id": "a",
+     "text": "Marlo, because she owns the backlog",
+     "feedback": "Marlo decides what matters most, but she cannot force a workload on people who know how long the work takes."
+    },
+    {
+     "id": "b",
+     "text": "The Developers, who forecast what they can finish",
+     "correct": true,
+     "feedback": "Yes. The Developers are self-managing: they choose how much they can take and how to do it. You can help the talk between Marlo and the team stay respectful."
+    },
+    {
+     "id": "c",
+     "text": "The Scrum Master, by assigning work to each person",
+     "feedback": "A Scrum Master does not hand out tasks. Developers decide who does what themselves."
+    }
    ],
    "teach": "Sprint Backlog: the items the Developers choose for this Sprint, plus their plan. Only they decide how much fits."
   },
   {
-   "id": "s1_daily_purpose", "sprint": 1, "when": "daily_1", "kind": "quiz", "speaker": "dev2",
+   "id": "s1_daily_purpose",
+   "sprint": 1,
+   "when": "daily_1",
+   "kind": "quiz",
+   "speaker": "dev2",
    "concept": "Daily Scrum",
    "scene": "Day 1 starts with the Daily Scrum. Tobi whispers, \"Is this the meeting where we report to Marlo?\"",
    "question": "What is the Daily Scrum for?",
    "choices": [
-    {"id": "a", "text": "Reporting status to management", "feedback": "No. The Daily Scrum belongs to the Developers. It is not a report to anyone outside the team."},
-    {"id": "b", "text": "The Developers check progress toward the Sprint Goal and adjust the plan for the next day", "correct": true, "feedback": "Yes. It is a short meeting (at most 15 minutes) where the team inspects its progress and adapts. Honest answers matter, because a plan built on a hidden problem fails."},
-    {"id": "c", "text": "Deciding who is to blame for problems", "feedback": "Blame makes people hide problems. The meeting is for seeing where the work really stands."}
+    {
+     "id": "a",
+     "text": "Reporting status to management",
+     "feedback": "No. The Daily Scrum belongs to the Developers. It is not a report to anyone outside the team."
+    },
+    {
+     "id": "b",
+     "text": "The Developers check progress toward the Sprint Goal and adjust the plan for the next day",
+     "correct": true,
+     "feedback": "Yes. It is a short meeting (at most 15 minutes) where the team inspects its progress and adapts. Honest answers matter, because a plan built on a hidden problem fails."
+    },
+    {
+     "id": "c",
+     "text": "Deciding who is to blame for problems",
+     "feedback": "Blame makes people hide problems. The meeting is for seeing where the work really stands."
+    }
    ],
    "teach": "Daily Scrum: a short daily check of progress toward the Sprint Goal. Be honest: hidden problems get bigger."
   },
   {
-   "id": "s1_impediment", "sprint": 1, "when": "daily_2", "kind": "quiz", "speaker": "dev2",
+   "id": "s1_impediment",
+   "sprint": 1,
+   "when": "daily_2",
+   "kind": "quiz",
+   "speaker": "dev2",
    "concept": "Removing impediments",
    "scene": "Day 2. Tobi admits he has been stuck since yesterday: \"I couldn't get the checkout test data, so I just waited.\"",
    "question": "As Scrum Master, what is the best response?",
    "choices": [
-    {"id": "a", "text": "Tell him to work around it quietly", "feedback": "That hides the problem. The next person who hits it loses time too."},
-    {"id": "b", "text": "Remove the blockage, or help the team do it, and make it visible", "correct": true, "feedback": "Yes. Removing impediments is core Scrum Master work. Doing it openly means the whole team learns where time is being lost."},
-    {"id": "c", "text": "Tell Marlo that Tobi is slow", "feedback": "That punishes the person who spoke up, so next time nobody will."}
+    {
+     "id": "a",
+     "text": "Tell him to work around it quietly",
+     "feedback": "That hides the problem. The next person who hits it loses time too."
+    },
+    {
+     "id": "b",
+     "text": "Remove the blockage, or help the team do it, and make it visible",
+     "correct": true,
+     "feedback": "Yes. Removing impediments is core Scrum Master work. Doing it openly means the whole team learns where time is being lost."
+    },
+    {
+     "id": "c",
+     "text": "Tell Marlo that Tobi is slow",
+     "feedback": "That punishes the person who spoke up, so next time nobody will."
+    }
    ],
    "teach": "Impediment: anything that blocks the team. Clearing impediments is a Scrum Master's main job."
   },
   {
-   "id": "s1_increment", "sprint": 1, "when": "review", "kind": "quiz", "speaker": "po",
+   "id": "s1_increment",
+   "sprint": 1,
+   "when": "review",
+   "kind": "quiz",
+   "speaker": "po",
    "concept": "Increment and Definition of Done",
    "scene": "Sprint Review. Marlo and the team look at what was actually made. {done_line}",
    "question": "Which work counts as part of the Increment?",
    "choices": [
-    {"id": "a", "text": "Everything the team touched this Sprint", "feedback": "Unfinished work cannot be used by customers, so it is not part of the Increment."},
-    {"id": "b", "text": "Only work that meets the Definition of Done", "correct": true, "feedback": "Yes. The Increment is the usable result, and \"usable\" is defined by the Definition of Done. Skipping the checklist does not make work Done, it only makes it look Done."},
-    {"id": "c", "text": "Whatever the Developers feel is ready", "feedback": "Feelings differ. A shared Definition of Done is what makes \"finished\" mean the same thing to everyone."}
+    {
+     "id": "a",
+     "text": "Everything the team touched this Sprint",
+     "feedback": "Unfinished work cannot be used by customers, so it is not part of the Increment."
+    },
+    {
+     "id": "b",
+     "text": "Only work that meets the Definition of Done",
+     "correct": true,
+     "feedback": "Yes. The Increment is the usable result, and \"usable\" is defined by the Definition of Done. Skipping the checklist does not make work Done, it only makes it look Done."
+    },
+    {
+     "id": "c",
+     "text": "Whatever the Developers feel is ready",
+     "feedback": "Feelings differ. A shared Definition of Done is what makes \"finished\" mean the same thing to everyone."
+    }
    ],
    "teach": "Increment: the usable result of the Sprint. Work only counts when it meets the Definition of Done."
   },
   {
-   "id": "s1_review_adapt", "sprint": 1, "when": "review", "kind": "quiz", "speaker": "po",
+   "id": "s1_review_adapt",
+   "sprint": 1,
+   "when": "review",
+   "kind": "quiz",
+   "speaker": "po",
    "concept": "Inspect and adapt",
    "scene": "Marlo reads what users say in Play Storey. \"People like the new prices, but now they ask about shipping and loyalty.\"",
    "question": "What happens to the Product Backlog after the Sprint Review?",
    "choices": [
-    {"id": "a", "text": "It stays exactly as it was", "feedback": "Then the review would teach nothing. Real feedback should change what you build next."},
-    {"id": "b", "text": "The Product Owner adjusts it based on what the team learned", "correct": true, "feedback": "Yes. This is inspect and adapt: look at the real result, then change the plan. That is the heart of Scrum."},
-    {"id": "c", "text": "The Scrum Master rewrites it", "feedback": "The Product Backlog is the Product Owner's. You help make the process work, not the plan."}
+    {
+     "id": "a",
+     "text": "It stays exactly as it was",
+     "feedback": "Then the review would teach nothing. Real feedback should change what you build next."
+    },
+    {
+     "id": "b",
+     "text": "The Product Owner adjusts it based on what the team learned",
+     "correct": true,
+     "feedback": "Yes. This is inspect and adapt: look at the real result, then change the plan. That is the heart of Scrum."
+    },
+    {
+     "id": "c",
+     "text": "The Scrum Master rewrites it",
+     "feedback": "The Product Backlog is the Product Owner's. You help make the process work, not the plan."
+    }
    ],
    "teach": "Sprint Review: inspect the Increment with stakeholders, then adapt the Product Backlog."
   },
   {
-   "id": "s1_retro_purpose", "sprint": 1, "when": "retro", "kind": "quiz", "speaker": "dev1",
+   "id": "s1_retro_purpose",
+   "sprint": 1,
+   "when": "retro",
+   "kind": "quiz",
+   "speaker": "dev1",
    "concept": "Sprint Retrospective",
    "scene": "Last event of the Sprint: the Retrospective. Ines asks, \"Are we going to talk about who caused the bugs?\"",
    "question": "What is the Retrospective for?",
    "choices": [
-    {"id": "a", "text": "Finding out who is to blame", "feedback": "Blame ends honesty. The Retrospective looks at how we work, not at who to punish."},
-    {"id": "b", "text": "Looking at how the team worked and choosing improvements for the next Sprint", "correct": true, "feedback": "Yes. The team inspects its own people, process and tools, then agrees on at least one improvement to try next Sprint."},
-    {"id": "c", "text": "Showing the product to customers", "feedback": "That is the Sprint Review. The Retrospective is about the team itself."}
+    {
+     "id": "a",
+     "text": "Finding out who is to blame",
+     "feedback": "Blame ends honesty. The Retrospective looks at how we work, not at who to punish."
+    },
+    {
+     "id": "b",
+     "text": "Looking at how the team worked and choosing improvements for the next Sprint",
+     "correct": true,
+     "feedback": "Yes. The team inspects its own people, process and tools, then agrees on at least one improvement to try next Sprint."
+    },
+    {
+     "id": "c",
+     "text": "Showing the product to customers",
+     "feedback": "That is the Sprint Review. The Retrospective is about the team itself."
+    }
    ],
    "teach": "Retrospective: the team inspects how it worked and picks improvements for the next Sprint."
   },
   {
-   "id": "s1_retro_pick", "sprint": 1, "when": "retro", "kind": "pick", "speaker": "heron",
+   "id": "s1_retro_pick",
+   "sprint": 1,
+   "when": "retro",
+   "kind": "pick",
+   "speaker": "heron",
    "concept": "Choose one improvement",
    "scene": "{retro_facts} Pick ONE thing to try next Sprint. A small change the team will really do beats a long list nobody follows.",
    "question": "What will the team try next Sprint?",
-   "pool": ["definition_of_done_p", "pair_programming", "swarming", "wip_limit"],
+   "pool": [
+    "definition_of_done_p",
+    "pair_programming",
+    "swarming",
+    "wip_limit"
+   ],
    "teach": "A Retrospective ends with a concrete improvement, then the next Sprint shows whether it helped."
   },
   {
-   "id": "s2_refine", "sprint": 2, "when": "planning", "kind": "quiz", "speaker": "po",
+   "id": "s2_refine",
+   "sprint": 2,
+   "when": "planning",
+   "kind": "quiz",
+   "speaker": "po",
    "concept": "Backlog refinement",
    "scene": "Sprint 2 Planning. Last Sprint's review changed the order of the backlog. One item, \"Split the bill\", is still vague: nobody knows what it should do exactly.",
    "question": "What should happen before a vague item is taken into a Sprint?",
    "choices": [
-    {"id": "a", "text": "Take it in and figure it out later", "feedback": "Vague work breaks the Sprint: the team starts, gets stuck, and misses the goal."},
-    {"id": "b", "text": "Marlo and the Developers talk it through until it is clear and small enough", "correct": true, "feedback": "Yes. That is backlog refinement: breaking items down and adding detail so the team can plan them with confidence."},
-    {"id": "c", "text": "The Scrum Master writes the details alone", "feedback": "The detail has to come from the people who know the need (Marlo) and the work (the Developers)."}
+    {
+     "id": "a",
+     "text": "Take it in and figure it out later",
+     "feedback": "Vague work breaks the Sprint: the team starts, gets stuck, and misses the goal."
+    },
+    {
+     "id": "b",
+     "text": "Marlo and the Developers talk it through until it is clear and small enough",
+     "correct": true,
+     "feedback": "Yes. That is backlog refinement: breaking items down and adding detail so the team can plan them with confidence."
+    },
+    {
+     "id": "c",
+     "text": "The Scrum Master writes the details alone",
+     "feedback": "The detail has to come from the people who know the need (Marlo) and the work (the Developers)."
+    }
    ],
    "teach": "Backlog refinement: making upcoming items clear and small enough to plan."
   },
   {
-   "id": "s2_goal", "sprint": 2, "when": "planning", "kind": "quiz", "speaker": "po",
+   "id": "s2_goal",
+   "sprint": 2,
+   "when": "planning",
+   "kind": "quiz",
+   "speaker": "po",
    "concept": "Sprint Goal",
    "scene": "Marlo and the team look at the three items they can take in: a loyalty discount, a loyalty points page and the ratings page.",
    "question": "Which goal gives these three items a shared purpose?",
    "choices": [
-    {"id": "a", "text": "Close three tickets", "feedback": "That counts tasks. It does not say what changes for users."},
-    {"id": "b", "text": "Loyal customers get the rewards they were promised", "correct": true, "feedback": "Yes. It ties the work to a user outcome, and it tells the team which item to protect if time runs short."},
-    {"id": "c", "text": "Make the team faster than last Sprint", "feedback": "Speed is not a user outcome, and comparing teams that way pushes people to cut corners."}
+    {
+     "id": "a",
+     "text": "Close three tickets",
+     "feedback": "That counts tasks. It does not say what changes for users."
+    },
+    {
+     "id": "b",
+     "text": "Loyal customers get the rewards they were promised",
+     "correct": true,
+     "feedback": "Yes. It ties the work to a user outcome, and it tells the team which item to protect if time runs short."
+    },
+    {
+     "id": "c",
+     "text": "Make the team faster than last Sprint",
+     "feedback": "Speed is not a user outcome, and comparing teams that way pushes people to cut corners."
+    }
    ],
    "teach": "A good Sprint Goal names an outcome for users, not a pile of tasks."
   },
   {
-   "id": "s2_scope", "sprint": 2, "when": "daily_2", "kind": "quiz", "speaker": "po",
+   "id": "s2_scope",
+   "sprint": 2,
+   "when": "daily_2",
+   "kind": "quiz",
+   "speaker": "po",
    "concept": "Protecting the Sprint",
    "scene": "Marlo rushes in on day 2. \"Sales just promised a client a Gift Card feature. Add it to this Sprint, today!\"",
    "question": "What does the Scrum Master do?",
    "choices": [
-    {"id": "a", "text": "Add it, Marlo is the boss", "feedback": "That breaks the plan the Developers committed to and puts the Sprint Goal at risk."},
-    {"id": "b", "text": "Refuse to talk to Marlo", "feedback": "Shutting out the Product Owner does not help. Scrum depends on working together."},
-    {"id": "c", "text": "Keep the Sprint Goal fixed. Talk with Marlo and the Developers: scope can be renegotiated if the goal is at risk, otherwise the Gift Card goes on the Product Backlog for the next planning", "correct": true, "feedback": "Yes. The goal stays steady, the new idea is not lost, and the Product Owner and Developers decide together what the team can do."}
+    {
+     "id": "a",
+     "text": "Add it, Marlo is the boss",
+     "feedback": "That breaks the plan the Developers committed to and puts the Sprint Goal at risk."
+    },
+    {
+     "id": "b",
+     "text": "Refuse to talk to Marlo",
+     "feedback": "Shutting out the Product Owner does not help. Scrum depends on working together."
+    },
+    {
+     "id": "c",
+     "text": "Keep the Sprint Goal fixed. Talk with Marlo and the Developers: scope can be renegotiated if the goal is at risk, otherwise the Gift Card goes on the Product Backlog for the next planning",
+     "correct": true,
+     "feedback": "Yes. The goal stays steady, the new idea is not lost, and the Product Owner and Developers decide together what the team can do."
+    }
    ],
    "teach": "Mid-Sprint changes must not endanger the Sprint Goal. New ideas go on the Product Backlog."
   },
   {
-   "id": "s2_dod", "sprint": 2, "when": "review", "kind": "quiz", "speaker": "po",
+   "id": "s2_dod",
+   "sprint": 2,
+   "when": "review",
+   "kind": "quiz",
+   "speaker": "po",
    "concept": "Definition of Done",
    "scene": "Sprint 2 Review. {done_line}",
    "question": "A change was sent to users with a box on the Done checklist left unticked. Is it part of the Increment?",
    "choices": [
-    {"id": "a", "text": "Yes, it is already in the app", "feedback": "Being in the app is not the same as being Done. Hidden problems come back later as bugs."},
-    {"id": "b", "text": "No. It does not meet the Definition of Done, so it is not a finished Increment", "correct": true, "feedback": "Yes. Be honest about what is Done. Unfinished work goes back on the Product Backlog."}
+    {
+     "id": "a",
+     "text": "Yes, it is already in the app",
+     "feedback": "Being in the app is not the same as being Done. Hidden problems come back later as bugs."
+    },
+    {
+     "id": "b",
+     "text": "No. It does not meet the Definition of Done, so it is not a finished Increment",
+     "correct": true,
+     "feedback": "Yes. Be honest about what is Done. Unfinished work goes back on the Product Backlog."
+    }
    ],
    "teach": "Not Done means not Done. Hiding that only moves the cost to later Sprints."
   },
   {
-   "id": "s2_retro_pick", "sprint": 2, "when": "retro", "kind": "pick", "speaker": "heron",
+   "id": "s2_retro_pick",
+   "sprint": 2,
+   "when": "retro",
+   "kind": "pick",
+   "speaker": "heron",
    "concept": "Choose one improvement",
    "scene": "{retro_facts} Look at what the team did, then pick ONE improvement for Sprint 3.",
    "question": "What will the team try next Sprint?",
-   "pool": ["definition_of_done_p", "pair_programming", "swarming", "psychological_safety", "wip_limit"],
+   "pool": [
+    "definition_of_done_p",
+    "pair_programming",
+    "swarming",
+    "psychological_safety",
+    "wip_limit"
+   ],
    "teach": "Improvements should come from evidence, like the numbers above, not from guessing."
   },
   {
-   "id": "s3_dod_security", "sprint": 3, "when": "planning", "kind": "quiz", "speaker": "dev1",
+   "id": "s3_dod_security",
+   "sprint": 3,
+   "when": "planning",
+   "kind": "quiz",
+   "speaker": "dev1",
    "concept": "Quality in the Definition of Done",
    "scene": "Sprint 3 is about customer data. Ines: \"Last time a query passed every example but could still be abused. Tests only check what we thought to test.\"",
    "question": "What is the best way to handle that?",
    "choices": [
-    {"id": "a", "text": "Trust green tests. They are enough", "feedback": "Tests only prove what they check. A security hole can sit where nobody looked."},
-    {"id": "b", "text": "Put \"no security concern\" in the Definition of Done and have someone read the code", "correct": true, "feedback": "Yes. Quality belongs in the Definition of Done, so it is checked every time and not only when someone remembers."}
+    {
+     "id": "a",
+     "text": "Trust green tests. They are enough",
+     "feedback": "Tests only prove what they check. A security hole can sit where nobody looked."
+    },
+    {
+     "id": "b",
+     "text": "Put \"no security concern\" in the Definition of Done and have someone read the code",
+     "correct": true,
+     "feedback": "Yes. Quality belongs in the Definition of Done, so it is checked every time and not only when someone remembers."
+    }
    ],
    "teach": "Quality is part of Done. The checklist is how the team keeps its promise to users."
   },
   {
-   "id": "s3_pressure", "sprint": 3, "when": "daily_2", "kind": "quiz", "speaker": "po",
+   "id": "s3_pressure",
+   "sprint": 3,
+   "when": "daily_2",
+   "kind": "quiz",
+   "speaker": "po",
    "concept": "Courage and transparency",
    "scene": "Day 2. Marlo, nervous about an investor call: \"We're running behind. Just ship it and skip the checklist. We'll tidy up later.\"",
    "question": "What does a good Scrum Master do?",
    "choices": [
-    {"id": "a", "text": "Skip it this once to keep Marlo happy", "feedback": "\"Just this once\" becomes the habit, and the hidden problems come back as bugs."},
-    {"id": "b", "text": "Show Marlo what is Done and what is not, and let her decide with the facts", "correct": true, "feedback": "Yes. Transparency lets the Product Owner decide with the real picture, and the Definition of Done is not quietly dropped."}
+    {
+     "id": "a",
+     "text": "Skip it this once to keep Marlo happy",
+     "feedback": "\"Just this once\" becomes the habit, and the hidden problems come back as bugs."
+    },
+    {
+     "id": "b",
+     "text": "Show Marlo what is Done and what is not, and let her decide with the facts",
+     "correct": true,
+     "feedback": "Yes. Transparency lets the Product Owner decide with the real picture, and the Definition of Done is not quietly dropped."
+    }
    ],
    "teach": "Scrum values include courage and openness: say what is true, even when it is uncomfortable."
   },
   {
-   "id": "s3_pillars", "sprint": 3, "when": "retro", "kind": "quiz", "speaker": "heron",
+   "id": "s3_pillars",
+   "sprint": 3,
+   "when": "retro",
+   "kind": "quiz",
+   "speaker": "heron",
    "concept": "The three pillars of Scrum",
    "scene": "You have now run three Sprints. Think about what you did: you showed the real state of the work, you looked at it together, and you changed what you do.",
    "question": "Which three ideas hold Scrum together?",
    "choices": [
-    {"id": "a", "text": "Speed, status and control", "feedback": "Those describe a command-and-control style, not Scrum."},
-    {"id": "b", "text": "Transparency, inspection and adaptation", "correct": true, "feedback": "Yes. Make the work visible, look at it honestly, and change course when it helps. Every Scrum event exists to do those three things."},
-    {"id": "c", "text": "Planning, deadlines and reports", "feedback": "Scrum is built around short cycles and learning, not around deadlines and reports."}
+    {
+     "id": "a",
+     "text": "Speed, status and control",
+     "feedback": "Those describe a command-and-control style, not Scrum."
+    },
+    {
+     "id": "b",
+     "text": "Transparency, inspection and adaptation",
+     "correct": true,
+     "feedback": "Yes. Make the work visible, look at it honestly, and change course when it helps. Every Scrum event exists to do those three things."
+    },
+    {
+     "id": "c",
+     "text": "Planning, deadlines and reports",
+     "feedback": "Scrum is built around short cycles and learning, not around deadlines and reports."
+    }
    ],
    "teach": "Transparency, inspection, adaptation: every Scrum event exists to do these three things."
   },
   {
-   "id": "s3_retro_pick", "sprint": 3, "when": "retro", "kind": "pick", "speaker": "heron",
+   "id": "s3_retro_pick",
+   "sprint": 3,
+   "when": "retro",
+   "kind": "pick",
+   "speaker": "heron",
    "concept": "Choose one improvement",
    "scene": "{retro_facts} That was your last Sprint. Pick the one habit you would keep.",
    "question": "What would the team keep doing?",
-   "pool": ["definition_of_done_p", "pair_programming", "swarming", "psychological_safety", "wip_limit"],
+   "pool": [
+    "definition_of_done_p",
+    "pair_programming",
+    "swarming",
+    "psychological_safety",
+    "wip_limit"
+   ],
    "teach": "Every Sprint ends with learning. Scrum teams keep improving for as long as they work together."
   }
- ]
+ ],
+ "summary": {
+  "low": {
+   "headline": "That was a rough run, and a useful one.",
+   "intro": "You finished with a final Grade of {final}%. Let's look at what happened and how to do better."
+  },
+  "mid": {
+   "headline": "A solid run with room to polish.",
+   "intro": "You finished with a final Grade of {final}%. Here is what worked and what to tighten up."
+  },
+  "high": {
+   "headline": "Outstanding Scrum Mastering!",
+   "intro": "You finished with a final Grade of {final}%. The team would follow you anywhere."
+  },
+  "wrong": {
+   "wrong_scene": "You picked {n} wrong answer{s} in the Scrum scenes.",
+   "vague": "You gave {n} vague Daily Scrum answer{s}.",
+   "lie": "You gave {n} untrue Daily Scrum answer{s}.",
+   "put_down": "You put down {n} item{s}, which cost trust, Grade and rating.",
+   "wrong_line": "You clicked {n} wrong line{s} while looking for a bug.",
+   "failed_test": "{n} of your tests failed.",
+   "hidden_surfaced": "{n} hidden problem{s} came out at a Sprint Review as harder work."
+  },
+  "improve": {
+   "wrong_scene": "Read the explanation after a wrong answer: each scene teaches one Scrum idea you will meet again.",
+   "vague": "Say where things really stand at the Daily Scrum. Vague answers leave hidden problems for later.",
+   "lie": "An untrue answer wins rating today and costs trust and harder work tomorrow. Be honest.",
+   "put_down": "Instead of putting an item down, fix it yourself or hand it to a teammate who hasn't failed it.",
+   "wrong_line": "Compare each line with the description before you click. The line that does something different is the bug.",
+   "failed_test": "Check your fix against the description before you test: a failed test costs the whole team.",
+   "hidden_surfaced": "Hidden problems come from vague or untrue Daily Scrum answers. Honest answers keep your backlog small."
+  },
+  "well": {
+   "honest": "You gave {n} honest Daily Scrum answer{s}, which built trust.",
+   "done": "You got {n} item{s} truly Done against the Definition of Done.",
+   "clean": "You never put an item down.",
+   "help": "You helped your teammates {n} time{s} when they asked.",
+   "scenes": "You answered every Scrum scene correctly on the first try."
+  },
+  "generic_mistake": "No big mistakes stand out, which is a good sign.",
+  "generic_improve": "Keep practising: Scrum gets easier the more Sprints you run."
+ }
 }

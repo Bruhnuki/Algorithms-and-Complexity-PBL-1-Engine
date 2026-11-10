@@ -1,0 +1,94 @@
+{
+ "id": "hidden_bundle",
+ "kind": "fix",
+ "difficulty": 2,
+ "concept": "conditions",
+ "title": "Bundle discount is missing",
+ "doc": "bundle(a, b) returns the total of two items minus a bundle discount of 5. Right now the discount is 0.",
+ "params": [
+  "a",
+  "b"
+ ],
+ "examples": [
+  {
+   "input": [
+    20,
+    30
+   ],
+   "expected": 45
+  },
+  {
+   "input": [
+    10,
+    10
+   ],
+   "expected": 15
+  },
+  {
+   "input": [
+    100,
+    50
+   ],
+   "expected": 145
+  },
+  {
+   "input": [
+    5,
+    5
+   ],
+   "expected": 5
+  },
+  {
+   "input": [
+    60,
+    40
+   ],
+   "expected": 95
+  }
+ ],
+ "source": [
+  "function bundle(a, b) {",
+  "  total = a + b",
+  "  discount = 0",
+  "  return total - discount",
+  "}"
+ ],
+ "buggy_line": 3,
+ "blank_line": null,
+ "run_shows_failure": true,
+ "options": [
+  {
+   "id": "a",
+   "text": "  discount = 5",
+   "effect": "correct",
+   "bug_type": null,
+   "run_outcome": "pass"
+  },
+  {
+   "id": "b",
+   "text": "  discount = 50",
+   "effect": "wrong_hidden",
+   "bug_type": "wrong_result",
+   "run_outcome": "fail"
+  },
+  {
+   "id": "c",
+   "text": "  discount = fee",
+   "effect": "crashes",
+   "bug_type": "runtime_error",
+   "run_outcome": "error"
+  },
+  {
+   "id": "d",
+   "text": "  discount = 10 - 5",
+   "effect": "correct_small_flaw",
+   "bug_type": "sloppy_fix",
+   "run_outcome": "pass"
+  }
+ ],
+ "glossary": {
+  "==": "Checks whether two things are equal.",
+  "if": "Runs the next block only when the condition is true."
+ },
+ "original_outcome": "fail"
+}

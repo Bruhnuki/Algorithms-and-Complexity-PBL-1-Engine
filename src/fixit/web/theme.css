@@ -12,7 +12,7 @@
   --orange:#FF9600; --orange-d:#E08600;
 
   /* app header colours (white text sits on these) */
-  --app-slack:#8E4DB8; --app-github:#3B4252; --app-play:#3F8A00; --app-youtube:#D12A2A; --app-shop:#B86A00;
+  --app-slack:#8E4DB8; --app-github:#3B4252; --app-play:#3F8A00; --app-shop:#B86A00;
 
   /* shape */
   --radius:16px;      /* cards, buttons */

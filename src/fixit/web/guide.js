@@ -24,6 +24,7 @@ export const TERMS = {
   suspicion: ["Suspicion", "How close the company is to finding out you faked your résumé. At 100 you are caught."],
   strikes: ["Strikes", "Official warnings from management. Two strikes and you are demoted."],
   points: ["Points", "Your score."],
+  hidden: ["Hidden problem", "A problem nobody mentioned. It stays out of sight for now, then comes back later as harder items in the next Sprint, or as a lower rating in the last one."],
   grade: ["Grade", "Your grade for the project. It goes up as work meets the Definition of Done, and every item counts."],
   teamwork: ["Teamwork score", "How well you work like a real Scrum Master: holding standups, helping people, reviewing, being honest. Separate from points."],
   escalation: ["Getting louder", "Ignore a request and it comes back louder: first a message, then a call, then a meeting, and Suspicion goes up."],
@@ -53,7 +54,7 @@ export const CONCEPTS = {
   wave: { title: "Bug wave!", text: "Clear them all before time runs out.", terms: [] },
 };
 
-// Plain-language scoring guide (shown in ToobYou). Numbers are checked against balance.yaml by a test.
+// Plain-language scoring guide (kept for a test that checks the numbers). Numbers are checked against balance.yaml by a test.
 export const SCORING = {
   earn: [
     ["rocket", "Clean fix sent to users", "Tests pass, nothing risky.", "+100 pts"],

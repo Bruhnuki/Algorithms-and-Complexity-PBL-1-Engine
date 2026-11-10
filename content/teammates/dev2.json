@@ -36,5 +36,69 @@
    "Everyone wants an update. Sorry!",
    "The Product Owner is asking again, sorry."
   ]
+ },
+ "reactions": {
+  "react_standup_honest": [
+   "Oh thank goodness, honest answers! Sorry, I mean thank you.",
+   "Thanks for being honest about \"{item}\". It makes it easier to ask for help.",
+   "Honesty! Sorry, I'm just really relieved."
+  ],
+  "react_standup_vague": [
+   "Um, sorry, that doesn't tell me much about \"{item}\". Is it done?",
+   "Sorry to push, but what does \"fine\" mean for \"{item}\"?",
+   "Sorry, I got lost. Can you say it more clearly?"
+  ],
+  "react_standup_lie": [
+   "Sorry, but... I looked at \"{item}\" and I don't think that's right?",
+   "Oh no. I don't think everything's fine, sorry.",
+   "Sorry sorry, that doesn't match what I saw."
+  ],
+  "react_offload_ok": [
+   "I did \"{item}\"! Sorry, I mean, it's done.",
+   "\"{item}\" worked, I think! Please check?",
+   "Finished \"{item}\". I double-checked twice, sorry."
+  ],
+  "react_offload_fail": [
+   "Sorry sorry sorry, \"{item}\" didn't work out. It's back with you.",
+   "I broke it again, didn't I? \"{item}\" is back on your list, sorry.",
+   "Sorry, \"{item}\" was too much for me right now."
+  ],
+  "react_coached": [
+   "That helped so much, sorry for the trouble!",
+   "Thank you! I finally understand. I'm at {trust}% on this now, I think.",
+   "You're so patient. Sorry for asking."
+  ]
+ },
+ "reactions_low": {
+  "react_standup_honest": [
+   "Thank you for being honest. I... stopped relying on you, sorry. ({trust}%)",
+   "Honest, finally. I'm still nervous, sorry.",
+   "Sorry, I'll believe it when I see it."
+  ],
+  "react_standup_vague": [
+   "Sorry, but I can't plan around \"fine\". I don't trust it anymore.",
+   "Vague again, sorry. I don't know what to do.",
+   "Sorry, I'm at {trust}% on you. I need real answers."
+  ],
+  "react_standup_lie": [
+   "Sorry, but that isn't true. I'm done believing it.",
+   "I can't trust that, sorry. ({trust}%)",
+   "Please don't. Sorry. I know it's not right."
+  ],
+  "react_offload_ok": [
+   "\"{item}\" is done, sorry, but please stop piling things on me. ({trust}%)",
+   "I finished \"{item}\". I'm really tired of this, sorry.",
+   "Done. Maybe someone else next time? Sorry."
+  ],
+  "react_offload_fail": [
+   "Sorry, \"{item}\" failed. I can't carry everything. ({trust}%)",
+   "I tried. I really did. Sorry.",
+   "It didn't work, and I'm not surprised. Sorry."
+  ],
+  "react_coached": [
+   "Thanks. It's the first time in a while someone helped. Sorry, that sounded bitter.",
+   "Okay, that was kind. Thank you.",
+   "Thank you. I'll try to trust you again."
+  ]
  }
 }

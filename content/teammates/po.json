@@ -36,5 +36,44 @@
    "Give me numbers. How far along is it?",
    "The board wants a progress report. Now, please."
   ]
+ },
+ "reactions": {
+  "react_push": [
+   "\"{item}\" shipped? Love the velocity. Let's circle back on the KPIs.",
+   "Great, \"{item}\" is live. That moves the needle on our checkout funnel!",
+   "Another deliverable out the door: \"{item}\". Keep that momentum!"
+  ],
+  "react_review": [
+   "Sprint {sprint} review: {done} of {total} items landed, rating at {rating}. Let's leverage those learnings!",
+   "Rating's {rating} after Sprint {sprint}. Let's align and iterate on the backlog.",
+   "{done} items done this Sprint. Not bad, let's double-click on what slipped."
+  ],
+  "react_review_hidden": [
+   "I'm seeing {n_hidden} harder item(s) surface for Sprint {next}. Let's take that offline and unblock!",
+   "Heads up: {n_hidden} tougher item(s) are headed into Sprint {next}. Rating's {rating}. Let's pivot.",
+   "Those hidden issues just became {n_hidden} harder item(s) for Sprint {next}. Synergy, people!"
+  ],
+  "sprint_open": [
+   "Sprint {sprint} kickoff! Goal: {goal}. Let's execute!",
+   "Welcome to Sprint {sprint}: {goal}. Synergy time, team!",
+   "New Sprint, new momentum: {goal}. Let's go go go!"
+  ]
+ },
+ "reactions_low": {
+  "react_push": [
+   "\"{item}\" shipped, fine. The team's trust in you is low. Fix that.",
+   "\"{item}\" is live, but trust is at {trust}%. I'm watching.",
+   "Another item out: \"{item}\". The team isn't convinced yet."
+  ],
+  "react_review": [
+   "Rating's {rating} and trust is at {trust}%. Let's reset expectations for Sprint {sprint}.",
+   "{done} of {total} landed, but the team's confidence is shaky. Let's course-correct.",
+   "Sprint {sprint}: {done} items, trust {trust}%. We need to realign, fast."
+  ],
+  "react_review_hidden": [
+   "Trust is at {trust}% and now {n_hidden} harder item(s) hit Sprint {next}. That's on us.",
+   "{n_hidden} tougher item(s) for Sprint {next}, with morale this low. Let's be careful.",
+   "Hidden issues became {n_hidden} harder item(s) for Sprint {next}. Trust is {trust}%. Not great."
+  ]
  }
 }

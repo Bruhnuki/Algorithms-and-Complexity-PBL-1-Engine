@@ -1,0 +1,10 @@
+{
+ "id": "hr_challenge_vip",
+ "type": "challenge",
+ "ticket": "help_vip",
+ "title": "VIP label",
+ "intros": {
+  "dev2": "Sorry sorry, can you look at this? VIPs show up as \"regular\" and I can't see why.",
+  "dev1": "VIP customers are being labelled \"regular\". Take a look, you might spot it faster than I did."
+ }
+}

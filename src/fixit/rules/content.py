@@ -22,11 +22,12 @@ class Content:
     teammates: dict
     version: str = "content-1"
     guide: dict = field(default_factory=dict)   # guided Scrum scenes (content/scrum_guide.json)
+    help: dict = field(default_factory=dict)    # Help requests: scenarios and coding challenges (content/help_requests)
 
     @property
     def pool(self) -> list[str]:
-        """Ticket ids the arcade deals draw from: practice tickets belong to the tutorial only."""
-        return sorted(t for t in self.tickets if not t.startswith("practice_"))
+        """Ticket ids the arcade deals draw from: practice tickets belong to the tutorial, hidden-problem tickets to the Scrum guide."""
+        return sorted(t for t in self.tickets if not t.startswith(("practice_", "hidden_", "story_", "help_")))
 
     @property
     def allowed(self) -> set[str]:
@@ -67,7 +68,8 @@ def load(root: Path = ROOT) -> Content:
     return Content(
         balance=yaml.safe_load((root / "balance.yaml").read_text(encoding="utf-8")),
         tickets=many("tickets", "ticket"), tutorials=many("tutorials", "tutorial"),
-        teammates=many("teammates", "teammate"), guide=guide)
+        teammates=many("teammates", "teammate"), guide=guide,
+        help={h["id"]: h for h in (_json(p) for p in sorted((root / "help_requests").glob("*.json")))} if (root / "help_requests").exists() else {})
 
 
 _cache: Content | None = None

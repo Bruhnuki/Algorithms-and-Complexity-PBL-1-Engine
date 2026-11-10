@@ -1,0 +1,90 @@
+{
+ "id": "help_cart",
+ "kind": "fix",
+ "difficulty": 1,
+ "concept": "conditions",
+ "title": "Empty carts look full",
+ "doc": "cart_note(items) must return \"empty\" when the cart has no items (items is 0) and \"has items\" otherwise. Right now an empty cart says \"has items\".",
+ "params": [
+  "items"
+ ],
+ "examples": [
+  {
+   "input": [
+    0
+   ],
+   "expected": "empty"
+  },
+  {
+   "input": [
+    2
+   ],
+   "expected": "has items"
+  },
+  {
+   "input": [
+    0
+   ],
+   "expected": "empty"
+  },
+  {
+   "input": [
+    5
+   ],
+   "expected": "has items"
+  },
+  {
+   "input": [
+    0
+   ],
+   "expected": "empty"
+  }
+ ],
+ "source": [
+  "function cart_note(items) {",
+  "  if items == 0 {",
+  "    return \"has items\"",
+  "  } else {",
+  "    return \"has items\"",
+  "  }",
+  "}"
+ ],
+ "buggy_line": 3,
+ "blank_line": null,
+ "run_shows_failure": true,
+ "options": [
+  {
+   "id": "a",
+   "text": "    return \"empty\"",
+   "effect": "correct",
+   "bug_type": null,
+   "run_outcome": "pass"
+  },
+  {
+   "id": "b",
+   "text": "    return \"none\"",
+   "effect": "wrong_hidden",
+   "bug_type": "wrong_result",
+   "run_outcome": "fail"
+  },
+  {
+   "id": "c",
+   "text": "    return note",
+   "effect": "crashes",
+   "bug_type": "runtime_error",
+   "run_outcome": "error"
+  },
+  {
+   "id": "d",
+   "text": "    return \"empty\" + \"\"",
+   "effect": "correct_small_flaw",
+   "bug_type": "sloppy_fix",
+   "run_outcome": "pass"
+  }
+ ],
+ "glossary": {
+  "==": "Checks whether two things are equal.",
+  "if": "Runs the next block only when the condition is true."
+ },
+ "original_outcome": "fail"
+}

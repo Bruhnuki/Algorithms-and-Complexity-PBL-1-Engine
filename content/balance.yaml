@@ -379,10 +379,21 @@ calm:
   dod_skip_trust: 4            # sending work with an unticked Done box costs both teammates this much trust...
   honest_push_trust: 2         # ...and a fully honest send rebuilds it
   rating_per_point: 0.05       # the Daily Scrum effects are on a 0-100 scale; 1 point = 0.05 stars
-  standup:                     # what each Daily Scrum answer does: rating points now, trust (asking teammate), and a hidden problem that surfaces at the Review
-    accurate: {rating: 3,  trust: 3,   hidden: 0}
-    vague:    {rating: 0,  trust: -5,  hidden: 3}
-    wrong:    {rating: 10, trust: -15, hidden: 12}
-  feed_interval_s: 60          # real seconds between new items in GitHab once Work starts (not in the tutorial)
-  help_call_at_min: 120        # minute of the sprint when a teammate asks for help
+  standup:                     # what each Daily Scrum answer does: rating points (1 point = 0.05 stars, so 10 = 0.5 stars), trust (asking teammate), and a hidden problem: harder items (`items`) land in the next Sprint (in the last Sprint it costs `hidden` rating points instead)
+    accurate: {rating: 3,   trust: 3,   hidden: 0,  items: 0}
+    vague:    {rating: -10, trust: 15,  hidden: 3,  items: 1}
+    wrong:    {rating: 10,  trust: -15, hidden: 12, items: 2}
+  penalties:                   # mistakes cost the whole team. grade = Grade points, trust = trust points for BOTH teammates
+    wrong_line:   {grade: 1,  trust: 1}      # every wrong line clicked
+    failed_test:  {grade: 1,  trust: 1}      # every failed test
+    wrong_answer: {grade: 2,  trust: 1}      # every wrong answer in a Scrum scene
+    put_down:     {grade: 30, trust: 20, rating: 2.0, rating_floor: 2.0}   # "Put it down": rating loss is capped so the rating never goes below the floor (a put-down alone can never end the run)
+  help:                        # Help requests (scenario answers carry their own trust values in content/help_requests)
+    challenge_fail: 3          # trust lost per failed test or wrong line in a coding challenge
+    challenge_solved: 3        # trust gained when it is solved
+    after_items: 1             # the Help request arrives after this many of the day-2 items
+  feed_min_s: 10               # a new item arrives every feed_min_s..feed_max_s real seconds once Work starts (not in the practice Sprint)
+  feed_max_s: 20
+  day1_items: 3                # items that arrive on day 1 (the rest, the Help request and any harder items arrive on day 2)
+  final_grade: {grade_weight: 0.7, rating_weight: 0.3, low_below: 50, high_above: 85}
   perks: []                    # nothing is sold: Points became the Grade

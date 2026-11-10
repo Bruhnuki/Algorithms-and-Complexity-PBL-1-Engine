@@ -1,0 +1,90 @@
+{
+ "id": "story_streak",
+ "kind": "fix",
+ "difficulty": 1,
+ "concept": "conditions",
+ "title": "Streak bonus is missing",
+ "doc": "streak_bonus(days) must return 0 for no streak (days is 0) and 5 points for any streak of one day or more. Right now streaks earn nothing.",
+ "params": [
+  "days"
+ ],
+ "examples": [
+  {
+   "input": [
+    0
+   ],
+   "expected": 0
+  },
+  {
+   "input": [
+    3
+   ],
+   "expected": 5
+  },
+  {
+   "input": [
+    0
+   ],
+   "expected": 0
+  },
+  {
+   "input": [
+    1
+   ],
+   "expected": 5
+  },
+  {
+   "input": [
+    7
+   ],
+   "expected": 5
+  }
+ ],
+ "source": [
+  "function streak_bonus(days) {",
+  "  if days == 0 {",
+  "    return 0",
+  "  } else {",
+  "    return 0",
+  "  }",
+  "}"
+ ],
+ "buggy_line": 5,
+ "blank_line": null,
+ "run_shows_failure": true,
+ "options": [
+  {
+   "id": "a",
+   "text": "    return 5",
+   "effect": "correct",
+   "bug_type": null,
+   "run_outcome": "pass"
+  },
+  {
+   "id": "b",
+   "text": "    return 50",
+   "effect": "wrong_hidden",
+   "bug_type": "wrong_result",
+   "run_outcome": "fail"
+  },
+  {
+   "id": "c",
+   "text": "    return bonus",
+   "effect": "crashes",
+   "bug_type": "runtime_error",
+   "run_outcome": "error"
+  },
+  {
+   "id": "d",
+   "text": "    return 2 + 3",
+   "effect": "correct_small_flaw",
+   "bug_type": "sloppy_fix",
+   "run_outcome": "pass"
+  }
+ ],
+ "glossary": {
+  "==": "Checks whether two things are equal.",
+  "if": "Runs the next block only when the condition is true."
+ },
+ "original_outcome": "fail"
+}

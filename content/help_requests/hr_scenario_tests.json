@@ -1,0 +1,36 @@
+{
+ "id": "hr_scenario_tests",
+ "type": "scenario",
+ "title": "Failing tests before the demo",
+ "prompts": {
+  "dev2": "Sorry to bother you... my tests are failing and the demo is in an hour. Should I just push it anyway? Please say what to do.",
+  "dev1": "My tests are red, the demo is in an hour and Marlo is hovering. Be honest: do I push it or not?"
+ },
+ "answers": [
+  {
+   "id": "a",
+   "text": "Push it. We'll fix it after the demo.",
+   "trust": -5,
+   "feedback": "Shipping on red tests hides the problem. It will come back bigger."
+  },
+  {
+   "id": "b",
+   "text": "Look at the failing test together first.",
+   "trust": 3,
+   "best": true,
+   "feedback": "Yes. Understanding the failure first is faster than guessing, and the team learns from it."
+  },
+  {
+   "id": "c",
+   "text": "Tick the Done box and hope it works.",
+   "trust": -5,
+   "feedback": "A Done box you didn't earn is a lie to the whole team."
+  },
+  {
+   "id": "d",
+   "text": "Ask Marlo if the demo can slip a little.",
+   "trust": 0,
+   "feedback": "Talking to the Product Owner helps, but the failing test is still there."
+  }
+ ]
+}

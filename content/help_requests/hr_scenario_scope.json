@@ -1,0 +1,36 @@
+{
+ "id": "hr_scenario_scope",
+ "type": "scenario",
+ "title": "Marlo adds a feature mid-Sprint",
+ "prompts": {
+  "dev2": "Marlo just told me to add a Gift Card feature to this Sprint, today. I said okay, but... sorry, was that wrong?",
+  "dev1": "Marlo wants a Gift Card feature squeezed into this Sprint. Today. Do I just say yes?"
+ },
+ "answers": [
+  {
+   "id": "a",
+   "text": "Yes, Marlo is the boss. Add it.",
+   "trust": -5,
+   "feedback": "Adding work mid-Sprint can break the Sprint Goal."
+  },
+  {
+   "id": "b",
+   "text": "Keep the Sprint Goal, and put the Gift Card on the Product Backlog for the next Planning.",
+   "trust": 3,
+   "best": true,
+   "feedback": "Right. The goal stays steady and the idea isn't lost."
+  },
+  {
+   "id": "c",
+   "text": "Add it only if you finish early.",
+   "trust": -1,
+   "feedback": "Closer, but it still sneaks scope into the Sprint without a conversation."
+  },
+  {
+   "id": "d",
+   "text": "Ignore Marlo until the Review.",
+   "trust": -3,
+   "feedback": "Shutting out the Product Owner doesn't help anyone."
+  }
+ ]
+}

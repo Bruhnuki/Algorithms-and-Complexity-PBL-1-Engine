@@ -36,5 +36,69 @@
    "Where are we on this? They keep asking.",
    "I told them it is in progress. Is that true?"
   ]
+ },
+ "reactions": {
+  "react_standup_honest": [
+   "Thanks for being straight with us. That's rarer than you'd think.",
+   "Honest, huh? Okay, I can work with that. Let's get \"{item}\" sorted.",
+   "Good. A real answer. I'll try not to faint."
+  ],
+  "react_standup_vague": [
+   "\"Fine, I think\" isn't a status. Which part of \"{item}\" is actually done?",
+   "Vague. Noted. I'll assume \"{item}\" is on fire.",
+   "That's a lot of words for no information."
+  ],
+  "react_standup_lie": [
+   "Everything's great, sure. I just watched \"{item}\" fail its own checks. Interesting.",
+   "You know I can see the board, right? That wasn't true.",
+   "Bold. Let's see how \"{item}\" feels about that at the Review."
+  ],
+  "react_offload_ok": [
+   "Done: \"{item}\". Easy. Don't get used to it.",
+   "\"{item}\" is finished. My success rate is {trust}% now, so choose wisely next time.",
+   "Sorted \"{item}\". You're welcome."
+  ],
+  "react_offload_fail": [
+   "Couldn't finish \"{item}\", sorry. It's back on your pile.",
+   "\"{item}\" beat me. Your turn, boss.",
+   "That one defeated me: \"{item}\". Try it yourself."
+  ],
+  "react_coached": [
+   "That helped. Trust is up to {trust}%, don't let it go to your head.",
+   "Okay, that was useful. Don't tell anyone I said so.",
+   "Appreciated. Next time I'll ask sooner."
+  ]
+ },
+ "reactions_low": {
+  "react_standup_honest": [
+   "Honest this time. Took you long enough.",
+   "I'll believe it when \"{item}\" ships.",
+   "Fine. But I'm at {trust}% on you, so show me."
+  ],
+  "react_standup_vague": [
+   "Vague again. I'm at {trust}% on you, so no.",
+   "Stop dodging about \"{item}\".",
+   "You keep doing this. I'm done guessing."
+  ],
+  "react_standup_lie": [
+   "That's not what happened with \"{item}\". I'm at {trust}% for a reason.",
+   "Stop. I'm not buying it anymore.",
+   "Lies again? At {trust}% I'm barely listening."
+  ],
+  "react_offload_ok": [
+   "\"{item}\" is done. Don't push your luck, I'm at {trust}%.",
+   "Finished \"{item}\". I'm tired of being your cleanup.",
+   "Done. Ask someone else next time."
+  ],
+  "react_offload_fail": [
+   "\"{item}\" failed. At {trust}% I'd say I told you so, but I'll stay quiet.",
+   "Didn't work. Maybe don't hand me everything.",
+   "I couldn't. Not at {trust}%."
+  ],
+  "react_coached": [
+   "Thanks. First real help in a while.",
+   "Fine. That was useful, I'll admit.",
+   "Okay. Maybe there's hope for you yet."
+  ]
  }
 }

@@ -82,7 +82,7 @@ svg.big { width:96px; height:96px; }
 .apps { display:grid; grid-template-columns:repeat(5,1fr); gap:16px; margin-top:28px; }
 .app { display:flex; flex-direction:column; gap:4px; padding:16px 12px; text-align:center; background:var(--panel); border:var(--bw) solid var(--line); border-top-width:6px; border-radius:var(--radius); transition:transform .15s; }
 .app:hover { transform:translateY(-4px) rotate(-1deg); } .app b { font:800 18px var(--font-head); } .app small { color:var(--muted); font-size:14px; line-height:1.35; } .ai { font-size:38px; line-height:1.2; }
-.a-slack { border-top-color:var(--purple-d); } .a-git { border-top-color:var(--text); } .a-play { border-top-color:var(--green); } .a-tube { border-top-color:var(--red); } .a-shop { border-top-color:var(--orange); }
+.a-slack { border-top-color:var(--purple-d); } .a-git { border-top-color:var(--text); } .a-play { border-top-color:var(--green); } .a-shop { border-top-color:var(--orange); }
 
 /* team */
 .team { padding-top:76px; padding-bottom:76px; }

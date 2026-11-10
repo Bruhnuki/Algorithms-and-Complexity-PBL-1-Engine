@@ -1,0 +1,10 @@
+{
+ "id": "hr_challenge_cart",
+ "type": "challenge",
+ "ticket": "help_cart",
+ "title": "Empty cart",
+ "intros": {
+  "dev2": "Um, an empty cart says it has items. I'm stuck, sorry. Could you find the line?",
+  "dev1": "Empty carts claim to have items. I've been staring at it too long. Your turn."
+ }
+}

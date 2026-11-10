@@ -1,0 +1,16 @@
+{
+ "type": "object",
+ "required": [
+  "id",
+  "type",
+  "title"
+ ],
+ "properties": {
+  "type": {
+   "enum": [
+    "scenario",
+    "challenge"
+   ]
+  }
+ }
+}

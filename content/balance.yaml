@@ -154,7 +154,7 @@ experimental:
       spike:                {tutorial_cost_mult: 0.5}
     duos:
       tdd_pair:    {needs: [definition_of_done_p, pair_programming]}   # Run Script always free; you know if a returned card is bugged
-      sprint_goal: {needs: [timeboxing, backlog_refinement]}           # no card escalates past level 1
+      steady_flow: {needs: [timeboxing, backlog_refinement]}           # no card escalates past level 1
 
   # M12 shop between sprints (opens after Review).
   shop:
@@ -210,6 +210,14 @@ experimental:
       short_days: {day_minutes: 420}
       po_pressure: {extra_status_per_day: 1}
       harsh_reviews: {viral_chance: 0.5}
+
+  # Sprint goals: every sprint asks you to ship real work. Missing it is a demotion warning,
+  # so a player who does nothing loses (two warnings end the run).
+  sprint_goal:
+    ship_min: [1, 2, 3]              # clean or acceptable pushes you made yourself (or reviewed) this sprint
+    miss_warning: 1                  # warnings added when the goal is missed
+    miss_cover: 10                   # Cover added when the goal is missed
+    hit_points: 50                   # bonus when the goal is met
 
   # M8 intents.
   intents_window_min: 120

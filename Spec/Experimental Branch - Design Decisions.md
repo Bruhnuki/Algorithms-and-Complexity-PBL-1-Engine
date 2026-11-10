@@ -65,7 +65,7 @@ Each practice changes a different rule, so no two are "the same thing, slightly 
 | Backlog Refinement | Deferring a card no longer escalates it | Prioritisation |
 | Spike | Tutorials take half the time | Learning |
 | **TDD Pair** (combo: DoD + Pair Programming) | Run Script always free; you can see whether returned work is bugged | Combo |
-| **Sprint Goal** (combo: Timeboxing + Backlog Refinement) | No card escalates past a message | Combo |
+| **Steady Flow** (combo: Timeboxing + Backlog Refinement) | No card escalates past a message | Combo |
 
 - **Evolution:** a practice used 4 times levels up (`practices.evolve_at`).
 - **Slots:** 5 (combos do not use a slot).
@@ -106,6 +106,7 @@ Every new number is in the `experimental:` block. Nothing is hardcoded in the fr
 | `comeback` | behind if Rating <3.0 or a warning; bounty +150; +30 Focus | losing runs stay hopeless |
 | `momentum` | gains: coach 20, review 15, honest DoD 15, accurate standup 20, blocker 5; full 100; protect 120 min | ultimates never or always ready |
 | `heat` | +20% run score per modifier; 5 modifiers | experts stop replaying |
+| `sprint_goal` | ship 1 / 2 / 3 tickets per sprint; miss: 1 warning and +10 Cover; hit: +50 points | goals feel trivial or unfair |
 | `meta_unlocks` | win → Retrospective + Heat; a sprint with no bluff → Psychological Safety | unlocks come too fast or slow |
 | `story` | authored debrief lines | n/a |
 
@@ -135,19 +136,20 @@ Every new number is in the `experimental:` block. Nothing is hardcoded in the fr
 | M18 | Debrief story lines from teammates about how the run went | `story` |
 | M19 | Work-in-flight lanes above the Pile | `lanesEl` |
 | M20 | Demo Day timed standup (choices only, never typed text) | standup timer |
+| Goal | Sprint goal: ship N fixed or reviewed tickets, or take a warning | HUD, planning, `sprint_goal` |
 | M21 | Momentum meter and 3 ultimates (Protect the Sprint, Swarm, Retro Now) | HUD |
 
 Six new tickets (`shipping_fee`, `points_balance`, `find_order`, `loyalty_discount`, `split_bill`, `stock_status`) give the seeded sprints 10 tickets to draw from. Each was checked against the interpreter.
 
 ## Tests
 
-- `tests/test_x_mechanics.py`: 30 tests, one or more per mechanic, plus determinism (same seed and commands give the same event log), the scripted bot winning and losing a 3-sprint run, and the API (challenge code, server-only configure, replay after restart).
+- `tests/test_x_mechanics.py`: 33 tests, one or more per mechanic and sprint goal, plus determinism (same seed and commands give the same event log), the scripted bot winning and losing a 3-sprint run, and the API (challenge code, server-only configure, replay after restart).
 - The original M1 to M5 suites run with `experimental.enabled: false`.
 
 ## Known gaps and findings
 
 - **Not playtested by people.** Every number is a guess. The 20 to 30 minute estimate is not measured.
-- **Doing nothing can still win.** In a browser run that skipped almost every card, the player survived all 3 sprints with 5 points and Cover 83. The original MVP has the same property. Options: a minimum sprint goal, stronger escalation penalties, or a Points target per sprint. This needs your call.
+- **Fixed: doing nothing used to win.** Each sprint now has a **sprint goal**: ship 1, 2, then 3 tickets that you fixed yourself or reviewed (clean or acceptable). Work that ships unreviewed at the end of a sprint does not count. Missing the goal gives a demotion warning and +10 Cover; meeting it pays +50 points. Two warnings end the run, so an idle player now loses by the end of sprint 2 (checked in the browser and in `test_GOAL_doing_nothing_loses` over 6 seeds). The goal shows in the HUD, at planning, next to the End sprint button when you are short, and on the debrief.
 - **Story lines are authored**, not written by the model. The model could voice them later; it must never change state.
 - **Instructors still cannot link students** to a cohort since the sign-up cohort code was removed, so the challenge-code comparison only works if students share their codes.
 - Mobile layout was checked at 375 px for the build screen only.

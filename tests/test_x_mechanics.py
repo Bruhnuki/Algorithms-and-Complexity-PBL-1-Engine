@@ -301,6 +301,7 @@ def test_M13_director_adds_work_when_quiet_and_relief_when_busy(xcontent):
 
 def test_M14_comeback_bounty_when_behind(xcontent):
     s = to_build(xcontent)
+    s, _ = ship(s, xcontent, add_card(s, "final_price"))   # meet the sprint goal so the run continues
     s["meters"]["rating"] = 2.6
     s["day"] = 2
     s, ev = run(s, xcontent, "advance_stage", to="REVIEW")
@@ -382,3 +383,50 @@ def test_X_api_challenge_heat_and_server_only_configure(tmp_path, xcontent):
     c2.cookies = c.cookies
     c2.headers.update(c.headers)
     assert c2.get(f"/api/v1/runs/{run_id}/state").json()["state"]["x"]["seed"] == 4242
+
+
+# ---------------------------------------------------------------- sprint goals
+def idle_sprint(s, c):
+    """A player who only clicks through the stages and ships nothing."""
+    for typ, payload in (("advance_stage", {"to": "STANDUP"}), ("reply_standup", {"answer": "vague"}), ("advance_stage", {"to": "BUILD"}),
+                         ("advance_stage", {"to": "STANDUP"}), ("reply_standup", {"answer": "vague"}), ("advance_stage", {"to": "BUILD"}),
+                         ("advance_stage", {"to": "REVIEW"})):
+        s, _ = run(s, c, typ, **payload)
+    return s
+
+
+def test_GOAL_doing_nothing_loses(xcontent):
+    for seed in range(6):
+        s = fresh(xcontent, seed)
+        for _ in range(xcontent.balance["experimental"]["sprints_total"]):
+            if s["status"] != "active":
+                break
+            s["x"]["shop"] = None
+            s = idle_sprint(s, xcontent)
+        assert s["ending"] != "win", seed
+
+
+def test_GOAL_missed_goal_warns_and_met_goal_pays(xcontent):
+    s = to_build(xcontent)
+    s["day"] = 2
+    s2, ev = run(s, xcontent, "advance_stage", to="REVIEW")
+    goal = next(e for e in ev if e["type"] == "sprint_goal")
+    assert not goal["met"] and s2["warnings"] >= 1
+    s = to_build(xcontent)
+    cid = add_card(s, "final_price")
+    s, _ = ship(s, xcontent, cid)
+    assert reducer.public_state(s, xcontent)["x"]["goal"]["met"]
+    s["day"] = 2
+    p0 = s["meters"]["points"]
+    s, ev = run(s, xcontent, "advance_stage", to="REVIEW")
+    assert next(e for e in ev if e["type"] == "sprint_goal")["met"]
+    assert s["meters"]["points"] >= p0 + xcontent.balance["experimental"]["sprint_goal"]["hit_points"]
+
+
+def test_GOAL_unreviewed_auto_ships_do_not_count(xcontent):
+    s = to_build(xcontent)
+    add_card(s, "final_price", state="delegated")
+    s["day"] = 2
+    s, ev = run(s, xcontent, "advance_stage", to="REVIEW")
+    assert any(e.get("unreviewed") for e in ev if e["type"] == "pushed")
+    assert not next(e for e in ev if e["type"] == "sprint_goal")["met"]

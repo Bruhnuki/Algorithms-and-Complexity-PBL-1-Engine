@@ -228,6 +228,8 @@ const XTOAST = {
   achievement: () => ["good", "Achievement: a whole sprint with no bluffing"],
   card_reset: () => ["good", "Retrospective: card calmed down"],
   focus_switch: (e) => ["warn", "Switching tasks: Focus " + e.focus],
+  sprint_goal: (e) => e.met ? ["good", `Sprint goal met: ${e.shipped} of ${e.target} shipped (+${e.points} pts)`]
+    : ["bad", `Sprint goal missed: ${e.shipped} of ${e.target} shipped. Demotion warning and +${e.cover} Cover`],
   sprint_dealt: (e) => ["info", e.boss ? "Boss sprint: " + (BOSSES[e.boss] || {}).name : "Sprint " + e.sprint + " dealt"],
 };
 
@@ -388,12 +390,15 @@ function codeDesk(s) {
     return h("div", {}, shopEl(s),
       h("section", { class: "card" }, h("h2", {}, "Planning" + (x ? ` · sprint ${s.sprint} of ${x.sprints_total}` : "")),
         x && x.boss_live ? h("p", { class: "bossnote" }, ic("flag"), ` Boss sprint: ${boss.name}. ${boss.rule}`) : null,
+        x ? h("p", { class: "goalnote" }, ic("flag"), ` Sprint goal: ship ${x.goal.target} ticket${x.goal.target > 1 ? "s" : ""} that you fixed or reviewed yourself. Miss it and you get a demotion warning.`) : null,
         h("p", {}, "Look at the Pile, then start the sprint."), h("button", { class: "primary", onclick: () => cmd("advance_stage", { to: "STANDUP" }) }, "Go to standup")));
   }
   if (s.stage === "BUILD" && !w) {
     const next = s.day >= 2 ? ["REVIEW", "End sprint (Review)"] : ["STANDUP", "End day 1 (next standup)"];
+    const short = s.x && s.day >= 2 && !s.x.goal.met;
     return h("section", { class: "card" }, h("h2", {}, ic("branch"), " Fix-it desk"), h("p", { class: "muted" }, s.open_card ? "This card has no code. Send your reply." : "Open a card from the Pile."),
       s.open_card ? h("button", { onclick: () => cmd("push") }, "Send reply") : null,
+      short ? h("p", { class: "cost risk" }, `Sprint goal not met yet (${s.x.goal.shipped}/${s.x.goal.target}). Ending now means a demotion warning.`) : null,
       h("div", { class: "row" }, h("button", { onclick: () => cmd("advance_stage", { to: next[0] }), disabled: !!s.open_card }, next[1])));
   }
   if (!w) return h("section", { class: "card" }, h("h2", {}, "CodeDesk"));
@@ -548,7 +553,7 @@ const PRACTICES = {
   backlog_refinement: ["Backlog Refinement", "Deferring a card no longer escalates it."],
   spike: ["Spike", "Tutorials take half the time."],
   tdd_pair: ["TDD Pair (combo)", "Run Script is always free, and you can tell if returned work is bugged."],
-  sprint_goal: ["Sprint Goal (combo)", "No card escalates past a message."],
+  steady_flow: ["Steady Flow (combo)", "No card escalates past a message."],
 };
 const practiceName = (id) => (PRACTICES[id] || [id])[0];
 const BOSSES = {
@@ -562,7 +567,7 @@ const ULTIMATES = {
   swarm: { name: "Swarm", text: "Everything delegated comes back now, bug-free." },
   retro_now: { name: "Retro Now", text: "Every card calms down one level and gets more time." },
 };
-const DUOS = new Set(["tdd_pair", "sprint_goal"]);
+const DUOS = new Set(["tdd_pair", "steady_flow"]);
 
 function hudEl(s) {
   const x = s.x;
@@ -574,6 +579,7 @@ function hudEl(s) {
   return h("div", { class: "hud", "data-region": "hud" },
     h("div", { class: "hud-row" },
       h("span", { class: "chip" }, ic("calendar"), ` Sprint ${s.sprint} of ${x.sprints_total}`),
+      goalChip(x.goal),
       h("span", { class: "chip " + (x.clock_running ? "live" : "paused"), title: "The clock runs while you stand at the Pile and stops while you read a card or answer a standup." }, ic("clock"), x.clock_running ? " Clock running" : " Clock paused"),
       h("span", { class: "chip", title: "Points come from pushes. Process score comes from how you work. The debrief shows the gap." }, ic("coin"), ` ${s.meters.points} pts`, h("span", { class: "sep" }, " | "), ic("check"), ` Process ${x.process_score}`),
       h("span", { class: "chip", title: "Variety of good habits this sprint. Repeating one action stops counting." }, ic("star"), ` Style ${x.style.rank}`),
@@ -587,6 +593,10 @@ function hudEl(s) {
         : h("span", { class: "muted small" }, "Fills from coaching, honest checklists, reviews and accurate standups."),
       x.practices.length ? h("span", { class: "pracs" }, x.practices.map((p) => h("span", { class: "pchip" + (DUOS.has(p.id) ? " duo" : ""), title: (PRACTICES[p.id] || ["", ""])[1] }, practiceName(p.id) + (p.level > 1 ? " (Lv 2)" : "")))) : null));
 }
+
+// Sprint goal: ship this many tickets yourself (or reviewed) before Review, or get a demotion warning
+const goalChip = (g) => h("span", { class: "chip " + (g.met ? "good" : "goal"), title: "Ship this many tickets (clean or acceptable, pushed by you or reviewed) before the sprint review. Missing it is a demotion warning." },
+  ic(g.met ? "check" : "flag"), ` Goal: ship ${g.target} · ${g.shipped}/${g.target}`);
 
 function intentsEl(s) {
   const x = s.x;
@@ -803,7 +813,7 @@ function browserFrame(s) {
 const PAGE_DEPS = {
   slack: (s) => [run.lines.slice(-12).map((l) => l.id), s.stage, s.standup, s.x ? [s.x.standup_timer_s, s.x.prices] : null],
   github: (s) => [s.pile, s.stage, s.work, s.open_card, s.day, s.perks, run.runs, s.standup,
-    s.x ? [s.x.shop, s.x.intents, s.x.move_costs, s.x.retro_left, s.x.next_clean_factor, s.x.practices, s.meters.points, Math.floor(s.clock_min / 10)] : null],
+    s.x ? [s.x.shop, s.x.intents, s.x.move_costs, s.x.retro_left, s.x.next_clean_factor, s.x.practices, s.meters.points, s.x.goal, Math.floor(s.clock_min / 10)] : null],
   play: (s) => [Number(s.meters.rating), reviewList().length],
   youtube: (s) => [s.unlocked],
   shop: (s) => [s.perks, s.x ? [s.x.shop, s.meters.points, s.x.heat] : null],
@@ -813,7 +823,7 @@ const REGIONS = {
   addr: { sig: (s) => JSON.stringify([s.meters, s.warnings, s.stage, s.day, run.app]), build: addrEl },
   coach: { sig: (s) => s.stage + "|" + coachHint(s), build: coachEl },
   hud: { sig: (s) => JSON.stringify(s.x ? [s.sprint, s.stage, s.meters.points, s.x.clock_running, s.x.process_score, s.x.style.rank, s.x.last_stand,
-    s.x.protected_min, s.x.momentum, s.x.practices, s.x.boss_live] : null), build: hudEl },
+    s.x.protected_min, s.x.momentum, s.x.practices, s.x.boss_live, s.x.goal] : null), build: hudEl },
   call: { sig: (s) => JSON.stringify(s.call || null) + "|" + (run.error || ""), build: callEl },
   apphead: { sig: () => run.app + "|" + attached().length, build: appheadEl },
   rail: { sig: (s) => [pathIndex(s), s.sprint, s.pile.filter((c) => c.state === "done").length, s.pile.length].join(), build: roadmap },
@@ -884,7 +894,8 @@ function xDebrief(x) {
     h("div", { class: "row" }, h("span", { class: "chip" }, ic("coin"), ` Run score ${x.run_score}` + (x.heat.length ? ` (Heat ${x.heat.length})` : "")),
       h("span", { class: "chip" }, ic("star"), " Style " + (x.style.map((r) => r.rank).join(" · ") || "-")),
       h("span", { class: "chip" + (x.near_miss ? " danger" : "") }, ic("search"), ` Highest Cover ${x.max_cover}` + (x.near_miss ? " · close call" : "")),
-      x.clutches ? h("span", { class: "chip good" }, ic("check"), ` ${x.clutches} clutch save${x.clutches > 1 ? "s" : ""}`) : null),
+      x.clutches ? h("span", { class: "chip good" }, ic("check"), ` ${x.clutches} clutch save${x.clutches > 1 ? "s" : ""}`) : null,
+      x.goals.length ? h("span", { class: "chip" }, ic("flag"), " Goals " + x.goals.map((g) => g.met ? "met" : "missed").join(" · ")) : null),
     h("h3", {}, "What the team says"), x.story.map((l) => h("p", { class: "story" }, l)),
     x.practices.length ? h("p", { class: "muted" }, "Practices: " + x.practices.map(practiceName).join(", ")) : null,
     h("p", { class: "muted" }, `Challenge code ${x.seed}: share it so classmates can play the same sprints.`));

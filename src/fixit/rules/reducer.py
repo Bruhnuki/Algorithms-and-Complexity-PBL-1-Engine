@@ -355,6 +355,8 @@ def _resolve_review(s: dict, ev: list, content: Content) -> None:
             _meter(s, "points", b["attack_check"]["points"], content)
             _emit(s, ev, "attack_check_resolved", ticket=sh["ticket"], rating=b["attack_check"]["rating"],
                   points=b["attack_check"]["points"])
+    if s.get("x"):
+        _x_goal_check(s, ev, content)
     if s["meters"]["rating"] < b["limits"]["rating_warn_below"]:
         s["warnings"] += 1
         _emit(s, ev, "warning_issued", warnings=s["warnings"])
@@ -779,7 +781,7 @@ def _x_start(s: dict, ev: list, content: Content) -> None:
               "momentum_gain": dict(X["momentum"]["gain"]), "protect_until_s": 0.0, "retro_uses": 0,
               "last_card": None, "next_spot_s": 0.0, "next_director_s": X["director"]["every_min"] * 60.0,
               "relief_used": False, "bounty_card": None, "achievements": [], "free_runs": {},
-              "sprint_start_s": 0.0, "bluffed_this_sprint": False, "flags": []}
+              "sprint_start_s": 0.0, "bluffed_this_sprint": False, "flags": [], "goals": []}
     bosses = sorted(X["bosses"])
     s["x"]["boss"] = bosses[int(draw(s, "boss") * len(bosses)) % len(bosses)]
     _x_deal_sprint(s, ev, content)
@@ -976,7 +978,7 @@ def _x_free_run(s: dict, ev: list, content: Content, w: dict) -> bool:
 def _x_may_escalate(s: dict, c: dict) -> bool:
     if s["clock_s"] < s["x"]["protect_until_s"]:
         return False
-    if _has(s, "sprint_goal") and c["escalation"] >= 1:
+    if _has(s, "steady_flow") and c["escalation"] >= 1:
         return False
     return True
 
@@ -1085,7 +1087,8 @@ def _x_auto_ship(s: dict, ev: list, content: Content) -> None:
         pts = round(b["push"]["points"][result] * (t["difficulty"] if result in ("clean", "acceptable") else 1))
         _meter(s, "points", pts, content)
         rating = b["push"]["rating"].get(result, 0)
-        s["shipped"].append({"ticket": t["id"], "result": result, "effect": o["effect"], "sprint": s["sprint"], "rating": rating})
+        s["shipped"].append({"ticket": t["id"], "result": result, "effect": o["effect"], "sprint": s["sprint"], "rating": rating,
+                             "unreviewed": True})
         c["state"], c["returns_s"] = "done", None
         _emit(s, ev, "pushed", card_id=c["id"], ticket=t["id"], result=result, label=RESULT_LABEL[result], points=pts,
               cover=0, unreviewed=True)
@@ -1099,6 +1102,28 @@ def _x_style_rank(log: list[str], content: Content) -> dict:
         if score >= at:
             rank = name
     return {"rank": rank, "score": score, "variety": sum(1 for k in st["good"] if k in log)}
+
+
+def _x_goal(s: dict, content: Content) -> dict:
+    G = _X(content)["sprint_goal"]
+    target = G["ship_min"][min(s["sprint"] - 1, len(G["ship_min"]) - 1)]
+    done = sum(1 for sh in s["shipped"] if sh["sprint"] == s["sprint"] and sh["result"] in ("clean", "acceptable")
+               and not sh.get("unreviewed"))
+    return {"target": target, "shipped": done, "met": done >= target}
+
+
+def _x_goal_check(s: dict, ev: list, content: Content) -> None:
+    """Sprint goal: ship real work this sprint, or take a demotion warning."""
+    G, g = _X(content)["sprint_goal"], _x_goal(s, content)
+    s["x"]["goals"].append(g)
+    if g["met"]:
+        _meter(s, "points", G["hit_points"], content)
+        _emit(s, ev, "sprint_goal", met=True, shipped=g["shipped"], target=g["target"], points=G["hit_points"])
+    else:
+        _meter(s, "cover", G["miss_cover"], content)
+        _emit(s, ev, "sprint_goal", met=False, shipped=g["shipped"], target=g["target"], cover=G["miss_cover"])
+        s["warnings"] += G["miss_warning"]
+        _emit(s, ev, "warning_issued", warnings=s["warnings"], reason="sprint_goal_missed")
 
 
 def _x_end_sprint(s: dict, ev: list, content: Content) -> None:
@@ -1279,7 +1304,7 @@ def _x_public(s: dict, content: Content) -> dict:
                 "reroll_price": 0 if sh["free"] and sh["rerolls"] == 0 else prices[min(sh["rerolls"], len(prices) - 1)]}
     style = _x_style_rank(x["style_log"], content)
     boss_sprint = X["boss_sprint"]
-    return {"sprints_total": X["sprints_total"], "boss": x["boss"], "boss_sprint": boss_sprint,
+    return {"sprints_total": X["sprints_total"], "boss": x["boss"], "boss_sprint": boss_sprint, "goal": _x_goal(s, content),
             "boss_live": bool(x.get("boss_live")), "clock_running": s["stage"] == "BUILD" and _x_clock_running(s, content),
             "move_costs": costs, "day_minutes": _day_minutes(s, content), "intents": intents,
             "practices": [{"id": k, **v} for k, v in x["practices"].items()], "slots": X["practices"]["slots"],
@@ -1363,7 +1388,7 @@ def _x_debrief(s: dict, content: Content) -> dict:
     return {"sprints_played": len(x["style_history"]), "style": x["style_history"], "max_cover": x["max_cover"],
             "near_miss": x["max_cover"] >= X["suspicion"]["last_stand_from"], "clutches": x["clutches"],
             "story": lines[:4], "heat": x["heat"], "run_score": run_score, "practices": list(x["practices"]),
-            "achievements": x["achievements"], "boss": x["boss"], "seed": s["seed"]}
+            "achievements": x["achievements"], "boss": x["boss"], "seed": s["seed"], "goals": x["goals"]}
 
 
 def public_state(s: dict, content: Content) -> dict:

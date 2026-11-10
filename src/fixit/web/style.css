@@ -292,6 +292,8 @@ header.topbar h1 .ic { width:34px; height:34px; vertical-align:-10px; }
 .chip.good { border-color:var(--green); background:var(--green-soft); color:var(--green-d); }
 .chip.boss { border-color:var(--purple); background:var(--purple-soft); color:var(--purple-d); white-space:normal; }
 .chip.faint { color:var(--muted); }
+.chip.goal { border-color:var(--orange); background:#FFF3E0; color:var(--orange-d); }
+.goalnote { padding:8px 12px; border-radius:10px; background:#FFF3E0; color:var(--orange-d); font-weight:800; }
 .hud .lbl { font:800 12px var(--font-head); text-transform:uppercase; letter-spacing:.6px; color:var(--muted); }
 .bar.mom { width:140px; height:10px; }
 .bar.mom i { background:var(--yellow); }

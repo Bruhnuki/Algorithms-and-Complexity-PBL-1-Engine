@@ -163,27 +163,6 @@ def test_O4_a_bad_item_loses_the_release_bonus_and_review_ships_leftovers(oconte
     assert any(e["type"] == "release_shipped" and e["auto"] for e in ev)
 
 
-# ---------------------------------------------------------------- O5 leaderboard
-def test_O5_leaderboard_ranks_finished_runs_by_challenge_code(tmp_path, ocontent):
-    from api_helpers import Driver, Env
-    e = Env(tmp_path, ocontent)
-    names = []
-    for n, pol in enumerate(("solo", "reckless")):
-        c = e.signup(f"p{n}@test.io", name=f"Player{n}")
-        r = c.post("/api/v1/runs", json={"challenge": 777})
-        d = Driver(c, r.json()["id"])
-        b = bot.Bot(777, ocontent, pol)
-        b.s, _ = reducer.apply(b.s, {"type": "configure", "payload": {"unlocks": [], "heat": []}}, ocontent)
-        b.play()
-        for cmd in b.log:
-            assert d.cmd(cmd["type"], **cmd["payload"]).status_code == 200
-        names.append(c)
-    lb = names[0].get("/api/v1/leaderboard?seed=777").json()
-    assert lb["players"] == 2 and lb["top"][0]["score"] >= lb["top"][1]["score"]
-    assert lb["your_best"]["name"] == "Player0" and lb["median"] is not None
-    assert names[0].get("/api/v1/leaderboard?seed=1").json()["players"] == 0
-
-
 # ---------------------------------------------------------------- rebalance: delegating with review must pay off (spec G2)
 def test_REBAL_trust_rebuilds_through_coaching_standups_and_fair_reviews(ocontent):
     R = ocontent.balance["originals"]["change_review"]

@@ -24,7 +24,7 @@ const STEPS = [
     card("bulb", "5. Retrospective", "The team picks one thing to do better next Sprint. Then the next Sprint begins."),
   ], note: "Each moment starts with a short scene and one question. A wrong answer just explains why. Nothing is timed." },
   { kind: "cards", pose: "c-heron", say: "And how I will help.", cards: [
-    card("check", "A short tour in Sprint 1", "Small pointers show you each part of the screen the first time you need it. You can skip them."),
+    card("check", "An 8-step tutorial in Sprint 1", "It explains each Scrum idea as you meet it and asks you to try it. Finish it once and you are free to play."),
     card("star", "Only a few things on screen", "Your app rating and points, the Sprint Backlog and the team. More shows up in later Sprints."),
     card("flag", "A look back after each Sprint", "The Retrospective shows what your choices did, so you can try something different next time."),
   ] },

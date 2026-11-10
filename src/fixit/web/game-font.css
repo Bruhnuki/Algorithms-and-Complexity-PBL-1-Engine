@@ -1,0 +1,6 @@
+/* The game (not the landing page): regular text is DM Sans 400. Bold text keeps the original rounded font (see theme.css). */
+@font-face { font-family:"DM Sans"; font-style:normal; font-weight:400; font-display:swap; src:url(/fonts/dm-sans-latin-400.woff2) format("woff2"); }
+:root { --font-regular:"DM Sans","Segoe UI",system-ui,sans-serif; }
+body, input, select, textarea { font-family:var(--font-regular); font-weight:400; }
+b, strong, th, dt, legend, summary, h1, h2, h3, h4 { font-family:var(--font-head); font-weight:800; }
+.scene-choice, .scene-choice small { font-family:var(--font-regular); font-weight:400; }

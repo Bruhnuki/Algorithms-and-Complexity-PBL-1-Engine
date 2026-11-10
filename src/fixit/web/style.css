@@ -633,5 +633,8 @@ details.fold > summary small { color:var(--muted); font:700 12px var(--font-body
 .riskpct { min-width:40px; font:800 15px var(--font-head); }
 #tour { position:fixed; inset:0; z-index:70; pointer-events:none; } #tour[hidden] { display:none; }
 .tourcard { position:fixed; pointer-events:auto; display:flex; flex-direction:column; gap:6px; padding:14px 16px; background:#fff; border:var(--bw) solid var(--blue); border-bottom-width:5px; border-radius:16px; box-shadow:0 10px 30px rgba(24,70,110,.25); animation:pop .3s both; }
-.tourcard small { font:800 12px var(--font-head); text-transform:uppercase; letter-spacing:.5px; color:var(--blue-d); } .tourcard p { margin:0; font-size:15px; line-height:1.45; }
+.tourcard { max-height:calc(100vh - 16px); overflow:auto; }
+.tourcard small { font:800 12px var(--font-head); text-transform:uppercase; letter-spacing:.5px; color:var(--blue-d); } .tourcard p { margin:0; font-size:14px; line-height:1.4; }
+.tourcard .ttitle { font-size:17px; } .tourcard .lbl { display:block; font-size:11px; text-transform:uppercase; letter-spacing:.5px; color:var(--blue-d); }
+.tourcard.nudge { animation:tournudge .4s; } @keyframes tournudge { 25% { transform:translateX(-6px); } 75% { transform:translateX(6px); } }
 .tour-ring { outline:4px solid var(--blue); outline-offset:3px; border-radius:12px; }

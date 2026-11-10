@@ -37,7 +37,7 @@ def test_e2e_csp_and_static_served(tmp_path, content):
     r = c.get("/")
     assert r.status_code == 200 and "script-src 'self'" in r.headers["content-security-policy"]
     assert c.get("/app.js").status_code == 200 and c.get("/style.css").status_code == 200
-    for path in ("/play/", "/guide.js", "/welcome.js", "/welcome.css", "/icons.svg", "/landing.js", "/landing.css", "/theme.css"):
+    for path in ("/play/", "/guide.js", "/welcome.js", "/welcome.css", "/icons.svg", "/landing.js", "/landing.css", "/theme.css", "/game-font.css", "/fonts/dm-sans-latin-400.woff2"):
         assert c.get(path).status_code == 200, path
 
 

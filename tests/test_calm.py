@@ -93,7 +93,7 @@ def test_CALM2_nothing_is_due_and_nothing_gets_louder(calm):
 
 def test_CALM3_arcade_mechanics_are_off(calm):
     o = calm.balance["originals"]
-    for k in ("speed_fix", "combo", "events", "action_hand", "release_train", "score_multiplier", "leaderboard"):
+    for k in ("speed_fix", "combo", "events", "action_hand", "release_train", "score_multiplier"):
         assert not o[k]["enabled"], k
     s = start_sprint(reducer.start_run(1, calm)[0], calm)
     pub = reducer.public_state(s, calm)

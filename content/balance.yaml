@@ -337,10 +337,6 @@ originals:
     urgent_chance_per_day: 0.6             # Marlo marks a request urgent: less time, bonus points
     urgent_deadline_min: 100
     urgent_bonus_points: 75
-  # O5 (M15 original): public leaderboard per challenge code, with your place vs the median
-  leaderboard:
-    enabled: false
-    size: 10
 
 # =====================================================================================
 # Beginner onboarding: teach one idea at a time. Each mechanic switches on at the sprint below.

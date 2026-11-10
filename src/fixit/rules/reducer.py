@@ -2301,7 +2301,6 @@ def _o_public(s: dict, content: Content) -> dict:
         R = _O(content, "change_review")
         out["review"] = {"trust": x["trust"], "trust_max": R["trust_max"], "inspect_min": R["inspect_min"], "ask_min": R["ask_min"],
                          "fix_min": R["fix_min"]}
-    out["leaderboard"] = _orig(content, "leaderboard")
     if _orig(content, "team_board"):
         T = _O(content, "team_board")
         team = {}
@@ -2375,7 +2374,7 @@ def _x_public(s: dict, content: Content) -> dict:
                        "vague_multiplier": X["bosses"]["demo_day"]["vague_multiplier"] if _x_boss_now(s) == "demo_day" else 1},
             "bug_odds": round(_bug_chance(s, content), 3), "focus_switch_cost": X["focus"]["switch_cost"],
             "standup_timer_s": X["bosses"]["demo_day"]["standup_timer_s"] if _x_boss_now(s) == "demo_day" else None,
-            "seed": s["seed"], "features": x.get("features", list(FEATURES)),
+            "features": x.get("features", list(FEATURES)),
             "perk_shop": [{"id": k, "price": v["price"]} for k, v in content.balance["perks"].items()
                           if not calm or k in content.balance["calm"]["perks"]],
             "unlocks_next": [f for f in _features_for(s["sprint"] + 1, content) if f not in x.get("features", FEATURES)],
@@ -2456,7 +2455,7 @@ def _x_debrief(s: dict, content: Content) -> dict:
             "sprints_played": len(x["style_history"]), "style": x["style_history"], "max_cover": x["max_cover"],
             "near_miss": x["max_cover"] >= X["suspicion"]["last_stand_from"], "clutches": x["clutches"],
             "story": lines[:5 if s.get("guide") is not None else 4], "heat": x["heat"], "run_score": run_score, "practices": list(x["practices"]),
-            "achievements": x["achievements"], "boss": x["boss"], "seed": s["seed"], "goals": x["goals"]}
+            "achievements": x["achievements"], "boss": x["boss"], "goals": x["goals"]}
 
 
 def public_state(s: dict, content: Content) -> dict:

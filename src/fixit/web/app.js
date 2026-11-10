@@ -161,27 +161,22 @@ async function questions(kind, next) {
 }
 const preTest = () => questions("pre", setupRun);
 
-// Experimental: a run can use a class challenge code (everyone gets the same sprints) and, after a first win, Heat.
+// Experimental: after a first win a run can take Heat modifiers.
 const HEAT_TEXT = { no_assistant: "No AI Assistant", one_warning: "One warning ends the run", short_days: "Shorter working days",
   po_pressure: "Marlo wants extra status updates", harsh_reviews: "Reviewers go viral more often" };
 async function setupRun() {
   let un = { unlocks: [], heat: [] };
   try { un = await api("/api/v1/me/unlocks"); } catch (_) { return newRun(); }
-  const code = h("input", { id: "challenge", inputmode: "numeric", placeholder: "Leave empty for a random run", autocomplete: "off" });
   const picked = new Set();
   const err = h("div", { class: "err", role: "alert" });
   mount(h("section", { class: "card narrow" }, h("h2", {}, ic("flag"), " New run"),
     h("p", { class: "lead" }, "Three Sprints with Marlo, Ines and Tobi. Each one has the five Scrum events: Planning, Daily Scrum, work, Review and Retrospective. Nothing is timed."),
-    h("label", { for: "challenge" }, "Class challenge code (optional)"), code,
-    h("p", { class: "muted" }, "Everyone who types the same code gets the same sprints, so you can compare choices in class."),
     un.heat.length ? h("fieldset", {}, h("legend", {}, "Heat: make it harder for a bigger run score"),
       un.heat.map((k) => h("label", { class: "check" }, h("input", { type: "checkbox", onchange: (e) => { e.target.checked ? picked.add(k) : picked.delete(k); } }), h("span", {}, HEAT_TEXT[k] || k))))
       : h("p", { class: "muted" }, ic("lock"), " Win a run to unlock Heat modifiers."),
     un.unlocks.length ? h("p", { class: "muted" }, "Unlocked from earlier runs: " + un.unlocks.filter((u) => u !== "heat").map(practiceName).join(", ")) : null,
     err, h("div", { class: "row" }, h("button", { class: "primary", onclick: () => {
-      const v = code.value.trim();
-      if (v && !/^[0-9]{1,6}$/.test(v)) { err.textContent = "A challenge code is a number up to 6 digits."; return; }
-      newRun({ ...(v ? { challenge: Number(v) } : {}), heat: [...picked] }).catch((e) => { err.textContent = e.message; });
+      newRun({ heat: [...picked] }).catch((e) => { err.textContent = e.message; });
     } }, "Start the run"))));
 }
 
@@ -754,41 +749,115 @@ function riskBars(s) {
   return el;
 }
 
-// ---- The guided first sprint: one small pointer at a time, each shown once, with a way to skip it all
+// ---- The guided first sprint: eight mandatory steps. Each teaches one Scrum idea (what it is, why it matters, how it works here,
+// what to do). A step is shown until you have read it (Got it) AND done what it asks; until then the rest of the screen is locked.
 const TOUR = [
-  { id: "flow", when: (s) => s.stage === "PLANNING" && !s.guide.pending, at: () => ".stagecard", title: "How a Sprint goes", text: "Five moments, in order: Sprint Planning, Daily Scrum, Work, Sprint Review, Retrospective. The map on the left shows where you are. You are in Sprint Planning. Press the green button when you are ready." },
-  { id: "daily", when: (s) => s.stage === "STANDUP" && !!s.standup, at: () => "[data-guide=standup]", title: "Daily Scrum", text: "Your teammate asks how the work is going. Pick an answer. The honest one is always the best: hidden problems make the team's later mistakes more likely." },
-  { id: "tabs", when: (s) => s.stage === "BUILD" && !s.work && !s.guide.worked, at: () => ".tabstrip", title: "Your apps", text: "GitHab is where the work is, and where you will spend most of your time. Slackish is the team chat and the Daily Scrum. Play Storey shows what users say about your app." },
-  { id: "pick", when: (s) => s.stage === "BUILD" && !s.work && !s.guide.worked, at: () => "#pile", title: "Your Sprint Backlog", text: "These are the items the team chose in Planning. Press Fix it myself on one, or give it to Ines or Tobi. You cannot end the day before you have started on something." },
-  { id: "code", when: (s) => !!s.work, at: () => "pre.code", title: "Fixing an item", text: "Read 'What it should do' above, then click the line of code that does something different. Then pick the fix, press Test, tick the Done checklist honestly, and send it." },
-  { id: "endday", when: (s) => s.stage === "BUILD" && !s.work && s.guide.worked, at: () => "[data-guide=end-day],[data-guide=end-sprint]", title: "Ending a day", text: "When you have done what you can for today, end the day. Tomorrow starts with another Daily Scrum. After day 2 the Sprint is finished and users see the result." },
-  { id: "review", when: (s) => s.stage === "REVIEW" && !s.guide.pending, at: () => "[data-guide=to-retro]", title: "Sprint Review", text: "The team looks at what it made, and at what users said in Play Storey. Then the Retrospective: the team decides what to improve." },
-  { id: "retro", when: (s) => s.stage === "RETRO" && !s.guide.pending, at: () => "[data-guide=next-sprint]", title: "Sprint complete", text: "The team picked one improvement and you can see how your coaching changed each developer's chance of a mistake. Then start the next Sprint." },
+  { id: "flow", title: "Sprint Planning", when: (s) => s.stage === "PLANNING" && !s.guide.pending, at: ".stagecard", allow: ["[data-guide=start-sprint]"],
+    done: (s) => s.stage !== "PLANNING",
+    def: "Sprint Planning is the Scrum event where the team decides what it can finish in the Sprint and agrees on a Sprint Goal.",
+    why: "It gives the Sprint a clear purpose and a realistic plan before work starts.",
+    app: "Marlo's list and the goal are on this screen. The map on the left shows all five Scrum moments.",
+    todo: "Press “Begin the Sprint: Daily Scrum”." },
+  { id: "daily", title: "Daily Scrum", when: (s) => s.stage === "STANDUP", at: "[data-guide=standup],[data-guide=start-build]", allow: ["[data-guide=standup]", "[data-guide=start-build]"],
+    done: (s) => s.stage !== "STANDUP" && s.stage !== "PLANNING",
+    def: "The Daily Scrum is a short daily meeting where the Developers check progress toward the Sprint Goal and adjust the plan.",
+    why: "It brings problems to light early, but only when people are honest.",
+    app: "A teammate asks how your last fix went. An honest answer helps. A vague or untrue one hides a problem and makes later mistakes more likely.",
+    todo: "Pick an answer, then press “Start the work day”." },
+  { id: "tabs", title: "Transparency", when: (s) => s.stage === "BUILD" && !s.work && !s.guide.worked, at: ".tabstrip", allow: [".tabstrip"],
+    done: (s) => !!run.tabsVisitedPlay && run.app === "github",
+    def: "Transparency means everyone involved can see the work and how it is going.",
+    why: "Good decisions need an honest, shared picture.",
+    app: "GitHab holds the work and code. Slackish is the team chat. Play Storey shows what users say about your app.",
+    todo: "Open the Play Storey tab to see user feedback, then come back to GitHab." },
+  { id: "pick", title: "Sprint Backlog", when: (s) => s.stage === "BUILD" && !s.work && !s.guide.worked, at: "#pile", allow: ["#pile", ".board"],
+    done: (s) => s.guide.worked,
+    def: "In Scrum, the Sprint Backlog is the work the team selected for a Sprint, together with a plan for finishing it.",
+    why: "It makes the team's commitment visible, so everyone knows what this Sprint is for.",
+    app: "Here you manage the tasks the team committed to for this Sprint.",
+    todo: "Select a task and press “Fix it myself”, or give it to Ines or Tobi." },
+  { id: "code", title: "Definition of Done", when: (s) => s.stage === "BUILD" && s.guide.worked && s.day === 1, at: "section[aria-label='Code desk']", allow: ["section[aria-label='Code desk']"],
+    gate: { ready: (s) => !!s.work, text: "Open an item yourself to continue: press “Fix it myself” on any item in your Sprint Backlog.", at: "#pile", allow: ["#pile", ".board"] },
+    done: (s) => !!run.codeOpened && !s.work,
+    def: "The Definition of Done is the team's shared checklist for when work is truly finished.",
+    why: "Without it, “done” means different things to different people and mistakes slip through.",
+    app: "Find the wrong line, pick a fix, press Test, and tick the Done boxes only when they are true.",
+    todo: "Work on the item, then press “Send to users”, or “Put it down” if you want to stop." },
+  { id: "endday", title: "Timeboxing", when: (s) => s.stage === "BUILD" && !s.work && s.guide.worked && s.day === 1, at: "[data-guide=end-day]", allow: ["[data-guide=end-day]"],
+    done: (s) => s.day >= 2 || s.stage !== "BUILD",
+    def: "A Sprint is a timebox: a fixed length of time, here two days, after which it ends.",
+    why: "A fixed length forces focus and gives regular chances to get feedback and change course.",
+    app: "Day 1 is nearly over. Tomorrow starts with another Daily Scrum, and after day 2 the Sprint ends.",
+    todo: "Press “End the day”." },
+  { id: "review", title: "Sprint Review", when: (s) => s.stage === "REVIEW" && !s.guide.pending, at: "[data-guide=to-retro]", allow: ["[data-guide=to-retro]"],
+    done: (s) => s.stage === "RETRO",
+    def: "The Sprint Review is where the team and stakeholders inspect what was made and what users think of it.",
+    why: "Real feedback lets the Product Owner reorder the Product Backlog, so the product keeps improving.",
+    app: "Marlo has read the reviews in Play Storey. Unfinished items return to the Product Backlog.",
+    todo: "Press “On to the Retrospective”." },
+  { id: "retro", title: "Sprint Retrospective", when: (s) => s.stage === "RETRO" && !s.guide.pending, at: "[data-guide=next-sprint]", allow: ["[data-guide=next-sprint]"],
+    done: (s) => s.sprint >= 2,
+    def: "The Retrospective is where the team looks at how it worked together and chooses what to improve.",
+    why: "Small, regular improvements make a team better Sprint after Sprint.",
+    app: "The bars show each developer's chance of a mistake. Coaching and honest checks lower it.",
+    todo: "Look at the bars, then press “Start Sprint 2”." },
 ];
 const tourLayer = h("div", { id: "tour", hidden: true, role: "note" });
 document.body.append(tourLayer);
-const tourOff = () => { try { return localStorage.getItem("tourOff:" + (me ? me.id : "x")) === "1"; } catch (_) { return false; } };
+const ALWAYS_OK = "#tour, #scene, #confirm, #nav, #toasts, .tabstrip";
+const tourDone = () => TOUR.every((t) => seen.has("tour:" + t.id));
+// While a step is open, only what that step asks for (and the card itself) can be used.
+function lockGuard(e) {
+  const lock = run && run.lock;
+  if (!lock) return;
+  if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
+  const t = e.target;
+  if (!(t instanceof Element) || t.closest(ALWAYS_OK) || lock.some((sel) => t.closest(sel))) return;
+  e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
+  const card = tourLayer.firstChild;
+  if (card && e.type !== "pointerdown") { card.classList.remove("nudge"); void card.offsetWidth; card.classList.add("nudge"); }
+}
+["click", "pointerdown", "mousedown", "dblclick", "dragstart", "keydown"].forEach((t) => document.addEventListener(t, lockGuard, true));
+
 function syncTour(s) {
-  const hide = () => { if (!tourLayer.hidden) { tourLayer.hidden = true; tourLayer.replaceChildren(); document.querySelectorAll(".tour-ring").forEach((e) => e.classList.remove("tour-ring")); run.tourId = null; } };
-  if (!(s.x && s.x.calm && s.guide) || s.sprint !== 1 || run.modal || tourOff()) return hide();
-  const step = TOUR.find((t) => !seen.has("tour:" + t.id) && t.when(s));
-  if (!step) return hide();
-  const target = [...document.querySelectorAll(step.at())].find((e) => e.offsetParent !== null);
-  if (!target) return hide();
+  const unlock = () => { if (run) run.lock = null; if (!tourLayer.hidden) { tourLayer.hidden = true; tourLayer.replaceChildren(); } document.querySelectorAll(".tour-ring").forEach((e) => e.classList.remove("tour-ring")); run && (run.tourId = null); };
+  if (!(s.x && s.x.calm && s.guide) || run.modal || tourDone()) return unlock();
+  run.tourAck = run.tourAck || {};
+  const sprint1 = s.sprint === 1;
+  if (run.tourAck.tabs && run.app === "play") run.tabsVisitedPlay = true;
+  // finish the steps whose work is done
+  for (const t of TOUR) if (!seen.has("tour:" + t.id) && run.tourAck[t.id] && (!sprint1 || t.done(s)) && !(t.gate && !run.codeOpened && t.id === "code")) markSeen("tour:" + t.id);
+  if (tourDone()) return unlock();
+  const step = sprint1 ? TOUR.find((t) => !seen.has("tour:" + t.id) && (run.tourAck[t.id] || t.when(s))) : null;
+  if (!step) return unlock();
+  if (step.id === "code" && s.work) run.codeOpened = true;
+  const gated = step.gate && !step.gate.ready(s) && !run.tourAck[step.id];
+  const acked = !!run.tourAck[step.id];
+  const at = gated ? step.gate.at : step.at;
+  run.lock = gated ? step.gate.allow : acked ? step.allow : [];
+  const target = [...document.querySelectorAll(at)].find((e) => e.offsetParent !== null);
   document.querySelectorAll(".tour-ring").forEach((e) => { if (e !== target) e.classList.remove("tour-ring"); });
-  target.classList.add("tour-ring");
-  if (run.tourId !== step.id) {
-    run.tourId = step.id;
-    const n = TOUR.indexOf(step) + 1;
-    tourLayer.replaceChildren(h("div", { class: "tourcard" }, h("small", {}, `Quick tour · ${n} of ${TOUR.length}`), h("b", {}, step.title), h("p", {}, step.text),
-      h("div", { class: "row" }, h("button", { class: "primary", onclick: () => { markSeen("tour:" + step.id); run.tourId = null; syncTour(run.state); } }, "Got it"),
-        h("button", { class: "quiet", onclick: () => { try { localStorage.setItem("tourOff:" + (me ? me.id : "x"), "1"); } catch (_) { /* storage can be blocked */ } syncTour(run.state); } }, "Skip the tour"))));
+  if (target) target.classList.add("tour-ring");
+  const key = step.id + (gated ? ":gate" : acked ? ":do" : ":read");
+  if (run.tourId !== key) {
+    run.tourId = key;
+    const n = TOUR.indexOf(step) + 1, part = (label, text) => h("p", {}, h("b", { class: "lbl" }, label), text);
+    const head = h("small", {}, `Tutorial · step ${n} of ${TOUR.length}`);
+    tourLayer.replaceChildren(h("div", { class: "tourcard" }, head, h("b", { class: "ttitle" }, step.title),
+      gated ? [h("p", {}, step.gate.text)]
+        : acked ? [part("Your turn", step.todo)]
+        : [part("Definition", step.def), part("Purpose", step.why), part("In this game", step.app), part("Your turn", step.todo),
+          h("div", { class: "row" }, h("button", { class: "primary", onclick: () => { run.tourAck[step.id] = true; run.tourId = null; syncTour(run.state); } }, "Got it"))]));
   }
   tourLayer.hidden = false;
-  const r = target.getBoundingClientRect(), card = tourLayer.firstChild, ch = card.offsetHeight, cw = Math.min(340, innerWidth - 16);
+  const card = tourLayer.firstChild, cw = Math.min(380, innerWidth - 16);
   card.style.width = cw + "px";
-  const below = r.bottom + 12, top = below + ch > innerHeight - 8 ? Math.max(8, r.top - ch - 12) : below;
-  card.style.top = top + "px"; card.style.left = Math.max(8, Math.min(innerWidth - cw - 8, r.left)) + "px";
+  const ch = card.offsetHeight;
+  if (target) {
+    const r = target.getBoundingClientRect(), below = r.bottom + 12;
+    card.style.top = Math.max(8, Math.min(innerHeight - ch - 8, below + ch > innerHeight - 8 ? r.top - ch - 12 : below)) + "px";
+    card.style.left = Math.max(8, Math.min(innerWidth - cw - 8, r.left)) + "px";
+  } else { card.style.top = "76px"; card.style.left = Math.max(8, (innerWidth - cw) / 2) + "px"; }
 }
 addEventListener("resize", () => run && run.state && syncTour(run.state));
 
@@ -1265,7 +1334,7 @@ function badgeFor(id, s) {
 }
 const badgeLabel = (id, n) => n + (id === "github" ? " open issues" : " new");
 
-function openApp(id) { if (!run || isNote(id)) return; run.app = id; run.sig = null; render(); applyGuide(run.state); }
+function openApp(id) { if (!run || isNote(id)) return; run.app = id; if (id === "play" && run.tourAck && run.tourAck.tabs) run.tabsVisitedPlay = true; run.sig = null; render(); applyGuide(run.state); }
 const clampPos = (n) => { n.x = Math.max(-n.w + 90, Math.min(innerWidth - 90, n.x)); n.y = Math.max(0, Math.min(innerHeight - 44, n.y)); };
 const over = (ev, r) => ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom;
 
@@ -1578,7 +1647,6 @@ async function debrief() {
     d.x ? xDebrief(d.x) : null,
     h("div", { class: "row" }, h("button", { class: "primary", onclick: () => questions("post", () => mount(h("section", { class: "card narrow" }, h("h2", {}, "Thanks for playing")))) }, "Take the post-test"), h("button", { onclick: setupRun }, "Play again"))));
   if (d.ending === "win") { lastPt = null; burst(40); setTimeout(() => burst(30), 350); }
-  if (d.x) showLeaderboard(d.x.seed);
 }
 
 function xDebrief(x) {
@@ -1596,21 +1664,7 @@ function xDebrief(x) {
       x.goals.length ? h("span", { class: "chip" }, ic("flag"), " Goals " + x.goals.map((g) => g.met ? "met" : "missed").join(" · ")) : null),
     h("h3", {}, "What the team says"), x.story.map((l) => h("p", { class: "story" }, l)),
     x.practices.length ? h("p", { class: "muted" }, "Practices: " + x.practices.map(practiceName).join(", ")) : null,
-    h("p", { class: "muted" }, `Challenge code ${x.seed}: share it so classmates can play the same sprints.`),
-    h("div", { id: "lb" }));
-}
-
-// O5: public leaderboard for this challenge code
-async function showLeaderboard(seed) {
-  const box = document.getElementById("lb");
-  if (!box) return;
-  try {
-    const lb = await api("/api/v1/leaderboard?seed=" + seed);
-    box.replaceChildren(h("h3", {}, ic("chest"), ` Leaderboard for code ${seed}`),
-      h("table", {}, h("tr", {}, ["#", "Player", "Run score", "Style", "Ending"].map((x) => h("th", {}, x))),
-        lb.top.map((r) => h("tr", { class: r.you ? "you" : "" }, h("td", {}, r.place), h("td", {}, r.name + (r.you ? " (you)" : "")), h("td", {}, r.score), h("td", {}, r.style), h("td", {}, r.ending)))),
-      h("p", { class: "muted" }, lb.your_best ? `Your best: #${lb.your_best.place} of ${lb.players} · the median score is ${lb.median}.` : `${lb.players} finished runs on this code.`));
-  } catch (_) { box.replaceChildren(); }   // leaderboard switched off
+    null);
 }
 
 // ------------------------------------------------------------ instructor
@@ -1619,8 +1673,8 @@ async function instructorScreen() {
   mount(h("section", { class: "card" }, h("h2", {}, "Your cohort"), list));
   try {
     const r = await api(`/api/v1/instructor/cohorts/${me.cohort_id}/runs`);
-    list.replaceChildren(h("table", {}, h("tr", {}, ["Student", "Code", "Status", "Ending", "Process", "Gain", ""].map((x) => h("th", {}, x))),
-      r.runs.map((x) => h("tr", {}, h("td", {}, x.student), h("td", {}, x.seed ?? ""), h("td", {}, x.status), h("td", {}, x.ending || ""), h("td", {}, x.process_score), h("td", {}, x.gain == null ? "" : x.gain.toFixed(2)),
+    list.replaceChildren(h("table", {}, h("tr", {}, ["Student", "Status", "Ending", "Process", "Gain", ""].map((x) => h("th", {}, x))),
+      r.runs.map((x) => h("tr", {}, h("td", {}, x.student), h("td", {}, x.status), h("td", {}, x.ending || ""), h("td", {}, x.process_score), h("td", {}, x.gain == null ? "" : x.gain.toFixed(2)),
         h("td", {}, h("button", { onclick: () => transcript(x.run_id) }, "Transcript"))))));
   } catch (e) { list.replaceChildren(h("div", { class: "err" }, e.message)); }
 }

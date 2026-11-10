@@ -361,22 +361,20 @@ def test_M18_debrief_tells_the_story(xcontent):
     assert d["run_score"] == b.s["meters"]["points"] and d["sprints_played"] == 3
 
 
-# ---------------------------------------------------------------- API: challenge codes, Heat, meta unlocks
-def test_X_api_challenge_heat_and_server_only_configure(tmp_path, xcontent):
+# ---------------------------------------------------------------- API: Heat, meta unlocks
+def test_X_api_heat_and_server_only_configure(tmp_path, xcontent):
     from api_helpers import Driver, Env
     e = Env(tmp_path, xcontent)
     c = e.signup("x@test.io")
-    r = c.post("/api/v1/runs", json={"challenge": 4242})
+    r = c.post("/api/v1/runs", json={})
     assert r.status_code == 201, r.text
     st = r.json()["state"]
-    assert st["x"]["seed"] == 4242 and st["x"]["shop"]["free"]
+    assert "seed" not in st["x"] and st["x"]["shop"]["free"]
     run_id = r.json()["id"]
     d = Driver(c, run_id)
     assert d.cmd("configure", unlocks=["heat"], heat=["one_warning"]).status_code == 403
     locked = c.post("/api/v1/runs", json={"heat": ["one_warning"]})
     assert locked.status_code in (400, 409, 422) and "first win" in locked.text
-    r2 = c.post("/api/v1/runs", json={"challenge": 4242})
-    assert r2.json()["state"]["x"]["intents"] == st["x"]["intents"]     # same code, same sprint
     assert c.get("/api/v1/me/unlocks").json() == {"unlocks": [], "heat": []}
     # replay after a restart rebuilds the configured run
     from fixit.api.app import create_app
@@ -384,7 +382,7 @@ def test_X_api_challenge_heat_and_server_only_configure(tmp_path, xcontent):
     c2 = e.client()
     c2.cookies = c.cookies
     c2.headers.update(c.headers)
-    assert c2.get(f"/api/v1/runs/{run_id}/state").json()["state"]["x"]["seed"] == 4242
+    assert c2.get(f"/api/v1/runs/{run_id}/state").json()["state"]["x"]["intents"] == st["x"]["intents"]
 
 
 # ---------------------------------------------------------------- sprint goals

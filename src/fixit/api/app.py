@@ -74,8 +74,7 @@ class CommandIn(BaseModel):
 
 
 class NewRunIn(BaseModel):
-    """Experimental branch: optional class challenge code (a shared seed) and Heat modifiers."""
-    challenge: int | None = Field(default=None, ge=1, le=999_999)
+    """Experimental branch: Heat modifiers."""
     heat: list[str] = Field(default_factory=list, max_length=10)
 
 
@@ -350,7 +349,7 @@ def create_app(db_path: str, content=None, gateway: Gateway | None = None, setti
             raise ApiError(403, "CONSENT_REQUIRED", "accept the consent screen before playing")
         body = body or NewRunIn()
         exp = reducer._exp(content)
-        seed = body.challenge if (exp and body.challenge) else seed_fn()
+        seed = seed_fn()
         run = M.Run(user_id=user.id, seed=seed, content_version=content.version,
                     balance_version=content.balance["version"])
         db.add(run)
@@ -367,34 +366,6 @@ def create_app(db_path: str, content=None, gateway: Gateway | None = None, setti
         cache[run.id] = {"state": s, "seq": seq}
         dialogue(run.id, user.id, seq, s, events)
         return {"id": run.id, "seq": seq, "state": reducer.public_state(s, content)}
-
-    @app.get("/api/v1/leaderboard")
-    def leaderboard(seed: int | None = None, user=Depends(current), db: DbSession = Depends(db_dep)):
-        """O5 (original M15): public leaderboard of finished runs, optionally for one challenge code.
-        Shows display names only. Spec-breaking: leaderboards are out of MVP scope."""
-        if not reducer._orig(content, "leaderboard"):
-            raise ApiError(404, "NOT_FOUND", "the leaderboard is off")
-        q = select(M.Run).where(M.Run.status == "ended")
-        if seed is not None:
-            q = q.where(M.Run.seed == seed)
-        rows = []
-        for r in db.scalars(q).all():
-            d = reducer.debrief(get_cached(db, r)["state"], content)
-            if not d.get("x"):
-                continue
-            who = db.get(M.User, r.user_id)
-            rows.append({"run_id": r.id, "name": who.display_name if who else "?", "you": r.user_id == user.id,
-                         "score": d["x"]["run_score"], "ending": d["ending"], "seed": r.seed,
-                         "style": "".join(h["rank"] for h in d["x"]["style"])})
-        rows.sort(key=lambda x: (-x["score"], x["run_id"]))
-        scores = sorted(x["score"] for x in rows)
-        median = scores[len(scores) // 2] if scores else None
-        mine = [x for x in rows if x["you"]]
-        size = content.balance["originals"]["leaderboard"]["size"]
-        for i, x in enumerate(rows):
-            x["place"] = i + 1
-        return {"seed": seed, "top": rows[:size], "players": len(rows), "median": median,
-                "your_best": mine[0] if mine else None}
 
     @app.get("/api/v1/me/unlocks")
     def my_unlocks(user=Depends(current), db: DbSession = Depends(db_dep)):
@@ -484,7 +455,7 @@ def create_app(db_path: str, content=None, gateway: Gateway | None = None, setti
             runs = db.scalars(select(M.Run).where(M.Run.user_id == stu.id).order_by(M.Run.id)).all()
             for r in runs:
                 s = get_cached(db, r)["state"]
-                out.append({"run_id": r.id, "seed": r.seed, "student": stu.display_name, "status": r.status, "ending": r.ending,
+                out.append({"run_id": r.id, "student": stu.display_name, "status": r.status, "ending": r.ending,
                             "process_score": reducer.process_score(s, content), "meters": s["meters"],
                             "pre": asm.get("pre"), "post": asm.get("post"),
                             "gain": (asm["post"] - asm["pre"]) if "pre" in asm and "post" in asm else None})

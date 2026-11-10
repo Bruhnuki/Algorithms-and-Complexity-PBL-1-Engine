@@ -48,7 +48,16 @@ def start_sprint(s, content):
     return s
 
 
+def touch(s, content):
+    """Open an item and put it down again: enough to count as having started work today."""
+    cid = next(c["id"] for c in s["pile"] if c["ticket"] and c["state"] == "pile")
+    s, _ = run(s, content, "open_card", card_id=cid)
+    return run(s, content, "hold")[0]
+
+
 def finish_sprint(s, content):
+    if not s["guide"]["worked"]:
+        s = touch(s, content)
     s, _ = run(s, content, "advance_stage", to="STANDUP")
     s = clear_scenes(s, content)
     s, _ = run(s, content, "reply_standup", answer="accurate")
@@ -198,7 +207,7 @@ def test_GUIDE5_review_scene_reports_what_is_really_done(calm):
 
 
 def test_GUIDE6_retro_stage_gates_the_next_sprint_and_grants_the_pick(calm):
-    s = start_sprint(reducer.start_run(5, calm)[0], calm)
+    s = touch(start_sprint(reducer.start_run(5, calm)[0], calm), calm)
     s, _ = run(s, calm, "advance_stage", to="STANDUP")
     s = clear_scenes(s, calm)
     s, _ = run(s, calm, "reply_standup", answer="accurate")
@@ -290,3 +299,62 @@ def test_CONTENT1_every_beat_has_exactly_one_correct_choice_and_known_tickets(ca
         assert all(t in calm.tickets for t in sp["tickets"] + sp["backlog_more"])
     ids = [b["id"] for b in g["beats"]]
     assert len(ids) == len(set(ids))
+
+
+# ---------------------------------------------------------------- tester feedback
+def test_FEEDBACK1_cannot_end_day_one_before_touching_the_work(calm):
+    s = start_sprint(reducer.start_run(1, calm)[0], calm)
+    with pytest.raises(GameError) as e:
+        run(s, calm, "advance_stage", to="STANDUP")
+    assert "at least one item" in e.value.detail
+    assert reducer.public_state(s, calm)["guide"]["worked"] is False
+    s = touch(s, calm)
+    assert reducer.public_state(s, calm)["guide"]["worked"] is True
+    run(s, calm, "advance_stage", to="STANDUP")
+
+
+def test_FEEDBACK2_suspicion_and_strikes_cannot_end_a_learning_run(calm):
+    s = start_sprint(reducer.start_run(1, calm)[0], calm)
+    s["sprint"] = 2
+    s["meters"]["cover"], s["warnings"] = 500, 9
+    reducer._check_end(s, [], calm)
+    assert s["status"] == "active"
+    s["meters"]["rating"] = 1.5
+    reducer._check_end(s, [], calm)
+    assert s["status"] == "ended" and s["ending"] == "lose_rating"
+
+
+def test_FEEDBACK3_missing_the_goal_is_not_a_strike(calm):
+    s = start_sprint(reducer.start_run(1, calm)[0], calm)
+    s = touch(s, calm)
+    s, _ = run(s, calm, "advance_stage", to="STANDUP")
+    s = clear_scenes(s, calm)
+    s, _ = run(s, calm, "reply_standup", answer="accurate")
+    s, _ = run(s, calm, "advance_stage", to="BUILD")
+    s, ev = run(s, calm, "advance_stage", to="REVIEW")
+    assert s["warnings"] == 0 and not any(e["type"] == "warning_issued" for e in ev)
+    assert any(e["type"] == "sprint_goal" and e["met"] is False for e in ev)
+
+
+def test_FEEDBACK4_no_completion_codes_in_self_study(calm):
+    s = start_sprint(reducer.start_run(5, calm)[0], calm)
+    s = touch(s, calm)
+    s, _ = run(s, calm, "advance_stage", to="STANDUP")
+    s = clear_scenes(s, calm)
+    s, _ = run(s, calm, "reply_standup", answer="accurate")
+    s, _ = run(s, calm, "advance_stage", to="BUILD")
+    s, _ = run(s, calm, "advance_stage", to="REVIEW")
+    s = clear_scenes(s, calm)
+    s, ev = run(s, calm, "advance_stage", to="RETRO")
+    assert not any("code" in e["type"] for e in ev)
+    blob = json.dumps(reducer.public_state(s, calm)["guide"]) + json.dumps(reducer.debrief(s, calm))
+    assert "codes" not in blob and "final_code" not in blob
+
+
+def test_FEEDBACK5_a_vague_daily_scrum_answer_hides_a_problem(calm):
+    s = start_sprint(reducer.start_run(1, calm)[0], calm)
+    base = s["x"]["debt"]
+    s2, _ = run(touch(s, calm), calm, "advance_stage", to="STANDUP")
+    s2 = clear_scenes(s2, calm)
+    s2, _ = run(s2, calm, "reply_standup", answer="vague")
+    assert s2["x"]["debt"] == base + calm.balance["calm"]["debt_per_skipped_dod"]

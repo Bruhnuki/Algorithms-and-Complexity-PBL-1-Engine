@@ -377,7 +377,7 @@ function buildMeters() {
     h("div", { class: `meter t-${tone}`, "data-k": k }, h("span", { class: "lbl", "aria-hidden": "true" }, ic(icon)), h("span", { class: "mname" }, term(termKey)), h("b", {}),
       bar ? h("div", { class: "bar" }, h("i", {})) : null)));
 }
-const METER_FMT = { Points: (n) => String(Math.round(n)), Rating: (n) => n.toFixed(2), Cover: (n) => String(Math.round(n)), Focus: (n) => String(Math.round(n)) };
+const METER_FMT = { Points: (n) => String(Math.round(n)), Rating: (n) => n.toFixed(1), Cover: (n) => String(Math.round(n)), Focus: (n) => String(Math.round(n)) };
 function syncMeters(s) {
   const root = document.getElementById("meters");
   if (!root) return;
@@ -403,8 +403,9 @@ function syncMeters(s) {
   tile("Rating").classList.toggle("low", m.rating < 3);
   tile("Cover").classList.toggle("low", m.cover >= 70); tile("Cover").querySelector(".bar i").style.width = Math.max(0, Math.min(100, m.cover)) + "%";
   tile("Focus").classList.toggle("low", m.focus < 30); tile("Focus").querySelector(".bar i").style.width = Math.max(0, Math.min(100, m.focus)) + "%";
-  const w = tile("Warnings"); w.hidden = !s.warnings; w.classList.add("low"); w.querySelector("b").textContent = String(s.warnings);
   const calmMode = !!(s.x && s.x.calm);
+  tile("Cover").hidden = calmMode;   // the fake-résumé idea is not part of learning mode
+  const w = tile("Warnings"); w.hidden = calmMode || !s.warnings; w.classList.add("low"); w.querySelector("b").textContent = String(s.warnings);
   tile("Clock").hidden = calmMode;   // nothing is timed in learning mode, so no clock
   const clk = tile("Clock").querySelector("b"), ct = s.clock_min + " min";
   if (!calmMode && clk.textContent !== ct) clk.textContent = ct;
@@ -578,12 +579,13 @@ function codeDesk(s) {
     const calmMode = !!(s.x && s.x.calm);
     const label = calmMode ? { accurate: "Say honestly where it stands", vague: "Stay vague", wrong: "Say what sounds good (not true)" }
       : { accurate: "Explain honestly", vague: "Keep it vague", wrong: "Make something up" };
-    const say = { accurate: pr && `${sus(pr.standup.accurate)} now. If that fix later turns out broken: ${sus(pr.contradiction_cover)}.`,
+    const say = calmMode ? { accurate: "The team sees the real picture and can help.", vague: "A hidden problem: the team will make more mistakes.", wrong: "A bigger hidden problem: more mistakes later." }
+      : { accurate: pr && `${sus(pr.standup.accurate)} now. If that fix later turns out broken: ${sus(pr.contradiction_cover)}.`,
       vague: pr && `${sus(pr.standup.vague * pr.vague_multiplier)}. A small bluff.`, wrong: pr && `${sus(pr.standup.wrong)}. A big bluff.` };
     const timer = s.x && s.x.standup_timer_s ? standupTimer(q, s.x.standup_timer_s) : null;
     return h("section", { class: "card", "aria-label": "Daily Scrum" }, h("h2", {}, "Daily ", term("standup"), " with " + who(q.teammate)),
       h("p", {}, `"How did your last fix go?"`),
-      calmMode ? h("p", { class: "muted small" }, "The Daily Scrum works only when what we say is true. Hidden problems get bigger.") : null, timer,
+      calmMode ? h("p", { class: "muted small" }, "The Daily Scrum works only when what we say is true. A hidden problem makes the team's next mistakes more likely.") : null, timer,
       h("div", { class: "row", "data-guide": "standup" }, q.choices.map((c) => h("button", { class: pr ? "deal" : "", onclick: () => cmd("reply_standup", { answer: c }) }, label[c] || c, pr ? h("small", {}, say[c]) : null))),
       q.choices.includes("accurate") || calmMode ? null : h("p", { class: "muted small" }, "Watch a video in ToobYou to unlock the honest answer."));
   }
@@ -610,9 +612,9 @@ function codeDesk(s) {
     return h("section", { class: "card" }, h("h2", {}, ic("branch"), " Your desk"),
       h("p", { class: "muted" }, s.open_card ? "This request needs a reply, not code." : "Pick a request from your to-do list."),
       s.open_card ? h("button", { class: "primary", "data-guide": "push", onclick: () => cmd("push") }, "Send reply") : null,
-      short ? h("p", { class: "cost risk" }, `Sprint goal not met yet (${s.x.goal.shipped} of ${s.x.goal.target}). Finishing now means a strike.`) : null,
+      short && !s.x.calm ? h("p", { class: "cost risk" }, `Sprint goal not met yet (${s.x.goal.shipped} of ${s.x.goal.target}). Finishing now means a strike.`) : null,
       s.x ? releaseEl(s) : null,
-      h("div", { class: "row" }, h("button", { "data-guide": next[2], onclick: () => cmd("advance_stage", { to: next[0] }), disabled: !!s.open_card }, next[1])));
+      h("div", { class: "row" }, h("button", { "data-guide": next[2], onclick: () => endStage(s, next[0]), disabled: !!s.open_card || needsWork(s, next[0]), title: needsWork(s, next[0]) ? "Pick an item first: fix it yourself or give it to Ines or Tobi" : "" }, next[1])));
   }
   if (!w) return h("section", { class: "card" }, h("h2", {}, "Your desk"));
   const lastRun = run.runs;
@@ -666,11 +668,10 @@ function retroStage(s) {
   const last = s.sprint >= s.x.sprints_total;
   const skill = s.x.skill || {}, debt = s.x.debt || 0;
   const pct = (v) => Math.round(v * 100) + "%";
-  const bug = s.x.team ? ["dev1", "dev2"].map((d) => `${who(d)} ${pct(s.x.team[d].bug_chance)}`).join(" · ") : "";
   return h("section", { class: "card stagecard", "aria-label": "Retrospective" }, h("h2", {}, ic("bulb"), ` Retrospective · Sprint ${s.sprint}`),
     h("p", {}, "The team looked at how it worked and chose one improvement."),
     s.x.practices.length ? h("p", { class: "pracs" }, s.x.practices.map((p) => h("span", { class: "pchip", title: (PRACTICES[p.id] || ["", ""])[1] }, practiceName(p.id)))) : null,
-    bug ? h("p", { class: "cost" + (debt > 0 ? " risk" : " good") }, `Chance that work handed to a developer comes back with a mistake: ${bug}.` + (Object.values(skill).some((v) => v > 0) ? " Your coaching lowered it." : "") + (debt > 0 ? " Skipped checks raised it." : "")) : null,
+    s.x.team ? riskBars(s) : null,
     h("button", { class: "primary", "data-guide": "next-sprint", onclick: () => cmd("advance_stage", { to: "PLANNING" }) }, last ? "Finish the project" : `Start Sprint ${s.sprint + 1}`));
 }
 
@@ -715,10 +716,87 @@ function syncScene(s) {
   if (first) { card.scrollTop = 0; const b = card.querySelector(".scene-choice:not([disabled])") || card.querySelector("button"); if (b) b.focus({ preventScroll: true }); }
 }
 
+
+// ---- Ending a day or a sprint (learning mode): day 1 needs some work first; finishing a sprint asks you to look at what is done
+const needsWork = (s, to) => !!(s.guide && to === "STANDUP" && !s.guide.worked);
+const confirmLayer = h("div", { id: "confirm", hidden: true });
+document.body.append(confirmLayer);
+function endStage(s, to) {
+  if (!(s.guide && to === "REVIEW")) return cmd("advance_stage", { to });
+  const items = s.pile.filter((c) => c.ticket && c.state !== "backlog");
+  const group = (label, tone, list) => list.length ? h("div", { class: "cgroup " + tone }, h("b", {}, `${label} (${list.length})`), h("ul", {}, list.map((c) => h("li", {}, c.title)))) : null;
+  const done = items.filter((c) => c.state === "done"), team = items.filter((c) => c.state === "delegated" || c.state === "returned"), todo = items.filter((c) => c.state === "pile" || c.state === "open");
+  const close = () => { confirmLayer.hidden = true; confirmLayer.replaceChildren(); run.modal = null; };
+  run.modal = "confirm";
+  confirmLayer.replaceChildren(h("div", { class: "scene-card", role: "dialog", "aria-modal": "true", "aria-labelledby": "confirm-title" },
+    h("h2", { id: "confirm-title" }, "Finish the Sprint?"),
+    h("p", {}, "The Sprint ends and users see what was sent. Here is where your Sprint Backlog stands:"),
+    group("Sent to users", "ok", done), group("With the team, not checked yet. It goes out unchecked", "warn", team), group("Not finished: back to the Product Backlog", "no", todo),
+    h("p", { class: "muted small" }, "Only work that meets the Definition of Done counts toward the Increment."),
+    h("div", { class: "row" }, h("button", { class: "primary", onclick: () => { close(); cmd("advance_stage", { to }); } }, "Finish the Sprint"), h("button", { onclick: () => { close(); run.sig = null; render(); } }, "Keep working"))));
+  confirmLayer.hidden = false;
+  confirmLayer.querySelector("button.primary").focus();
+}
+
+// A graphic, not a sentence: how likely each developer is to hand back work with a mistake (lower is better)
+function riskBars(s) {
+  const x = s.x, rows = ["dev1", "dev2"].map((d) => {
+    const v = x.team ? x.team[d].bug_chance : 0, tone = v <= 0.2 ? "low" : v <= 0.4 ? "mid" : "high";
+    const coach = (x.skill && x.skill[d]) || 0, debt = x.debt || 0;
+    return h("div", { class: "riskrow" }, avatar(d, "calm"), h("b", {}, who(d)),
+      h("div", { class: "risktrack", role: "img", "aria-label": `${who(d)}: ${Math.round(v * 100)} percent chance of a mistake` }, h("i", { class: tone })),
+      h("span", { class: "riskpct" }, Math.round(v * 100) + "%"),
+      coach > 0 ? h("span", { class: "chip good" }, "−" + Math.round(coach * 100) + "% coaching") : null,
+      debt > 0 ? h("span", { class: "chip danger" }, "+" + Math.round(debt * 100) + "% skipped checks") : null);
+  });
+  const el = h("div", { class: "riskbars" }, h("h3", {}, "Chance of a mistake in work you hand over"), rows, h("small", { class: "muted" }, "Lower is better. Coaching lowers it. Skipped checks and untrue Daily Scrum answers raise it."));
+  el.querySelectorAll(".risktrack i").forEach((bar, i) => { bar.style.width = Math.max(3, Math.round(100 * (x.team ? x.team[["dev1", "dev2"][i]].bug_chance : 0))) + "%"; });
+  return el;
+}
+
+// ---- The guided first sprint: one small pointer at a time, each shown once, with a way to skip it all
+const TOUR = [
+  { id: "flow", when: (s) => s.stage === "PLANNING" && !s.guide.pending, at: () => ".stagecard", title: "How a Sprint goes", text: "Five moments, in order: Sprint Planning, Daily Scrum, Work, Sprint Review, Retrospective. The map on the left shows where you are. You are in Sprint Planning. Press the green button when you are ready." },
+  { id: "daily", when: (s) => s.stage === "STANDUP" && !!s.standup, at: () => "[data-guide=standup]", title: "Daily Scrum", text: "Your teammate asks how the work is going. Pick an answer. The honest one is always the best: hidden problems make the team's later mistakes more likely." },
+  { id: "tabs", when: (s) => s.stage === "BUILD" && !s.work && !s.guide.worked, at: () => ".tabstrip", title: "Your apps", text: "GitHab is where the work is, and where you will spend most of your time. Slackish is the team chat and the Daily Scrum. Play Storey shows what users say about your app." },
+  { id: "pick", when: (s) => s.stage === "BUILD" && !s.work && !s.guide.worked, at: () => "#pile", title: "Your Sprint Backlog", text: "These are the items the team chose in Planning. Press Fix it myself on one, or give it to Ines or Tobi. You cannot end the day before you have started on something." },
+  { id: "code", when: (s) => !!s.work, at: () => "pre.code", title: "Fixing an item", text: "Read 'What it should do' above, then click the line of code that does something different. Then pick the fix, press Test, tick the Done checklist honestly, and send it." },
+  { id: "endday", when: (s) => s.stage === "BUILD" && !s.work && s.guide.worked, at: () => "[data-guide=end-day],[data-guide=end-sprint]", title: "Ending a day", text: "When you have done what you can for today, end the day. Tomorrow starts with another Daily Scrum. After day 2 the Sprint is finished and users see the result." },
+  { id: "review", when: (s) => s.stage === "REVIEW" && !s.guide.pending, at: () => "[data-guide=to-retro]", title: "Sprint Review", text: "The team looks at what it made, and at what users said in Play Storey. Then the Retrospective: the team decides what to improve." },
+  { id: "retro", when: (s) => s.stage === "RETRO" && !s.guide.pending, at: () => "[data-guide=next-sprint]", title: "Sprint complete", text: "The team picked one improvement and you can see how your coaching changed each developer's chance of a mistake. Then start the next Sprint." },
+];
+const tourLayer = h("div", { id: "tour", hidden: true, role: "note" });
+document.body.append(tourLayer);
+const tourOff = () => { try { return localStorage.getItem("tourOff:" + (me ? me.id : "x")) === "1"; } catch (_) { return false; } };
+function syncTour(s) {
+  const hide = () => { if (!tourLayer.hidden) { tourLayer.hidden = true; tourLayer.replaceChildren(); document.querySelectorAll(".tour-ring").forEach((e) => e.classList.remove("tour-ring")); run.tourId = null; } };
+  if (!(s.x && s.x.calm && s.guide) || s.sprint !== 1 || run.modal || tourOff()) return hide();
+  const step = TOUR.find((t) => !seen.has("tour:" + t.id) && t.when(s));
+  if (!step) return hide();
+  const target = [...document.querySelectorAll(step.at())].find((e) => e.offsetParent !== null);
+  if (!target) return hide();
+  document.querySelectorAll(".tour-ring").forEach((e) => { if (e !== target) e.classList.remove("tour-ring"); });
+  target.classList.add("tour-ring");
+  if (run.tourId !== step.id) {
+    run.tourId = step.id;
+    const n = TOUR.indexOf(step) + 1;
+    tourLayer.replaceChildren(h("div", { class: "tourcard" }, h("small", {}, `Quick tour · ${n} of ${TOUR.length}`), h("b", {}, step.title), h("p", {}, step.text),
+      h("div", { class: "row" }, h("button", { class: "primary", onclick: () => { markSeen("tour:" + step.id); run.tourId = null; syncTour(run.state); } }, "Got it"),
+        h("button", { class: "quiet", onclick: () => { try { localStorage.setItem("tourOff:" + (me ? me.id : "x"), "1"); } catch (_) { /* storage can be blocked */ } syncTour(run.state); } }, "Skip the tour"))));
+  }
+  tourLayer.hidden = false;
+  const r = target.getBoundingClientRect(), card = tourLayer.firstChild, ch = card.offsetHeight, cw = Math.min(340, innerWidth - 16);
+  card.style.width = cw + "px";
+  const below = r.bottom + 12, top = below + ch > innerHeight - 8 ? Math.max(8, r.top - ch - 12) : below;
+  card.style.top = top + "px"; card.style.left = Math.max(8, Math.min(innerWidth - cw - 8, r.left)) + "px";
+}
+addEventListener("resize", () => run && run.state && syncTour(run.state));
+
 function pushDeal(s, w) {
   const x = s.x, unticked = Object.values(w.dod).filter((v) => !v).length;
   const lines = [];
-  if (unticked) lines.push(h("div", { class: "cost risk" }, x.boss_live && x.boss === "friday_deploy" ? "Friday Deploy: tick every box before you can send."
+  if (unticked) lines.push(h("div", { class: "cost risk" }, x.calm ? `${unticked} box${unticked > 1 ? "es" : ""} unticked: this will not count as Done, and skipped checks make the team's next mistakes more likely.`
+    : x.boss_live && x.boss === "friday_deploy" ? "Friday Deploy: tick every box before you can send."
     : `Sending with ${unticked} box${unticked > 1 ? "es" : ""} unticked: Suspicion +${x.prices.unticked_box} and a lower teamwork score.`));
   else if (!w.last_run) lines.push(h("div", { class: "cost risk" }, "You ticked 'The test passed' without testing. That counts as a dishonest checklist."));
   if (x.next_clean_factor < 1) lines.push(h("div", { class: "cost" }, `Users get bored of the same kind of fix: another clean one this sprint is worth ${Math.round(x.next_clean_factor * 100)}% of the first.`));
@@ -786,9 +864,10 @@ function teamBoard(s) {
   const short = s.day >= 2 && !x.goal.met;
   const me = dropZone(h("div", { class: "lane-card me" },
     h("div", { class: "lane-head" }, ic("c-heron", "lane-av"), h("div", {}, h("b", {}, "You"), h("small", {}, "Drop a request here to fix it yourself"))),
-    short ? h("p", { class: "cost risk" }, `Sprint goal not met yet (${x.goal.shipped} of ${x.goal.target}). Finishing now means a strike.`) : null,
+    x.calm ? (s.guide && !s.guide.worked && s.day < 2 ? h("p", { class: "muted small" }, "Start on an item first: fix it yourself, or give it to Ines or Tobi.") : null)
+      : short ? h("p", { class: "cost risk" }, `Sprint goal not met yet (${x.goal.shipped} of ${x.goal.target}). Finishing now means a strike.`) : null,
     releaseEl(s),
-    h("div", { class: "row" }, h("button", { "data-guide": next[2], onclick: () => cmd("advance_stage", { to: next[0] }), disabled: !!s.open_card }, next[1]))),
+    h("div", { class: "row" }, h("button", { "data-guide": next[2], onclick: () => endStage(s, next[0]), disabled: !!s.open_card || needsWork(s, next[0]), title: needsWork(s, next[0]) ? "Pick an item first: fix it yourself or give it to Ines or Tobi" : "" }, next[1]))),
     (id) => cmd("open_card", { card_id: id }));
   const mates = ["dev1", "dev2"].map((d) => {
     const m = x.team[d], [nm, trait] = TEAM_INFO[d];
@@ -839,7 +918,10 @@ function syncTeam(s) {
 function githubApp(s) {
   const board = s.x && s.x.team && s.stage === "BUILD" && !s.work && !(run.reviewing && s.pile.some((c) => c.id === run.reviewing && c.review));
   if (board) return h("div", { class: "gh board-mode" }, h("aside", {}, pilePanel(s), intentsEl(s)), h("div", { class: "main" }, teamBoard(s)));
-  return h("div", { class: "gh" }, h("aside", {}, lanesEl(s), pilePanel(s), intentsEl(s)),
+  const holdBacklog = s.x && s.x.calm && (s.stage === "PLANNING" || s.stage === "RETRO");
+  const holdText = s.stage === "RETRO" ? "The Sprint is over. Unfinished items went back to the Product Backlog." : "Empty for now. The team fills it in Sprint Planning, and it shows up here when the Sprint begins.";
+  return h("div", { class: "gh" }, h("aside", {}, holdBacklog ? h("section", { class: "card", id: "pile" }, h("h2", {}, ic("clipboard"), " Sprint Backlog"),
+      h("p", { class: "muted" }, holdText)) : [lanesEl(s), pilePanel(s), intentsEl(s)]),
     h("div", { class: "main" }, s.stage === "STANDUP"
       ? h("section", { class: "card" }, h("h2", {}, "Standup is happening in " + appName("slack")), h("p", {}, "Your teammate is waiting for your answer."), h("button", { class: "primary", onclick: () => openApp("slack") }, "Open " + appName("slack")))
       : codeDesk(s)));
@@ -872,18 +954,44 @@ function reviewText(e) {
 const QUIP = ["", "Broken!", "Needs work", "It's okay", "Pretty good", "Love it!"];
 const REVIEWERS = ["Dana K.", "Mo T.", "Lia P.", "Sam R.", "Kofi A.", "Ivy W."];
 
+// The rating IS the average of the ten reviews shown. The server decides the rating; the reviews are drawn to agree with it:
+// newest first, with the best outcomes given the higher stars. Older, plain reviews fill the list up to ten.
+const BASE_GOOD = ["Does what it says.", "Solid app, works for me.", "Good value."];
+const BASE_OKAY = ["Fine, a few rough edges.", "It's okay. Some things feel off.", "Works most of the time."];
+const BASE_BAD = ["Too many problems for me.", "Keeps going wrong.", "Not happy with this one."];
+const outcomeRank = (e) => { const l = String(e.label || "").toLowerCase(); return e.type !== "pushed" ? 0 : l.includes("clean") ? 4 : l.includes("accept") ? 3 : 2; };
+function consistentReviews(s) {
+  const L = 10, r = Math.max(1, Math.min(5, Number(s.meters.rating)));
+  const real = reviewList().slice(-L).reverse().map(({ e, idx }) => ({ e, idx }));
+  const items = real.concat(Array.from({ length: L - real.length }, (_, i) => ({ e: null, idx: 1000 + i })));
+  const total = Math.max(L, Math.min(5 * L, Math.round(r * L)));
+  const base = Math.min(5, Math.floor(total / L)), extra = total - base * L;
+  const order = items.map((it, i) => ({ it, i, q: it.e ? outcomeRank(it.e) : 1 })).sort((a, b) => b.q - a.q || a.i - b.i);
+  order.forEach((o, rank) => { o.it.k = Math.min(5, base + (rank < extra ? 1 : 0)); });
+  return items;
+}
+function reviewBody(it) {
+  const k = it.k, pick = (arr) => arr[it.idx % arr.length];
+  if (!it.e) return pick(k >= 4 ? BASE_GOOD : k <= 2 ? BASE_BAD : BASE_OKAY);
+  if (it.e.type === "push_blocked") return k <= 2 ? "The app crashes as soon as I open it." : "A crash showed up, but it is mostly fine.";
+  if (it.e.type === "attack_check_resolved") return k <= 2 ? "I heard this app leaked user data. Uninstalling." : "There was a security scare, but it was handled.";
+  const b = BLURBS[it.e.ticket];
+  return b ? (k >= 4 ? b.good : k <= 2 ? b.bad : pick(BASE_OKAY)) : pick(k >= 4 ? BASE_GOOD : k <= 2 ? BASE_BAD : BASE_OKAY);
+}
+
 function playApp(s) {
-  const r = Number(s.meters.rating), list = reviewList().slice(-10).reverse();
+  const r = Number(s.meters.rating), list = consistentReviews(s), shown = (list.reduce((a, it) => a + it.k, 0) / list.length);
   return h("div", { class: "play" },
     h("section", { class: "card store-head" }, h("div", { class: "app-icon", "aria-hidden": "true" }, ic("hammer")),
       h("div", {}, h("h2", {}, "Scrum Corp App"), h("div", { class: "muted" }, "Scrum Corp · Productivity"),
-        h("div", { class: "big-rating" }, h("b", {}, r.toFixed(2)), h("span", { class: "stars", "aria-label": r.toFixed(1) + " out of 5 stars" }, stars(r))))),
-    h("section", { class: "card", "aria-label": "Reviews" }, h("h2", {}, "Reviews"), h("p", { class: "sub" }, "What the public says about your updates."),
-      list.length ? list.map(({ e, idx }) => {
-        const k = reviewStars(e), who = REVIEWERS[idx % REVIEWERS.length];
-        return h("div", { class: "review" + (idx >= run.wallFresh ? " new" : "") }, h("span", { class: "rv rv" + (idx % 5), "aria-hidden": "true" }, who[0]),
-          h("div", {}, h("b", {}, who), h("div", { class: "stars sm", "aria-label": k + " stars" }, stars(k), " ", h("span", { class: "muted" }, QUIP[k])), h("div", {}, reviewText(e))));
-      }) : h("p", { class: "muted" }, "No reviews yet. Push an update and users will tell you what they think.")));
+        h("div", { class: "big-rating" }, h("b", {}, shown.toFixed(1)), h("span", { class: "stars", "aria-label": shown.toFixed(1) + " out of 5 stars" }, stars(shown))),
+        h("small", { class: "muted" }, `Average of the ${list.length} reviews below`))),
+    h("section", { class: "card", "aria-label": "Reviews" }, h("h2", {}, "Reviews"), h("p", { class: "sub" }, "What the public says about your updates. Your app rating is the average of these."),
+      list.map((it) => {
+        const k = it.k, who = REVIEWERS[it.idx % REVIEWERS.length];
+        return h("div", { class: "review" + (it.e && it.idx >= run.wallFresh ? " new" : "") }, h("span", { class: "rv rv" + (it.idx % 5), "aria-hidden": "true" }, who[0]),
+          h("div", {}, h("b", {}, who), h("div", { class: "stars sm", "aria-label": k + " stars" }, stars(k), " ", h("span", { class: "muted" }, QUIP[k])), h("div", {}, reviewBody(it))));
+      })));
 }
 
 function youtubeApp(s) {
@@ -1034,8 +1142,8 @@ function hudEl(s) {
   return h("div", { class: "hud", "data-region": "hud" },
     h("div", { class: "hud-row" },
       h("span", { class: "chip" }, ic("calendar"), ` Sprint ${s.sprint} of ${x.sprints_total}`),
-      goalChip(x.goal),
-      h("span", { class: "chip" }, ic("check"), " ", term("teamwork"), ` ${x.process_score}`),
+      x.calm ? null : goalChip(x.goal),
+      x.calm ? null : h("span", { class: "chip" }, ic("check"), " ", term("teamwork"), ` ${x.process_score}`),
       multEl(s),
       x.release ? h("span", { class: "chip", title: "Pushes waiting in the release" }, ic("rocket"), ` Release ${x.release.items.length}/${x.release.max}`) : null,
       x.last_stand ? h("span", { class: "chip danger" }, ic("warn"), " Last stand") : null,
@@ -1063,7 +1171,7 @@ function intentsEl(s) {
 }
 
 function lanesEl(s) {
-  if (!s.x || !(s.x.features || []).includes("lanes")) return null;
+  if (!s.x || s.x.calm || !(s.x.features || []).includes("lanes")) return null;
   const n = (st) => s.pile.filter((c) => st.includes(c.state)).length;
   const lanes = [["To do", ["pile"]], ["With you", ["open"]], ["With the team", ["delegated"]], ["Back to check", ["returned"]], ["Done", ["done"]]];
   return h("div", { class: "lanes", "aria-label": "Work in flight" }, lanes.map(([k, st]) => h("div", { class: "lane" + (n(st) ? "" : " empty") }, h("b", {}, n(st)), h("small", {}, k))));
@@ -1143,7 +1251,8 @@ function roadmap(s) {
 const PAGES = { slack: slackApp, github: githubApp, play: playApp, youtube: youtubeApp, shop: shopApp };
 
 // ---- tabs and sticky notes: pull a tab down out of the browser and it becomes a floating note
-const attached = () => APPS.filter((a) => !run.notes.some((n) => n.id === a.id));   // apps still in the browser
+const laterApp = (id) => !!(run && run.state && run.state.x && run.state.x.calm && run.state.sprint === 1 && (id === "youtube" || id === "shop"));
+const attached = () => APPS.filter((a) => !run.notes.some((n) => n.id === a.id) && !laterApp(a.id));   // apps still in the browser
 const isNote = (id) => run.notes.some((n) => n.id === id);
 const visible = (id) => run.app === id || isNote(id);                               // on screen, so not "unread"
 let noteZ = 0, swallow = false;
@@ -1450,7 +1559,8 @@ function render() {
   updateScreen(s);
   syncScene(s);
   applyGuide(s);
-  if (!run.modal) { const c = conceptFor(s); if (c) showConcept(c); }
+  if (!run.modal && !(s.x && s.x.calm)) { const c = conceptFor(s); if (c) showConcept(c); }
+  syncTour(s);
   if (visible("slack")) run.slackSeen = lastId;
   if (visible("play")) run.playSeen = run.wall.length;
   if (run.lastStage && run.lastStage !== s.stage && !REDUCED) { const d = activePage(); if (d) { d.classList.add("swap"); setTimeout(() => d.classList.remove("swap"), 700); } }
@@ -1462,8 +1572,9 @@ async function debrief() {
   const d = await api(`/api/v1/runs/${run.id}/debrief`);
   const names = { win: d.x && d.x.scrum ? "You ran all " + d.x.sprints_played + " Sprints" : d.x ? "You survived all " + d.x.sprints_played + " sprints" : "You survived the sprint", lose_rating: "Fired: Rating fell below 2.0", lose_cover: "Exposed: Cover hit 100", lose_warnings: "Demoted twice" };
   mount(h("section", { class: "card narrow" }, h("div", { class: "hero", "aria-hidden": "true" }, ic(d.ending === "win" ? "c-heron-cheer" : "c-heron-oops")), h("h2", {}, names[d.ending] || d.ending),
-    h("table", {}, [["Rating", Number(d.rating).toFixed(2)], ["Cover", d.cover], ["Points", d.points], ["Process score", d.process_score], ["Gap (rating % minus process)", d.gap]].map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, v)))),
-    h("p", { class: "muted" }, "Points never count toward your process score: honest process does."),
+    h("table", {}, (d.x && d.x.scrum ? [["App rating", Number(d.rating).toFixed(1)], ["Points", d.points]]
+      : [["Rating", Number(d.rating).toFixed(2)], ["Cover", d.cover], ["Points", d.points], ["Process score", d.process_score], ["Gap (rating % minus process)", d.gap]]).map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, v)))),
+    d.x && d.x.scrum ? null : h("p", { class: "muted" }, "Points never count toward your process score: honest process does."),
     d.x ? xDebrief(d.x) : null,
     h("div", { class: "row" }, h("button", { class: "primary", onclick: () => questions("post", () => mount(h("section", { class: "card narrow" }, h("h2", {}, "Thanks for playing")))) }, "Take the post-test"), h("button", { onclick: setupRun }, "Play again"))));
   if (d.ending === "win") { lastPt = null; burst(40); setTimeout(() => burst(30), 350); }
@@ -1471,6 +1582,11 @@ async function debrief() {
 }
 
 function xDebrief(x) {
+  if (x.scrum) return h("div", { class: "xdeb" },
+    h("div", { class: "row" }, h("span", { class: "chip good" }, ic("check"), ` Scrum questions right first try: ${x.scrum.first_try} of ${x.scrum.asked}`)),
+    h("h3", {}, "What the team says"), x.story.map((l) => h("p", { class: "story" }, l)),
+    x.practices.length ? h("p", { class: "muted" }, "Practices: " + x.practices.map(practiceName).join(", ")) : null,
+    null);
   return h("div", { class: "xdeb" },
     x.scrum ? h("div", { class: "row" }, h("span", { class: "chip good" }, ic("check"), ` Scrum questions right first try: ${x.scrum.first_try} of ${x.scrum.asked}`)) : null,
     h("div", { class: "row" }, h("span", { class: "chip" }, ic("coin"), ` Run score ${x.run_score}` + (x.heat.length ? ` (Heat ${x.heat.length})` : "")),

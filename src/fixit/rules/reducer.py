@@ -304,11 +304,12 @@ def _check_end(s: dict, ev: list, content: Content) -> None:
         return
     lim = content.balance["limits"]
     ending = None
-    if s["meters"]["cover"] >= lim["cover_lose_at"]:
+    learning = s.get("guide") is not None   # learning mode: Suspicion and strikes are hidden, so only the app rating can end a run
+    if s["meters"]["cover"] >= lim["cover_lose_at"] and not learning:
         ending = "lose_cover"
     elif s["meters"]["rating"] < lim["rating_lose_below"]:
         ending = "lose_rating"
-    elif s["warnings"] >= (_x_warnings_lose_at(s, content) if s.get("x") else lim["warnings_lose_at"]):
+    elif s["warnings"] >= (_x_warnings_lose_at(s, content) if s.get("x") else lim["warnings_lose_at"]) and not learning:
         ending = "lose_warnings"
     if ending and _safe_sprint(s):
         ending = None   # the first sprint is for learning: mistakes teach, they do not end the run
@@ -390,7 +391,7 @@ def _resolve_review(s: dict, ev: list, content: Content) -> None:
                   points=b["attack_check"]["points"])
     if s.get("x"):
         _x_goal_check(s, ev, content)
-    if s["meters"]["rating"] < b["limits"]["rating_warn_below"] and not _safe_sprint(s):
+    if s["meters"]["rating"] < b["limits"]["rating_warn_below"] and not _safe_sprint(s) and s.get("guide") is None:
         s["warnings"] += 1
         _emit(s, ev, "warning_issued", warnings=s["warnings"])
     _check_end(s, ev, content)
@@ -433,6 +434,8 @@ def _h_open_card(s, ev, content, p):
     if c["state"] == "returned" and c.get("review"):
         _illegal("returned work is reviewed change by change")
     _play(s, ev, content, "work")
+    if s.get("guide") is not None:
+        s["guide"]["worked"] = True
     if c["ticket"]:
         t = _ticket(content, c["ticket"])
         work = {"ticket": t["id"], "flagged": None, "selected": None, "last_run": None, "assistant": None,
@@ -593,6 +596,8 @@ def _h_delegate(s, ev, content, p):
     if s.get("x") and not _feat(s, "delegate"):
         _illegal("asking the team unlocks in sprint 2")
     _play(s, ev, content, "delegate")
+    if s.get("guide") is not None:
+        s["guide"]["worked"] = True
     if s["open_card"] == c["id"]:
         s["open_card"] = None
     team = _orig(content, "team_board")
@@ -624,6 +629,8 @@ def _h_coach(s, ev, content, p):
     if c["type"] != "help_call" or c["state"] not in ("pile", "open"):
         _illegal("only a help call can be coached")
     _play(s, ev, content, "coach")
+    if s.get("guide") is not None:
+        s["guide"]["worked"] = True
     if s["open_card"] == c["id"]:
         s["open_card"] = None
     c["state"] = "done"
@@ -690,6 +697,8 @@ def _h_reply_standup(s, ev, content, p):
         k = "accurate" if ans == "accurate" else "bluff"
         s["guide"]["stats"][k] += 1
         s["guide"]["sprint_stats"][k] += 1
+        if ans != "accurate":
+            _g_debt(s, ev, content, +1)
     _log(s, "standup_held")
     _emit(s, ev, "standup_answered", n=st["n"], answer=ans, cover=delta, ticket=st["ticket"])
 
@@ -773,6 +782,8 @@ def _h_advance_stage(s, ev, content, p):
         raise GameError("ILLEGAL_TRANSITION", f"{s['stage']} -> {to}")
     if guide is not None and s["stage"] == "RETRO":
         return _g_end_retro(s, ev, content)
+    if guide is not None and s["stage"] == "BUILD" and to == "STANDUP" and not guide["worked"]:
+        _illegal("work on at least one item (or hand one to the team) before you end the day")
     two = 2
     if s["stage"] == "BUILD" and to == "STANDUP" and s["day"] >= two:
         _illegal("a sprint has only two standups")
@@ -1281,7 +1292,7 @@ def _x_goal_check(s: dict, ev: list, content: Content) -> None:
     if g["met"]:
         _meter(s, "points", G["hit_points"], content)
         _emit(s, ev, "sprint_goal", met=True, shipped=g["shipped"], target=g["target"], points=G["hit_points"])
-    elif _safe_sprint(s):
+    elif s.get("guide") is not None:   # learning mode: a missed goal is a lesson for the Retrospective, not a strike
         _emit(s, ev, "sprint_goal", met=False, shipped=g["shipped"], target=g["target"], cover=0, safe=True)
     else:
         _meter(s, "cover", G["miss_cover"], content)
@@ -1479,7 +1490,7 @@ def _g_blank() -> dict:
 def _g_init(s: dict, content: Content) -> None:
     s["guide"] = {"pending": None, "resolved": False, "tried": [], "queue": [], "done": {}, "picks": [],
                   "stats": _g_blank(), "sprint_stats": _g_blank(), "sprint_items": [], "history": [],
-                  "safe_sprints": _C(content)["safe_sprints"]}
+                  "safe_sprints": _C(content)["safe_sprints"], "worked": False}
     s["x"]["skill"] = {"dev1": 0.0, "dev2": 0.0}   # coaching makes a developer better for good
     s["x"]["debt"] = 0.0                            # skipped checks make everyone's work riskier until paid back
 
@@ -1541,6 +1552,7 @@ def _g_deal_sprint(s: dict, ev: list, content: Content) -> None:
     s["x"]["bounty_card"] = None
     s["sched_pos"] = 0
     s["guide"]["sprint_items"] = list(picks)
+    s["guide"]["worked"] = False
     _emit(s, ev, "sprint_dealt", sprint=k, tickets=picks, boss=None)
 
 
@@ -1708,7 +1720,7 @@ def _g_public(s: dict, content: Content) -> dict:
         if g["resolved"]:
             pend["teach"] = b["teach"]
     return {"theme": cfg.get("theme"), "goal": cfg.get("goal"), "committed": committed, "backlog": backlog,
-            "pending": pend, "score": _g_score(s, content),
+            "pending": pend, "score": _g_score(s, content), "worked": g["worked"],
             "premise": content.guide["premise"] if k == 1 and not g["done"] else None}
 
 

@@ -533,7 +533,7 @@ button.quiet:hover:not(:disabled) { background:var(--soft); color:var(--text); }
 .pmeta { display:flex; flex-wrap:wrap; align-items:center; gap:6px 10px; font-size:12px; color:var(--muted); font-weight:700; }
 .pill { padding:1px 9px; border-radius:999px; background:var(--soft); border:2px solid var(--line); font:800 11px var(--font-head); color:var(--text); }
 .pill.kind-fix { background:var(--red-soft); border-color:var(--red); color:var(--red-d); } .pill.kind-build { background:var(--blue-soft); border-color:var(--blue); color:var(--blue-d); }
-.pill.kind-help_call { background:var(--purple-soft); border-color:var(--purple); color:var(--purple-d); } .pill.kind-status_demand { background:var(--yellow-soft); border-color:var(--yellow); color:#8a6a00; }
+.pill.kind-help_call { background:var(--yellow-soft); border-color:var(--yellow); color:#8a6a00; } .pill.kind-status_demand { background:var(--yellow-soft); border-color:var(--yellow); color:#8a6a00; }
 .pwho, .pdue { display:inline-flex; align-items:center; gap:4px; } .pwho .av { width:18px; height:18px; } .pdue .ic { width:14px; height:14px; margin:0; }
 .pstate { font:800 12px var(--font-head); color:var(--blue-d); } .pstate.back { color:var(--green-d); }
 .pactions { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; margin-top:2px; }
@@ -606,8 +606,8 @@ details.fold > summary small { color:var(--muted); font:700 12px var(--font-body
 .scene-choice .ci { flex:none; width:20px; height:20px; } .scene-choice .ci .ic { width:20px; height:20px; }
 .scene-choice.wrong { opacity:.75; border-color:var(--red); background:var(--red-soft); color:var(--red-d); }
 .scene-choice.right { border-color:var(--green); background:var(--green-soft); color:var(--green-d); }
-.scene-choice.hint { border-color:var(--purple); background:var(--purple-soft); }
-.scene-choice .evid { color:var(--purple-d); font-weight:700; }
+.scene-choice.hint { border-color:var(--blue); background:var(--blue-soft); }
+.scene-choice .evid { color:var(--blue-d); font-weight:700; }
 .scene-fb { padding:10px 14px; border-radius:12px; font-size:15px; line-height:1.5; }
 .scene-fb.ok { background:var(--green-soft); color:var(--green-d); } .scene-fb.no { background:var(--red-soft); color:var(--red-d); }
 .scene-teach { display:flex; gap:10px; align-items:flex-start; padding:10px 14px; border-radius:12px; background:var(--yellow-soft); line-height:1.5; }
@@ -620,3 +620,18 @@ details.fold > summary small { color:var(--muted); font:700 12px var(--font-body
 .backlog .btitle { margin-right:8px; } .backlog .chip { vertical-align:middle; }
 .chip.goalchip { white-space:normal; }
 @media (max-width:520px) { .scene-card { padding:16px; } .scene-head .heron .ic, .scene-head .heron .av { width:48px; height:48px; } }
+
+/* ---- Tester feedback: finish confirmation, completion codes, risk graphic, guided tour ---- */
+#confirm { position:fixed; inset:0; z-index:91; display:grid; place-items:center; padding:16px; background:rgba(20,40,60,.45); }
+#confirm[hidden] { display:none; }
+.cgroup { padding:8px 12px; border-radius:12px; } .cgroup ul { margin:4px 0 0; padding-left:20px; }
+.cgroup.ok { background:var(--green-soft); } .cgroup.warn { background:var(--yellow-soft); } .cgroup.no { background:var(--soft); }
+.riskbars { margin:10px 0; } .riskbars h3 { margin:0 0 6px; font-size:15px; }
+.riskrow { display:flex; align-items:center; gap:10px; margin:6px 0; } .riskrow .av { width:28px; height:28px; } .riskrow b { min-width:44px; }
+.risktrack { flex:1; max-width:240px; height:16px; border-radius:8px; background:var(--soft); border:2px solid var(--line); overflow:hidden; }
+.risktrack i { display:block; height:100%; border-radius:6px; } .risktrack i.low { background:var(--green); } .risktrack i.mid { background:var(--yellow); } .risktrack i.high { background:var(--red); }
+.riskpct { min-width:40px; font:800 15px var(--font-head); }
+#tour { position:fixed; inset:0; z-index:70; pointer-events:none; } #tour[hidden] { display:none; }
+.tourcard { position:fixed; pointer-events:auto; display:flex; flex-direction:column; gap:6px; padding:14px 16px; background:#fff; border:var(--bw) solid var(--blue); border-bottom-width:5px; border-radius:16px; box-shadow:0 10px 30px rgba(24,70,110,.25); animation:pop .3s both; }
+.tourcard small { font:800 12px var(--font-head); text-transform:uppercase; letter-spacing:.5px; color:var(--blue-d); } .tourcard p { margin:0; font-size:15px; line-height:1.45; }
+.tour-ring { outline:4px solid var(--blue); outline-offset:3px; border-radius:12px; }

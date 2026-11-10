@@ -16,10 +16,17 @@ const STEPS = [
     card("c-ines", "Ines, Developer", "Writes code. Tired, very good."),
     card("c-tobi", "Tobi, Developer", "Writes code. New, often stuck."),
   ] },
-  { kind: "cards", pose: "c-heron-cheer", say: "How the game works.", cards: [
-    card("calendar", "Five Scrum moments", "Sprint Planning, the Daily Scrum, the work, the Sprint Review and the Retrospective."),
-    card("chat", "Short scenes", "Each moment starts with a quick scene and one question. A wrong answer just explains why."),
-    card("check", "I'll guide every step", "Take your time. Look for the glowing button."),
+  { kind: "cards", pose: "c-heron-cheer", say: "Here is how every Sprint goes.", cards: [
+    card("clipboard", "1. Sprint Planning", "Marlo shows the list of work. The team picks what fits and agrees on a goal."),
+    card("chat", "2. Daily Scrum", "A short daily check: how is the work going? Honest answers help the team most."),
+    card("hammer", "3. Work", "You help the team get the picked items done. Fix one yourself, or hand it to Ines or Tobi."),
+    card("flag", "4. Sprint Review", "The team looks at what it made and at what users say about it."),
+    card("bulb", "5. Retrospective", "The team picks one thing to do better next Sprint. Then the next Sprint begins."),
+  ], note: "Each moment starts with a short scene and one question. A wrong answer just explains why. Nothing is timed." },
+  { kind: "cards", pose: "c-heron", say: "And how I will help.", cards: [
+    card("check", "A short tour in Sprint 1", "Small pointers show you each part of the screen the first time you need it. You can skip them."),
+    card("star", "Only a few things on screen", "Your app rating and points, the Sprint Backlog and the team. More shows up in later Sprints."),
+    card("flag", "A look back after each Sprint", "The Retrospective shows what your choices did, so you can try something different next time."),
   ] },
   { kind: "pick", pose: "c-heron", say: "Pick a project.", cards: [
     { id: "easy", level: "Easy", name: "The Checkout Fix", live: true, text: "Learn what Scrum really is by running three Sprints.", meta: "3 Sprints · no timers" },

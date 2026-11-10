@@ -19,12 +19,19 @@ def content():
     return mvp_content()
 
 
-def _with_originals(on: bool):
+def _with_originals(on: bool, onboarding: bool = False):
     c = content_mod.get()
     bal = copy.deepcopy(c.balance)
     for o in bal["originals"].values():
         o["enabled"] = on
+    bal["onboarding"]["enabled"] = onboarding   # mechanic tests want every mechanic from minute one
     return dataclasses.replace(c, balance=bal)
+
+
+@pytest.fixture(scope="session")
+def bcontent():
+    """What players get: originals on, introduced one sprint at a time."""
+    return _with_originals(True, onboarding=True)
 
 
 @pytest.fixture(scope="session")

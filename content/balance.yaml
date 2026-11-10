@@ -293,3 +293,24 @@ originals:
   leaderboard:
     enabled: true
     size: 10
+
+# =====================================================================================
+# Beginner onboarding: teach one idea at a time. Each mechanic switches on at the sprint below.
+# Sprint 1 = the basics (fix a bug, test it, Done checklist, send it to users, standups, calls, helping).
+# Sprint 2 = teamwork (asking the team, reviewing their work, practices, what's coming up).
+# Sprint 3 = advanced systems (action cards, release batches, multiplier, momentum) and the boss.
+# enabled: false switches every mechanic on from the first minute (the old behaviour).
+# =====================================================================================
+onboarding:
+  enabled: true
+  unlock_sprint:
+    delegate: 2        # ask the team to do a card (and review what comes back)
+    practices: 2       # free practice pick at the start of sprint 2, shop after that
+    intents: 2         # "Coming up" list
+    lanes: 2           # work-in-flight counters
+    style: 2           # style rank
+    director: 2        # extra work when things are quiet
+    hand: 3            # action cards
+    release: 3         # release batches
+    multiplier: 3      # score multiplier
+    momentum: 3        # momentum and special moves

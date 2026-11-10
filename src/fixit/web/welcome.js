@@ -1,43 +1,28 @@
 // Welcome flow: a short, friendly intro shown right after sign-up, before consent and the quiz.
-// It only explains the game. The numbers below mirror content/balance.yaml and a test keeps them in sync; no rules run here.
+// It only sets the scene: story, team, how a round works. Scoring is taught during play (see guide.js); no rules run here.
 // app.js passes in its own h() (text nodes only), ic() and mount(), so this file never touches innerHTML.
 
 const card = (icon, title, text, chip, tone = "good") => ({ icon, title, text, chip, tone });
 
 const STEPS = [
   { kind: "hello", pose: "c-heron", say: "Hi! I'm Herb, your coach." },
-  { kind: "hello", pose: "c-heron-cheer", say: "Let's get you ready." },
-  { kind: "cards", pose: "c-heron", say: "Scrum means building in small steps.", cards: [
-    card("calendar", "Sprint", "A short work round. Yours lasts two days."),
-    card("c-marlo", "Product Owner", "Marlo decides what matters."),
-    card("c-ines", "Developers", "Ines and Tobi build the app."),
-    card("star", "Scrum Master", "That's you. You help the team."),
+  { kind: "cards", pose: "c-heron", say: "Here's your story.", cards: [
+    card("alert", "The company is in trouble", "It went bankrupt and let its tech experts go."),
+    card("search", "Your résumé was... creative", "You said you can code. You can't, really."),
+    card("star", "Your real job: Scrum Master", "You keep the team working well. Nobody must find out you can't code."),
   ] },
-  { kind: "cards", pose: "c-heron", say: "You lead the team and review its work.", cards: [
-    card("chat", "Lead", "Run standups. Unblock people."),
-    card("branch", "Review", "Read the clues, then push or hold."),
-    card("search", "Stay hidden", "You can't really code. Bluffing raises Cover."),
-    card("star", "Mind your Rating", "Public reviews judge your updates."),
+  { kind: "cards", pose: "c-heron", say: "Meet your team.", cards: [
+    card("c-marlo", "Marlo, Product Owner", "Decides what matters most. Sends you requests."),
+    card("c-ines", "Ines, Developer", "Writes code. Tired, very good."),
+    card("c-tobi", "Tobi, Developer", "Writes code. New, often stuck."),
   ] },
-  { kind: "cards", pose: "c-heron", say: "Your teammates are AI.", cards: [
-    card("chat", "Chatty teammates", "Their lines come from an AI model."),
-    card("robot", "AI Assistant", "Suggests fixes, but it's wrong about 1 time in 5.", "150 pts", "info"),
-    card("check", "Fair rules", "The AI only chats. Game rules set your score."),
+  { kind: "cards", pose: "c-heron-cheer", say: "How the game works.", cards: [
+    card("calendar", "Short rounds", "Work comes in sprints of 2 days. Each day starts with a quick team meeting."),
+    card("bug", "Fix what's broken", "Requests land in your to-do list. You fix bugs by picking the right line of code."),
+    card("check", "I'll guide every step", "The game teaches one new idea at a time. Look for the glowing button."),
   ] },
-  { kind: "cards", pose: "c-heron-cheer", say: "How you earn points.", cards: [
-    card("rocket", "Clean push", "Tests pass, nothing risky.", "+100 pts"),
-    card("play", "Good enough push", "Works, but not perfect.", "+50 pts"),
-    card("chat", "Honest standup", "Accurate answers lower your Cover.", "Cover −10"),
-    card("check", "Good process", "Standups, coaching and reviews count up to 3 times each.", "Process score", "info"),
-  ] },
-  { kind: "cards", pose: "c-heron", say: "What costs you.", cards: [
-    card("bug", "Broken push", "A crash blocks it.", "−30 pts", "bad"),
-    card("alert", "Security hole", "Found at review.", "−150 pts, −0.8 Rating", "bad"),
-    card("search", "Bluffing", "Vague: Cover +5. Wrong: Cover +15. Caught out: Cover +10.", "Cover up", "bad"),
-    card("clipboard", "Skipped checklist", "Each unticked box: Cover +5.", "Cover up", "bad"),
-  ], note: "You lose if Rating drops below 2.0, Cover reaches 100, or you get 2 warnings." },
   { kind: "pick", pose: "c-heron", say: "Pick a project.", cards: [
-    { id: "easy", level: "Easy", name: "The Coupon Shop", live: true, text: "Fix the bugs and ship without being found out.", meta: "One sprint, two days" },
+    { id: "easy", level: "Easy", name: "The Coupon Shop", live: true, text: "A small shop app with a few bugs.", meta: "3 sprints · about 25 minutes" },
     { id: "medium", level: "Medium", live: false, text: "A bigger app and a bigger mess." },
     { id: "hard", level: "Hard", live: false, text: "Real users and real pressure." },
   ] },

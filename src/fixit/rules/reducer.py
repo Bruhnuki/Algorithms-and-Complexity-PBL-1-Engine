@@ -313,7 +313,7 @@ def _begin_standup(s: dict, ev: list, content: Content) -> None:
         last = cands[0] if cands else next(iter(content.tickets))
     s["pending_standup"] = {"n": n, "ticket": last, "concept": content.tickets[last]["concept"],
                             "teammate": "dev1" if n % 2 else "dev2"}
-    if _orig(content, "action_hand"):
+    if _on(s, content, "action_hand"):
         _new_hand(s, ev, content)
     for dev in ("dev1", "dev2"):
         _trust_gain(s, ev, content, dev, "trust_daily_recovery", "standup")
@@ -456,7 +456,8 @@ def _h_select_patch(s, ev, content, p):
     t = _ticket(content, w["ticket"])
     o = _option(t, p["option_id"])
     if t["kind"] == "fix" and w["flagged"] != t["buggy_line"]:
-        _illegal("flag the line that is wrong first")
+        _illegal("line %s is not the broken one. Read the description again and click the line that doesn't match it" % w["flagged"]
+                 if w["flagged"] else "click the line that is wrong first")
     w["selected"], w["last_run"], w["assistant"] = o["id"], None, None
     if w["from_delegate"]:
         w["reviewed"] = True
@@ -552,6 +553,8 @@ def _h_delegate(s, ev, content, p):
     c = _card(s, p["card_id"])
     if c["state"] not in ("pile", "open"):
         _illegal("card cannot be delegated")
+    if s.get("x") and not _feat(s, "delegate"):
+        _illegal("asking the team unlocks in sprint 2")
     _play(s, ev, content, "delegate")
     if s["open_card"] == c["id"]:
         s["open_card"] = None
@@ -562,7 +565,7 @@ def _h_delegate(s, ev, content, p):
         _use_practice(s, ev, content, "pair_programming")
     back = _O(content, "change_review")["return_after_min"] if _orig(content, "change_review") else content.balance["delegation"]["return_after_min"]
     c["returns_s"] = s["clock_s"] + back * 60
-    if _orig(content, "action_hand"):
+    if _on(s, content, "action_hand"):
         got = _draw_cards(s, _O(content, "action_hand")["draw_after_delegate"])
         if got:
             _emit(s, ev, "cards_drawn", cards=got)
@@ -794,9 +797,32 @@ def _xlog(s: dict, what: str) -> None:
     """Style tally (display only) and momentum. Never touches the process log or Points."""
     x = s["x"]
     x["style_log"].append(what)
-    gain = x["momentum_gain"].get(what, 0)
+    gain = x["momentum_gain"].get(what, 0) if "momentum" in x.get("features", FEATURES) else 0
     if gain:
         x["momentum"] = min(x["momentum_full"], x["momentum"] + gain)
+
+
+FEATURES = ("delegate", "practices", "intents", "lanes", "style", "director", "hand", "release", "multiplier", "momentum")
+
+
+def _features_for(sprint: int, content: Content) -> list[str]:
+    ob = content.balance.get("onboarding", {})
+    if not ob.get("enabled"):
+        return list(FEATURES)
+    return [f for f in FEATURES if sprint >= ob["unlock_sprint"].get(f, 1)]
+
+
+def _feat(s: dict, name: str) -> bool:
+    """Onboarding: is this mechanic switched on yet in this run?"""
+    return bool(s.get("x")) and name in s["x"].get("features", FEATURES)
+
+
+def _refresh_features(s: dict, ev: list, content: Content) -> None:
+    old = set(s["x"].get("features", []))
+    s["x"]["features"] = _features_for(s["sprint"], content)
+    new = [f for f in s["x"]["features"] if f not in old]
+    if new and old:
+        _emit(s, ev, "features_unlocked", features=new, sprint=s["sprint"])
 
 
 def _x_start(s: dict, ev: list, content: Content) -> None:
@@ -809,11 +835,12 @@ def _x_start(s: dict, ev: list, content: Content) -> None:
               "last_card": None, "next_spot_s": 0.0, "next_director_s": X["director"]["every_min"] * 60.0,
               "relief_used": False, "bounty_card": None, "achievements": [], "free_runs": {},
               "sprint_start_s": 0.0, "bluffed_this_sprint": False, "flags": [], "goals": []}
+    _refresh_features(s, ev, content)
     _o_start(s, ev, content)
     bosses = sorted(X["bosses"])
     s["x"]["boss"] = bosses[int(draw(s, "boss") * len(bosses)) % len(bosses)]
     _x_deal_sprint(s, ev, content)
-    if X["shop"]["free_pick_at_start"]:
+    if X["shop"]["free_pick_at_start"] and _feat(s, "practices"):
         _x_open_shop(s, ev, content, free=True)
 
 
@@ -1030,7 +1057,7 @@ def _x_tick_world(s: dict, ev: list, content: Content) -> None:
         _emit(s, ev, "last_stand", cover=cover)
     # M13 director
     D = X["director"]
-    while s["clock_s"] >= s["x"]["next_director_s"]:
+    while _feat(s, "director") and s["clock_s"] >= s["x"]["next_director_s"]:
         s["x"]["next_director_s"] += D["every_min"] * 60
         live = len(_live(s))
         if live <= D["quiet_live_max"] and cover < D["quiet_cover_below"]:
@@ -1183,6 +1210,8 @@ def _x_end_sprint(s: dict, ev: list, content: Content) -> None:
 def _x_begin_sprint(s: dict, ev: list, content: Content) -> None:
     X = _X(content)
     x = s["x"]
+    had_practices = _feat(s, "practices")
+    _refresh_features(s, ev, content)
     x["retro_uses"], x["relief_used"] = 0, False
     x["next_director_s"] = s["clock_s"] + X["director"]["every_min"] * 60
     C = X["comeback"]
@@ -1192,7 +1221,8 @@ def _x_begin_sprint(s: dict, ev: list, content: Content) -> None:
         _emit(s, ev, "comeback_offered", focus=C["loss_bonus_focus"], bounty=C["bounty_bonus"])
     _x_deal_sprint(s, ev, content)
     _x_fire_schedule(s, ev, content)
-    _x_open_shop(s, ev, content)
+    if _feat(s, "practices"):
+        _x_open_shop(s, ev, content, free=not had_practices)   # the first shop gives one practice free
 
 
 def _h_configure(s, ev, content, p):
@@ -1288,6 +1318,8 @@ def _h_retro(s, ev, content, p):
 def _h_use_ultimate(s, ev, content, p):
     _need_stage(s, "BUILD")
     x, M = s["x"], _X(content)["momentum"]
+    if not _feat(s, "momentum"):
+        _illegal("special moves unlock later")
     if x["momentum"] < x["momentum_full"]:
         _illegal("momentum is not full yet")
     kind = p["kind"]
@@ -1318,6 +1350,14 @@ def _orig(content: Content, name: str) -> bool:
     return _exp(content) and bool(o.get("enabled"))
 
 
+_ORIG_FEATURE = {"action_hand": "hand", "release_train": "release", "score_multiplier": "multiplier"}
+
+
+def _on(s: dict, content: Content, name: str) -> bool:
+    """An original that is enabled AND already introduced to this player."""
+    return _orig(content, name) and (name not in _ORIG_FEATURE or _feat(s, _ORIG_FEATURE[name]))
+
+
 def _O(content: Content, name: str) -> dict:
     return content.balance["originals"][name]
 
@@ -1328,7 +1368,8 @@ def _o_start(s: dict, ev: list, content: Content) -> None:
     if _orig(content, "action_hand"):
         x["deck_list"] = dict(_O(content, "action_hand")["starter_deck"])
         x["deck"] = _shuffled(s, [k for k, n in sorted(x["deck_list"].items()) for _ in range(n)])
-        _new_hand(s, ev, content)
+        if _on(s, content, "action_hand"):
+            _new_hand(s, ev, content)
     if _orig(content, "change_review"):
         x["trust"] = {d: _O(content, "change_review")["trust_start"] for d in ("dev1", "dev2")}
 
@@ -1364,7 +1405,7 @@ def _new_hand(s: dict, ev: list, content: Content) -> None:
 
 def _play(s: dict, ev: list, content: Content, kind: str) -> None:
     """O1: a move needs a matching action card in your hand; playing it discards it."""
-    if not _orig(content, "action_hand"):
+    if not _on(s, content, "action_hand"):
         return
     x = s["x"]
     if kind not in x["hand"]:
@@ -1375,7 +1416,7 @@ def _play(s: dict, ev: list, content: Content, kind: str) -> None:
 
 
 def _draw_after_push(s: dict, ev: list, content: Content) -> None:
-    if _orig(content, "action_hand"):
+    if _on(s, content, "action_hand"):
         got = _draw_cards(s, _O(content, "action_hand")["draw_after_push"])
         if got:
             _emit(s, ev, "cards_drawn", cards=got)
@@ -1388,7 +1429,7 @@ def _spend_min(s: dict, ev: list, content: Content, minutes: float) -> None:
 
 
 def _h_regroup(s, ev, content, p):
-    if not _orig(content, "action_hand"):
+    if not _on(s, content, "action_hand"):
         _illegal("the action hand is off")
     _need_stage(s, "BUILD")
     _spend_min(s, ev, content, _O(content, "action_hand")["regroup_min"])
@@ -1396,7 +1437,7 @@ def _h_regroup(s, ev, content, p):
 
 
 def _deck_shop(s: dict, content: Content) -> None:
-    if not _orig(content, "action_hand"):
+    if not _on(s, content, "action_hand"):
         _illegal("the action hand is off")
     shop = _need_planning_shop(s)
     if shop["free"]:
@@ -1437,7 +1478,7 @@ def _h_remove_card(s, ev, content, p):
 # ---- O3 score multiplier and O4 release train
 def _multiplier(s: dict, content: Content, honest: bool, ps: int | None = None) -> float:
     """Process score (as it stood before this push) plus the honest-push streak."""
-    if not _orig(content, "score_multiplier"):
+    if not _on(s, content, "score_multiplier"):
         return 1.0
     M = _O(content, "score_multiplier")
     streak = s["x"]["honest_streak"] + 1 if honest else 0
@@ -1446,20 +1487,20 @@ def _multiplier(s: dict, content: Content, honest: bool, ps: int | None = None) 
 
 
 def _release_room(s: dict, content: Content) -> None:
-    if _orig(content, "release_train") and len(s["x"]["release"]) >= _O(content, "release_train")["max_items"]:
+    if _on(s, content, "release_train") and len(s["x"]["release"]) >= _O(content, "release_train")["max_items"]:
         _illegal("the release is full: ship it first")
 
 
 def _award(s: dict, ev: list, content: Content, pts: int, result: str, ticket: str, honest: bool, ps: int | None = None) -> tuple[int, dict]:
     """Points for a push: O3 multiplies them, O4 holds them in the release until it ships."""
     extra = {}
-    if s.get("x") and _orig(content, "score_multiplier"):
+    if s.get("x") and _on(s, content, "score_multiplier"):
         mult = _multiplier(s, content, honest, ps)
         s["x"]["honest_streak"] = s["x"]["honest_streak"] + 1 if honest else 0
         if pts > 0:
             pts = round(pts * mult)
         extra["mult"] = mult
-    if s.get("x") and _orig(content, "release_train"):
+    if s.get("x") and _on(s, content, "release_train"):
         s["x"]["release"].append({"ticket": ticket, "result": result, "points": pts})
         extra["held"] = True
     else:
@@ -1483,7 +1524,7 @@ def _ship_release(s: dict, ev: list, content: Content, auto: bool = False) -> No
 
 
 def _h_ship_release(s, ev, content, p):
-    if not _orig(content, "release_train"):
+    if not _on(s, content, "release_train"):
         _illegal("the release train is off")
     _need_stage(s, "BUILD")
     if not s["x"]["release"]:
@@ -1642,13 +1683,13 @@ def _h_review_send_back(s, ev, content, p):
 
 def _o_public(s: dict, content: Content) -> dict:
     x, out = s["x"], {}
-    if _orig(content, "action_hand"):
+    if _on(s, content, "action_hand"):
         A = _O(content, "action_hand")
         out["hand"] = {"cards": x["hand"], "deck": len(x["deck"]), "discard": len(x["discard"]), "deck_list": x["deck_list"],
                        "regroup_min": A["regroup_min"], "shop_cards": A["shop_cards"], "add_price": A["add_price"], "remove_price": A["remove_price"]}
-    if _orig(content, "score_multiplier"):
+    if _on(s, content, "score_multiplier"):
         out["mult"] = {"next_honest": _multiplier(s, content, True), "next_other": _multiplier(s, content, False), "streak": x["honest_streak"]}
-    if _orig(content, "release_train"):
+    if _on(s, content, "release_train"):
         rel = x["release"]
         out["release"] = {"items": rel, "base": sum(i["points"] for i in rel), "mult": _release_mult(content, len(rel)),
                           "next_mult": _release_mult(content, len(rel) + 1), "max": _O(content, "release_train")["max_items"],
@@ -1704,7 +1745,9 @@ def _x_public(s: dict, content: Content) -> dict:
                        "vague_multiplier": X["bosses"]["demo_day"]["vague_multiplier"] if _x_boss_now(s) == "demo_day" else 1},
             "bug_odds": round(_bug_chance(s, content), 3), "focus_switch_cost": X["focus"]["switch_cost"],
             "standup_timer_s": X["bosses"]["demo_day"]["standup_timer_s"] if _x_boss_now(s) == "demo_day" else None,
-            "seed": s["seed"], **_o_public(s, content)}
+            "seed": s["seed"], "features": x.get("features", list(FEATURES)),
+            "unlocks_next": [f for f in _features_for(s["sprint"] + 1, content) if f not in x.get("features", FEATURES)],
+            **_o_public(s, content)}
 
 
 HANDLERS = {"open_card": _h_open_card, "flag_line": _h_flag_line, "select_patch": _h_select_patch,

@@ -215,3 +215,45 @@ def test_REBAL_coaching_and_delegating_beats_doing_it_all(ocontent):
     wins = lambda runs: sum(r["ending"] == "win" for r in runs)
     assert wins(team) >= wins(solo)
     assert sum(reducer.process_score(r, ocontent) for r in team) > sum(reducer.process_score(r, ocontent) for r in solo)
+
+
+# ---------------------------------------------------------------- beginner onboarding: one idea at a time
+def finish_sprint(s, c):
+    for typ, pl in (("advance_stage", {"to": "STANDUP"}), ("reply_standup", {"answer": "vague"}), ("advance_stage", {"to": "BUILD"}),
+                    ("advance_stage", {"to": "STANDUP"}), ("reply_standup", {"answer": "vague"}), ("advance_stage", {"to": "BUILD"}),
+                    ("advance_stage", {"to": "REVIEW"})):
+        s, _ = run(s, c, typ, **pl)
+    return s
+
+
+def test_ONBOARD_sprint_1_is_only_the_basics(bcontent):
+    s, _ = reducer.start_run(4, bcontent)
+    x = reducer.public_state(s, bcontent)["x"]
+    assert x["features"] == [] and "hand" not in x and "release" not in x and "mult" not in x and x["shop"] is None
+    assert set(x["unlocks_next"]) >= {"delegate", "practices"}
+    s, _ = run(s, bcontent, "advance_stage", to="STANDUP")
+    s, _ = run(s, bcontent, "reply_standup", answer="vague")
+    s, _ = run(s, bcontent, "advance_stage", to="BUILD")
+    cid = add_card(s, "final_price")
+    with pytest.raises(GameError, match="sprint 2"):
+        run(s, bcontent, "delegate", card_id=cid)
+    s, ev = ship(s, bcontent, cid)                     # no cards needed in sprint 1
+    pushed = next(e for e in ev if e["type"] == "pushed")
+    assert "held" not in pushed and "mult" not in pushed and s["meters"]["points"] == pushed["points"]
+
+
+def test_ONBOARD_teamwork_in_sprint_2_advanced_systems_in_sprint_3(bcontent):
+    s, _ = reducer.start_run(4, bcontent)
+    s["warnings"] = -5                                 # survive the idle sprints of this test
+    s = finish_sprint(s, bcontent)
+    assert s["sprint"] == 2 and set(s["x"]["features"]) >= {"delegate", "practices", "intents"}
+    assert "hand" not in s["x"]["features"] and s["x"]["shop"]["free"]
+    s["x"]["shop"] = None
+    s = finish_sprint(s, bcontent)
+    assert s["sprint"] == 3 and {"hand", "release", "multiplier", "momentum"} <= set(s["x"]["features"])
+    s, _ = run(s, bcontent, "advance_stage", to="STANDUP")
+    assert len(s["x"]["hand"]) == bcontent.balance["originals"]["action_hand"]["hand_size"]
+
+
+def test_ONBOARD_bots_still_win_with_onboarding(bcontent):
+    assert any(bot.play(n, bcontent, "coach_delegate").s["ending"] == "win" for n in (1, 2, 3))

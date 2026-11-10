@@ -255,6 +255,14 @@ def _escalate(s: dict, ev: list, content: Content, c: dict) -> None:
     for k, v in c["penalty"].items():
         _meter(s, k, v, content)
     _emit(s, ev, "card_escalated", card_id=c["id"], level=c["escalation"], penalty=c["penalty"])
+    if s.get("x"):
+        _break_combo(s, ev, content, "a request got louder")
+        if c.get("outage") and not c.get("outage_missed"):
+            E = _O(content, "events")
+            c["outage_missed"] = True
+            _meter(s, "rating", E["outage_miss_rating"], content)
+            _meter(s, "cover", E["outage_miss_cover"], content)
+            _emit(s, ev, "outage_missed", card_id=c["id"], rating=E["outage_miss_rating"], cover=E["outage_miss_cover"])
 
 
 def _return_delegation(s: dict, ev: list, content: Content, c: dict) -> None:
@@ -546,6 +554,7 @@ def _h_push(s, ev, content, p):
     _draw_after_push(s, ev, content)
     if s.get("x"):
         _x_after_push(s, ev, content, c, w, result)
+        _finish_bonus(s, ev, content, c, result)
 
 
 def _h_delegate(s, ev, content, p):
@@ -558,13 +567,19 @@ def _h_delegate(s, ev, content, p):
     _play(s, ev, content, "delegate")
     if s["open_card"] == c["id"]:
         s["open_card"] = None
+    team = _orig(content, "team_board")
+    if team:
+        dev = _pick_dev(s, p.get("to"))
     c["state"], c["work"] = "delegated", None
-    c["assignee"] = c["sender"] if c["sender"] in ("dev1", "dev2") else ("dev1", "dev2")[s["next_card"] % 2]
-    c["hidden_bug"] = bool(c["ticket"]) and draw(s, "delegation_bug") < _bug_chance(s, content) + _trust_penalty(s, content, c["assignee"])
+    c["assignee"] = dev if team else (c["sender"] if c["sender"] in ("dev1", "dev2") else ("dev1", "dev2")[s["next_card"] % 2])
+    base = _O(content, "team_board")["bug_chance"][dev] * (_fx(s, content, "pair_programming", "bug_chance_mult") if _has(s, "pair_programming") else 1) if team else _bug_chance(s, content)
+    c["hidden_bug"] = bool(c["ticket"]) and draw(s, "delegation_bug") < base + _trust_penalty(s, content, c["assignee"])
     if s.get("x") and _has(s, "pair_programming") and c["ticket"]:
         _use_practice(s, ev, content, "pair_programming")
     back = _O(content, "change_review")["return_after_min"] if _orig(content, "change_review") else content.balance["delegation"]["return_after_min"]
-    c["returns_s"] = s["clock_s"] + back * 60
+    c["returns_s"] = None if team else s["clock_s"] + back * 60
+    if team:
+        _assign(s, ev, content, dev, c)
     if _on(s, content, "action_hand"):
         got = _draw_cards(s, _O(content, "action_hand")["draw_after_delegate"])
         if got:
@@ -914,6 +929,13 @@ def _x_deal_sprint(s: dict, ev: list, content: Content) -> None:
     plo, phi = d["ping_spread_min"]
     for n in range(d["pings"][i]):
         items.append({"at_s": t0 + _rand_between(s, pur, plo, phi) * 60, "kind": "ping", "sender": ("dev1", "dev2")[n % 2]})
+    if _orig(content, "events"):
+        E = _O(content, "events")
+        for day in (0, 1):
+            for ev_name, key in (("outage", "outage_chance_per_day"), ("urgent", "urgent_chance_per_day")):
+                if draw(s, pur + ev_name) < E[key]:
+                    at = day * 480 + _rand_between(s, pur + ev_name, 90, 380)
+                    items.append({"at_s": t0 + at * 60, "kind": "event", "event": ev_name})
     if _x_boss_sprint(s, content) and s["x"]["boss"] == "scope_creep":
         every = X["bosses"]["scope_creep"]["every_min"]
         for m in range(every, 900, every):
@@ -923,7 +945,7 @@ def _x_deal_sprint(s: dict, ev: list, content: Content) -> None:
         for m in (200, 680):
             items.append({"at_s": t0 + m * 60, "kind": "card", "spec": {"type": "status_demand", "sender": "po", "ticket": None,
                           "deadline": t0 / 60 + m + dlo, "payoff": {}, "penalty": dict(d["other_penalty"])}})
-    order = {"card": 0, "ping": 1, "call": 2}
+    order = {"card": 0, "event": 1, "ping": 2, "call": 3}
     s["x"]["sched"] = sorted(items, key=lambda x: (x["at_s"], order[x["kind"]]))
     s["x"]["boss_live"] = _x_boss_sprint(s, content)
     s["sched_pos"] = 0
@@ -940,7 +962,9 @@ def _x_fire_schedule(s: dict, ev: list, content: Content) -> None:
     while s["sched_pos"] < len(sch) and sch[s["sched_pos"]]["at_s"] <= s["clock_s"]:
         item = sch[s["sched_pos"]]
         s["sched_pos"] += 1
-        if item["kind"] == "card":
+        if item["kind"] == "event":
+            _fire_event(s, ev, content, item["event"])
+        elif item["kind"] == "card":
             _spawn_card(s, ev, content, item["spec"])
         elif item["kind"] == "ping":
             _emit(s, ev, "ping_sent", kind=_pick_ping(s, content), sender=item["sender"])
@@ -1039,6 +1063,8 @@ def _x_may_escalate(s: dict, c: dict) -> bool:
 
 
 def _x_tick_world(s: dict, ev: list, content: Content) -> None:
+    if _orig(content, "team_board"):
+        _team_tick(s, ev, content)
     if s["stage"] != "BUILD":
         return
     X = _X(content)
@@ -1364,7 +1390,9 @@ def _O(content: Content, name: str) -> dict:
 
 def _o_start(s: dict, ev: list, content: Content) -> None:
     x = s["x"]
-    x.update(hand=[], deck=[], discard=[], deck_list={}, release=[], honest_streak=0, trust={})
+    x.update(hand=[], deck=[], discard=[], deck_list={}, release=[], honest_streak=0, trust={}, combo=0, team={}, team_t=s["clock_s"])
+    if _orig(content, "team_board"):
+        x["team"] = {d: {"task": None, "progress": 0.0, "stuck": False, "stuck_min": 0.0, "nagged": False} for d in ("dev1", "dev2")}
     if _orig(content, "action_hand"):
         x["deck_list"] = dict(_O(content, "action_hand")["starter_deck"])
         x["deck"] = _shuffled(s, [k for k, n in sorted(x["deck_list"].items()) for _ in range(n)])
@@ -1575,6 +1603,142 @@ def _review_public(c: dict) -> dict:
             "changes": [{"shown": ch["shown"], "fixed": ch["fixed"], "sure": bool(ch.get("sure"))} for ch in r["changes"]]}
 
 
+# ---- O6 live team board, O7 combo, O8 surprises
+NAMES_PLAIN = {"dev1": "Ines", "dev2": "Tobi", "po": "Marlo"}
+
+
+def _task_minutes(content: Content, dev: str, c: dict) -> float:
+    T = _O(content, "team_board")
+    base = T["task_minutes"][str(content.tickets[c["ticket"]]["difficulty"])] if c.get("ticket") else T["other_task_minutes"]
+    return base * T["speed"][dev]
+
+
+def _pick_dev(s: dict, to: str | None) -> str:
+    team = s["x"]["team"]
+    if to is not None:
+        if to not in team:
+            _illegal("no such teammate")
+        if team[to]["task"]:
+            _illegal(f"{NAMES_PLAIN[to]} is busy; wait until they finish")
+        return to
+    free = [d for d in ("dev1", "dev2") if not team[d]["task"]]
+    if not free:
+        _illegal("everyone on the team is busy")
+    return free[0]
+
+
+def _assign(s: dict, ev: list, content: Content, dev: str, c: dict) -> None:
+    s["x"]["team"][dev].update(task=c["id"], progress=0.0, stuck=False, stuck_min=0.0, nagged=False)
+    _emit(s, ev, "dev_started", dev=dev, card_id=c["id"])
+
+
+def _team_tick(s: dict, ev: list, content: Content) -> None:
+    """Teammates work while the game clock moves. They can get stuck; you unblock them."""
+    x, T = s["x"], _O(content, "team_board")
+    dt = (s["clock_s"] - x.get("team_t", s["clock_s"])) / 60
+    x["team_t"] = s["clock_s"]
+    if dt <= 0 or s["stage"] != "BUILD":
+        return
+    for dev, m in x["team"].items():
+        if not m["task"]:
+            continue
+        c = next((k for k in s["pile"] if k["id"] == m["task"]), None)
+        if c is None or c["state"] != "delegated":
+            m.update(task=None, progress=0.0, stuck=False)
+            continue
+        if m["stuck"]:
+            m["stuck_min"] += dt
+            if m["stuck_min"] >= T["stuck_escalate_min"] and not m["nagged"]:
+                m["nagged"] = True
+                _emit(s, ev, "dev_still_stuck", dev=dev, card_id=c["id"])
+                _escalate(s, ev, content, c)
+            continue
+        if draw(s, "stuck_" + dev) < T["stuck_chance_per_hour"][dev] * min(dt, 60) / 60:
+            m.update(stuck=True, stuck_min=0.0, nagged=False)
+            _emit(s, ev, "dev_stuck", dev=dev, card_id=c["id"])
+            continue
+        m["progress"] = min(1.0, m["progress"] + dt / _task_minutes(content, dev, c))
+        if m["progress"] >= 1.0:
+            m.update(task=None, progress=0.0)
+            _emit(s, ev, "dev_done", dev=dev, card_id=c["id"])
+            _return_delegation(s, ev, content, c)
+
+
+def _h_unblock(s, ev, content, p):
+    if not _orig(content, "team_board"):
+        _illegal("the team board is off")
+    _need_stage(s, "BUILD")
+    dev = p.get("dev")
+    m = s["x"]["team"].get(dev)
+    if not m or not m["stuck"]:
+        _illegal("they are not stuck")
+    _spend_min(s, ev, content, _O(content, "team_board")["unblock_min"])
+    m.update(stuck=False, stuck_min=0.0)
+    _log(s, "blocker_cleared")
+    _trust_gain(s, ev, content, dev, "trust_per_coach", "unblocked")
+    _emit(s, ev, "dev_unblocked", dev=dev)
+
+
+def _break_combo(s: dict, ev: list, content: Content, why: str) -> None:
+    if _orig(content, "combo") and s["x"].get("combo"):
+        _emit(s, ev, "combo_broken", count=s["x"]["combo"], why=why)
+        s["x"]["combo"] = 0
+
+
+def _finish_bonus(s: dict, ev: list, content: Content, c: dict, result: str) -> None:
+    """Combo for on-time finishes in a row, plus outage and urgent bonuses."""
+    if result not in ("clean", "acceptable"):
+        _break_combo(s, ev, content, "something broken reached users")
+        return
+    on_time = c.get("escalation", 0) == 0 and (c.get("deadline_s") is None or c["deadline_s"] >= s["clock_s"])
+    bonus = 0
+    if c.get("outage") and not c.get("outage_missed"):
+        E = _O(content, "events")
+        bonus += E["outage_bonus_points"]
+        _meter(s, "rating", E["outage_rating"], content)
+        _emit(s, ev, "outage_fixed", card_id=c["id"], points=E["outage_bonus_points"], rating=E["outage_rating"])
+    if c.get("urgent") and on_time:
+        bonus += _O(content, "events")["urgent_bonus_points"]
+    if _orig(content, "combo"):
+        C = _O(content, "combo")
+        if on_time:
+            mult = 1 + min(C["cap"], C["step"] * s["x"]["combo"])
+            base = 100 * (content.tickets[c["ticket"]]["difficulty"] if c.get("ticket") else 1)
+            extra = round(base * (mult - 1))
+            s["x"]["combo"] += 1
+            bonus += extra
+            _emit(s, ev, "combo", count=s["x"]["combo"], mult=round(mult, 2), points=extra)
+        else:
+            _break_combo(s, ev, content, "it was late")
+    if bonus:
+        rel = s["x"].get("release")
+        if _on(s, content, "release_train") and rel:
+            rel[-1]["points"] += bonus   # the bonus rides with that fix in the release
+        else:
+            _meter(s, "points", bonus, content)
+
+
+def _fire_event(s: dict, ev: list, content: Content, name: str) -> None:
+    E = _O(content, "events")
+    if name == "outage":
+        unused = [t for t in sorted(content.tickets) if t not in s["x"]["used_tickets"]] or sorted(content.tickets)
+        t = unused[int(draw(s, "outage") * len(unused)) % len(unused)]
+        s["x"]["used_tickets"].append(t)
+        spec = {"type": "fix", "sender": "po", "ticket": t, "deadline": s["clock_s"] / 60 + E["outage_deadline_min"],
+                "payoff": {"points": 100}, "penalty": {"cover": 3}}
+        _spawn_card(s, ev, content, spec)
+        s["pile"][-1]["outage"] = True
+        _emit(s, ev, "outage", card_id=s["pile"][-1]["id"], ticket=t, minutes=E["outage_deadline_min"])
+    elif name == "urgent":
+        cands = [c for c in _live(s) if c["state"] == "pile" and c["ticket"] and not c.get("urgent") and not c.get("outage")]
+        if not cands:
+            return
+        c = cands[int(draw(s, "urgent") * len(cands)) % len(cands)]
+        c["urgent"] = True
+        c["deadline_s"] = min(c["deadline_s"] or 1e12, s["clock_s"] + E["urgent_deadline_min"] * 60)
+        _emit(s, ev, "urgent", card_id=c["id"], minutes=E["urgent_deadline_min"], points=E["urgent_bonus_points"])
+
+
 def _review_card(s: dict, content: Content, p: dict) -> tuple[dict, dict]:
     if not _orig(content, "change_review"):
         _illegal("change-by-change review is off")
@@ -1661,6 +1825,8 @@ def _review_ship(s: dict, ev: list, content: Content, c: dict, auto: bool = Fals
         _xlog(s, "clean_push")
     if reviewed and not left and r["faulty_count"] > 0:
         _trust_gain(s, ev, content, c.get("assignee", "dev1"), "trust_per_clean_review", "fair_review")
+    if not auto:
+        _finish_bonus(s, ev, content, c, result)
 
 
 def _h_review_ship(s, ev, content, p):
@@ -1699,6 +1865,21 @@ def _o_public(s: dict, content: Content) -> dict:
         out["review"] = {"trust": x["trust"], "trust_max": R["trust_max"], "inspect_min": R["inspect_min"], "ask_min": R["ask_min"],
                          "fix_min": R["fix_min"]}
     out["leaderboard"] = _orig(content, "leaderboard")
+    if _orig(content, "team_board"):
+        T = _O(content, "team_board")
+        team = {}
+        for d, m in x["team"].items():
+            c = next((k for k in s["pile"] if k["id"] == m["task"]), None)
+            mins = _task_minutes(content, d, c) if c else 0
+            team[d] = {"task": m["task"], "title": (content.tickets[c["ticket"]]["title"] if c and c["ticket"] else c and c["type"]),
+                       "progress": round(m["progress"], 3), "eta_min": round((1 - m["progress"]) * mins) if c else None,
+                       "stuck": m["stuck"], "stuck_min": round(m["stuck_min"]), "speed": T["speed"][d], "bug_chance": T["bug_chance"][d]}
+        out["team"] = team
+        out["unblock_min"] = T["unblock_min"]
+    if _orig(content, "combo"):
+        C = _O(content, "combo")
+        out["combo"] = {"count": x["combo"], "next_mult": round(1 + min(C["cap"], C["step"] * x["combo"]), 2)}
+    return out
     return out
 
 
@@ -1712,6 +1893,8 @@ def _x_public(s: dict, content: Content) -> dict:
         dt = item["at_s"] - s["clock_s"]
         if dt > window:
             break
+        if item["kind"] == "event":
+            continue   # surprises stay surprises
         who = names.get(item.get("sender") or item["spec"]["sender"], "Someone")
         if item["kind"] == "call":
             text = f"{who} will call you"
@@ -1759,9 +1942,9 @@ HANDLERS = {"open_card": _h_open_card, "flag_line": _h_flag_line, "select_patch"
             "lock_offer": _h_lock_offer, "retro": _h_retro, "use_ultimate": _h_use_ultimate,
             "regroup": _h_regroup, "add_card": _h_add_card, "remove_card": _h_remove_card,
             "review_inspect": _h_review_inspect, "review_fix": _h_review_fix, "review_ship": _h_review_ship,
-            "review_send_back": _h_review_send_back, "ship_release": _h_ship_release}
+            "review_send_back": _h_review_send_back, "ship_release": _h_ship_release, "unblock": _h_unblock}
 EXPERIMENTAL_ONLY = ("configure", "buy_practice", "reroll_shop", "lock_offer", "retro", "use_ultimate", "regroup", "add_card",
-                     "remove_card", "review_inspect", "review_fix", "review_ship", "review_send_back", "ship_release")
+                     "remove_card", "review_inspect", "review_fix", "review_ship", "review_send_back", "ship_release", "unblock")
 
 
 def apply(state: dict, command: dict, content: Content) -> tuple[dict, list[dict]]:
@@ -1857,7 +2040,8 @@ def public_state(s: dict, content: Content) -> dict:
 
 
 def _x_card_public(s: dict, c: dict) -> dict:
-    out = {"bounty": c.get("bounty", False), "spot": c.get("spot", False)}
+    out = {"bounty": c.get("bounty", False), "spot": c.get("spot", False), "outage": c.get("outage", False), "urgent": c.get("urgent", False),
+           "assignee": c.get("assignee")}
     if c["state"] in ("delegated", "returned") and c["ticket"] and _has(s, "tdd_pair"):
         out["bug_known"] = c["hidden_bug"]   # TDD Pair: you can tell whether returned work is bugged
     return out

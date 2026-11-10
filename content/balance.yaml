@@ -289,6 +289,33 @@ originals:
     bonus_per_extra_item: 0.25       # release multiplier = 1 + 0.25 x (items - 1)
     max_items: 5
     ship_min: 5
+  # O6 live team board: Ines and Tobi work in real time on what you hand them. They get stuck, you unblock.
+  team_board:
+    enabled: true
+    task_minutes: {"1": 50, "2": 80}       # game minutes for a ticket of this difficulty at speed 1.0
+    speed: {dev1: 0.8, dev2: 1.3}          # Ines is quick, Tobi is slow
+    bug_chance: {dev1: 0.3, dev2: 0.6}     # chance their work comes back with a mistake
+    stuck_chance_per_hour: {dev1: 0.2, dev2: 0.6}
+    unblock_min: 8                         # your time to unblock someone
+    stuck_escalate_min: 45                 # left stuck this long: the request gets louder
+    other_task_minutes: 30                 # status updates and help requests
+  # O7 combo: requests finished on time in a row multiply the points of the next one
+  combo:
+    enabled: true
+    step: 0.25                             # +25% per finish in a row
+    cap: 1.5                               # at most +150%
+  # O8 surprises during the work day
+  events:
+    enabled: true
+    outage_chance_per_day: 0.6             # production outage: a fast, high-stakes bug
+    outage_deadline_min: 70
+    outage_bonus_points: 150
+    outage_rating: 0.1
+    outage_miss_rating: -0.3
+    outage_miss_cover: 6
+    urgent_chance_per_day: 0.6             # Marlo marks a request urgent: less time, bonus points
+    urgent_deadline_min: 100
+    urgent_bonus_points: 75
   # O5 (M15 original): public leaderboard per challenge code, with your place vs the median
   leaderboard:
     enabled: true
@@ -304,7 +331,7 @@ originals:
 onboarding:
   enabled: true
   unlock_sprint:
-    delegate: 2        # ask the team to do a card (and review what comes back)
+    delegate: 1        # the live team board is the core loop, so it is there from the start
     practices: 2       # free practice pick at the start of sprint 2, shop after that
     intents: 2         # "Coming up" list
     lanes: 2           # work-in-flight counters

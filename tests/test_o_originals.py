@@ -229,17 +229,17 @@ def finish_sprint(s, c):
 def test_ONBOARD_sprint_1_is_only_the_basics(bcontent):
     s, _ = reducer.start_run(4, bcontent)
     x = reducer.public_state(s, bcontent)["x"]
-    assert x["features"] == [] and "hand" not in x and "release" not in x and "mult" not in x and x["shop"] is None
-    assert set(x["unlocks_next"]) >= {"delegate", "practices"}
+    # the live team board is the core loop, so handing work to the team is there from the start
+    assert x["features"] == ["delegate"] and "hand" not in x and "release" not in x and "mult" not in x and x["shop"] is None
+    assert set(x["unlocks_next"]) >= {"practices", "intents"}
     s, _ = run(s, bcontent, "advance_stage", to="STANDUP")
     s, _ = run(s, bcontent, "reply_standup", answer="vague")
     s, _ = run(s, bcontent, "advance_stage", to="BUILD")
     cid = add_card(s, "final_price")
-    with pytest.raises(GameError, match="sprint 2"):
-        run(s, bcontent, "delegate", card_id=cid)
     s, ev = ship(s, bcontent, cid)                     # no cards needed in sprint 1
     pushed = next(e for e in ev if e["type"] == "pushed")
-    assert "held" not in pushed and "mult" not in pushed and s["meters"]["points"] == pushed["points"]
+    combo = sum(e["points"] for e in ev if e["type"] == "combo")
+    assert "held" not in pushed and "mult" not in pushed and s["meters"]["points"] == pushed["points"] + combo
 
 
 def test_ONBOARD_teamwork_in_sprint_2_advanced_systems_in_sprint_3(bcontent):
@@ -257,3 +257,50 @@ def test_ONBOARD_teamwork_in_sprint_2_advanced_systems_in_sprint_3(bcontent):
 
 def test_ONBOARD_bots_still_win_with_onboarding(bcontent):
     assert any(bot.play(n, bcontent, "coach_delegate").s["ending"] == "win" for n in (1, 2, 3))
+
+
+# ---------------------------------------------------------------- live team board, combo, surprises
+def test_TEAM_teammates_work_get_stuck_and_hand_work_back(ocontent):
+    s = to_build(ocontent, hand=["delegate"] * 3)
+    cid = add_card(s, "final_price")
+    s, ev = run(s, ocontent, "delegate", card_id=cid, to="dev1")
+    assert s["x"]["team"]["dev1"]["task"] == cid
+    with pytest.raises(GameError, match="busy"):
+        run(s, ocontent, "delegate", card_id=add_card(s, "shipping_fee", "z2"), to="dev1")
+    s["x"]["team"]["dev1"]["stuck"] = True
+    p0 = s["x"]["team"]["dev1"]["progress"]
+    s, _ = run(s, ocontent, "tick", real_ms=5000)
+    assert s["x"]["team"]["dev1"]["progress"] == p0          # stuck teammates make no progress
+    s, ev = run(s, ocontent, "unblock", dev="dev1")
+    assert not s["x"]["team"]["dev1"]["stuck"] and "blocker_cleared" in s["process_log"]
+    for _ in range(60):
+        if next(c for c in s["pile"] if c["id"] == cid)["state"] == "returned":
+            break
+        s["x"]["team"]["dev1"]["stuck"] = False
+        s, _ = run(s, ocontent, "tick", real_ms=5000)
+    assert next(c for c in s["pile"] if c["id"] == cid)["state"] == "returned" and s["x"]["team"]["dev1"]["task"] is None
+
+
+def test_COMBO_on_time_finishes_build_a_combo_and_lateness_breaks_it(ocontent):
+    s = to_build(ocontent, hand=["work", "test"] * 6)
+    s["x"]["release"] = []
+    for i, t in enumerate(["final_price", "shipping_fee"]):
+        s, ev = ship(s, ocontent, add_card(s, t, f"k{i}"))
+    assert s["x"]["combo"] == 2
+    late = add_card(s, "stock_status", "late")
+    next(c for c in s["pile"] if c["id"] == late)["escalation"] = 1
+    s, ev = ship(s, ocontent, late)
+    assert s["x"]["combo"] == 0 and any(e["type"] == "combo_broken" for e in ev)
+
+
+def test_EVENTS_outage_pays_when_fixed_and_hurts_when_missed(ocontent):
+    s = to_build(ocontent, hand=["work", "test"] * 4)
+    reducer._fire_event(s, [], ocontent, "outage")
+    card = s["pile"][-1]
+    assert card["outage"]
+    r0 = s["meters"]["rating"]
+    s2, ev = ship(s, ocontent, card["id"])
+    assert any(e["type"] == "outage_fixed" for e in ev) and s2["meters"]["rating"] > r0
+    card["deadline_s"] = s["clock_s"]
+    s3, ev = run(s, ocontent, "tick", real_ms=1000)
+    assert any(e["type"] == "outage_missed" for e in ev) and s3["meters"]["rating"] < r0

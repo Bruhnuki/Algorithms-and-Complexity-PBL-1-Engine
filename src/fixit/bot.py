@@ -65,6 +65,10 @@ class Bot:
                 return
             if self.s["call"] and self.policy != "reckless":
                 self.do("answer_call")
+            if self.s.get("x") and self.policy != "reckless":   # live team board: unblock whoever is stuck
+                for dev, m in (self.s["x"].get("team") or {}).items():
+                    if m["stuck"]:
+                        self.do("unblock", dev=dev)
             helps = [c for c in self.s["pile"] if c["type"] == "help_call" and c["state"] == "pile"]
             if self.policy == "coach_delegate" and helps:
                 self.do("coach", card_id=helps[0]["id"])

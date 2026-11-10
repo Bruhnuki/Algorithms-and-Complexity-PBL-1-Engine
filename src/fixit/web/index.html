@@ -3,22 +3,160 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Fix it with Scrum</title>
+  <title>Fix it with Scrum: the game where you fake it and run the team</title>
+  <meta name="description" content="A funny, fast game that teaches Scrum and how to read code. You faked your résumé. Now survive the sprint.">
   <link rel="stylesheet" href="/theme.css">
-  <link rel="stylesheet" href="/style.css">
+  <link rel="stylesheet" href="/landing.css">
 </head>
 <body>
-  <svg class="defs" aria-hidden="true">
-    <symbol id="face" viewBox="0 0 48 48"><ellipse class="face-head" cx="24" cy="25" rx="19" ry="18"/><circle class="eye" cx="17" cy="21" r="3.2"/><circle class="eye" cx="31" cy="21" r="3.2"/><circle class="pupil" cx="18" cy="22" r="1.4"/><circle class="pupil" cx="30" cy="22" r="1.4"/><path class="mouth" d="M14 33 Q24 41 34 32"/></symbol>
-    <symbol id="face-mad" viewBox="0 0 48 48"><ellipse class="face-head" cx="24" cy="25" rx="19" ry="18"/><circle class="eye" cx="17" cy="22" r="3.2"/><circle class="eye" cx="31" cy="22" r="3.2"/><circle class="pupil" cx="18" cy="23" r="1.4"/><circle class="pupil" cx="30" cy="23" r="1.4"/><path class="mouth" d="M14 36 Q24 30 34 36"/><path class="mouth" d="M11 14 L21 18 M37 14 L27 18"/></symbol>
-    <symbol id="face-panic" viewBox="0 0 48 48"><ellipse class="face-head" cx="24" cy="25" rx="19" ry="18"/><circle class="eye" cx="17" cy="21" r="4.2"/><circle class="eye" cx="31" cy="21" r="4.2"/><circle class="pupil" cx="17" cy="21" r="1.2"/><circle class="pupil" cx="31" cy="21" r="1.2"/><ellipse class="mouth open" cx="24" cy="35" rx="5" ry="4.5"/></symbol>
-  </svg>
-  <header id="top" class="bar">
-    <h1>Fix it with Scrum</h1>
-    <nav id="nav"></nav>
+  <header class="nav">
+    <a class="logo" href="/"><svg class="ic logo-ic" aria-hidden="true"><use href="/icons.svg#c-heron"/></svg> Fix it with Scrum</a>
+    <nav class="nav-links" aria-label="Page sections">
+      <a href="#try">Try it</a><a href="#how">How it works</a><a href="#team">The team</a><a href="#faq">FAQ</a>
+    </nav>
+    <div class="nav-cta"><a class="btn ghost" href="/play/">Log in</a><a class="btn go" href="/play/">Play</a></div>
   </header>
-  <nav id="tabs" class="tabs" aria-label="Jump to a part of the game"></nav>
-  <main id="root" aria-live="polite"></main>
-  <script type="module" src="/app.js"></script>
+
+  <main>
+    <!-- HERO -->
+    <section class="hero">
+      <div class="hero-copy">
+        <p class="eyebrow">A game about Scrum, code and bad decisions</p>
+        <h1>You faked your résumé.<br>Now run the team.</h1>
+        <p class="lead">The tech leads got fired. You got the job. Survive a chaotic sprint by reading what your team ships, making the call and keeping your secret safe. No coding needed.</p>
+        <p class="today" aria-live="polite">Today you will <b id="swap">fix a bug</b></p>
+        <div class="cta-row">
+          <a class="btn go big" href="/play/">Start playing</a>
+          <a class="btn big" href="#try">Try one question</a>
+        </div>
+        <p class="fine">Takes a few minutes. Works on a phone or a laptop.</p>
+      </div>
+
+      <div class="hero-card" aria-hidden="true">
+        <div class="coachline"><svg class="coach-av"><use href="/icons.svg#c-heron-cheer"/></svg><div class="coach-say">Don't panic. I'll coach you through your first sprint.</div></div>
+        <div class="mock">
+          <div class="m-tabs"><span class="m-tab on"><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-chat"/></svg> Slackish</span><span class="m-tab"><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-branch"/></svg> GitHab <i class="m-badge">2</i></span><span class="m-tab"><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-store"/></svg> Play Storey</span></div>
+          <div class="m-addr"><span class="m-url"><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-lock"/></svg> slackish.fake/team-chat</span><span class="chip"><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-star"/></svg> 3.50</span><span class="chip"><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-coin"/></svg> 100</span><span class="chip"><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-search"/></svg> 5</span></div>
+          <div class="m-chat">
+            <div class="m-msg a"><svg class="m-av" aria-hidden="true"><use href="/icons.svg#c-marlo-mad"/></svg><div class="m-bub warn"><b>Marlo</b>Can we ship by lunch? Please?</div></div>
+            <div class="m-msg b"><svg class="m-av" aria-hidden="true"><use href="/icons.svg#c-ines"/></svg><div class="m-bub"><b>Ines</b>It works on my machine.</div></div>
+            <div class="m-msg c"><svg class="m-av" aria-hidden="true"><use href="/icons.svg#c-tobi-panic"/></svg><div class="m-bub bad"><b>Tobi</b>Is the test supposed to be red?!</div></div>
+          </div>
+          <div class="m-actions"><span class="m-btn"><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-play"/></svg> Run script</span><span class="m-btn go"><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-rocket"/></svg> Push</span></div>
+        </div>
+        <ul class="lineup"><li><svg class="p-marlo"><use href="/icons.svg#c-marlo"/></svg>Marlo</li><li><svg class="p-ines"><use href="/icons.svg#c-ines"/></svg>Ines</li><li><svg class="p-tobi"><use href="/icons.svg#c-tobi"/></svg>Tobi</li></ul>
+      </div>
+    </section>
+
+    <!-- TRY ONE -->
+    <section class="band blue" id="try">
+      <div class="wrap try reveal">
+        <div>
+          <p class="eyebrow">Try it right now</p>
+          <h2>One question. No sign-up.</h2>
+          <p class="lead">This is the kind of thing the game asks. Pick an answer.</p>
+        </div>
+        <div class="qcard">
+          <p class="q">Who owns the order of the Product Backlog?</p>
+          <div class="choices">
+            <button class="choice" data-ok="no">The Scrum Master</button>
+            <button class="choice" data-ok="yes">The Product Owner</button>
+            <button class="choice" data-ok="no">Whoever types fastest</button>
+          </div>
+          <p class="feedback" id="fb" role="status"></p>
+        </div>
+      </div>
+    </section>
+
+    <!-- HOW IT WORKS -->
+    <section class="wrap how" id="how">
+      <h2 class="center reveal">Your whole job in three moves</h2>
+      <div class="steps3">
+        <article class="step reveal">
+          <div class="step-art art1" aria-hidden="true"><span><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-chat"/></svg></span><span><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-branch"/></svg></span><span><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-store"/></svg></span><span><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-tv"/></svg></span><span><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-cart"/></svg></span></div>
+          <h3><span class="num">1</span> Open your apps</h3>
+          <p>Your desktop is a little web browser. Follow the roadmap on the left, chat in Slackish, review code in GitHab, read the public in Play Storey, learn in ToobYou, shop in Amazin'.</p>
+        </article>
+        <article class="step reveal">
+          <div class="step-art art2" aria-hidden="true"><pre>if coupon == 1:
+  price * 0.1</pre></div>
+          <h3><span class="num">2</span> Read, decide, push</h3>
+          <p>Spot the wrong line, pick the fix, run the tests, then decide: push it live, or hold on. Delegate, coach or defer when you can't do it all.</p>
+        </article>
+        <article class="step reveal">
+          <div class="step-art art3" aria-hidden="true">
+            <div class="demo"><span>Cover</span><div class="bar"><i class="f1"></i></div></div>
+            <div class="demo"><span>Rating</span><div class="bar"><i class="f2"></i></div></div>
+          </div>
+          <h3><span class="num">3</span> Don't get found out</h3>
+          <p>Keep your Rating up and your Cover low. Too many mistakes and you get a warning, then you're demoted, then it's over.</p>
+        </article>
+      </div>
+    </section>
+
+    <!-- APPS -->
+    <section class="band soft">
+      <div class="wrap">
+        <h2 class="center reveal">Five fake apps. One real headache.</h2>
+        <div class="apps">
+          <div class="app reveal a-slack"><span class="ai"><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-chat"/></svg></span><b>Slackish</b><small>Standups and constant interruptions</small></div>
+          <div class="app reveal a-git"><span class="ai"><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-branch"/></svg></span><b>GitHab</b><small>Issues, code and the big Push button</small></div>
+          <div class="app reveal a-play"><span class="ai"><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-store"/></svg></span><b>Play Storey</b><small>Public reviews of your latest update</small></div>
+          <div class="app reveal a-tube"><span class="ai"><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-tv"/></svg></span><b>ToobYou</b><small>A short video to hide in</small></div>
+          <div class="app reveal a-shop"><span class="ai"><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-cart"/></svg></span><b>Amazin'</b><small>Spend points on a helper</small></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- TEAM -->
+    <section class="wrap team" id="team">
+      <h2 class="center reveal">Meet the people you're pretending to lead</h2>
+      <div class="people">
+        <article class="person reveal"><svg class="big p-marlo" aria-hidden="true"><use href="/icons.svg#c-marlo"/></svg><h3>Marlo</h3><p class="role">Product Owner</p><blockquote>"It's a tiny change. Can we ship by lunch?"</blockquote></article>
+        <article class="person reveal"><svg class="big p-ines" aria-hidden="true"><use href="/icons.svg#c-ines"/></svg><h3>Ines</h3><p class="role">Developer</p><blockquote>"It works on my machine."</blockquote></article>
+        <article class="person reveal"><svg class="big p-tobi" aria-hidden="true"><use href="/icons.svg#c-tobi"/></svg><h3>Tobi</h3><p class="role">Developer</p><blockquote>"Is that red thing supposed to be red?"</blockquote></article>
+      </div>
+    </section>
+
+    <!-- LEARN -->
+    <section class="band green">
+      <div class="wrap">
+        <h2 class="center reveal">Sneaky learning, zero lectures</h2>
+        <div class="learn">
+          <div class="lcard reveal"><span class="li"><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-clipboard"/></svg></span><b>Scrum roles</b><small>Who decides, who builds, who protects the team</small></div>
+          <div class="lcard reveal"><span class="li"><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-branch"/></svg></span><b>Reading if / else</b><small>Follow the logic without writing any</small></div>
+          <div class="lcard reveal"><span class="li"><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-check"/></svg></span><b>Definition of Done</b><small>What "finished" really means</small></div>
+          <div class="lcard reveal"><span class="li"><svg class="ic" aria-hidden="true"><use href="/icons.svg#i-chat"/></svg></span><b>Honest standups</b><small>Why bluffing catches up with you</small></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- FAQ -->
+    <section class="wrap faq" id="faq">
+      <h2 class="center reveal">Questions you might have</h2>
+      <details class="reveal"><summary>Do I need to know how to code?</summary><p>No. You read short snippets and pick the fix from a list. The game teaches you what the lines mean as you go.</p></details>
+      <details class="reveal"><summary>How long does a game take?</summary><p>One sprint is meant to take a few minutes, so you can fit it into a break.</p></details>
+      <details class="reveal"><summary>Who is it for?</summary><p>Students learning Scrum and anyone curious about how software teams work. Instructors can follow how their class plays.</p></details>
+      <details class="reveal"><summary>Does the game record what I do?</summary><p>It logs your game actions and the dialogue you see for the pilot, and it asks for your consent before you play.</p></details>
+    </section>
+
+    <!-- FINAL CTA -->
+    <section class="final">
+      <div class="wrap center reveal">
+        <svg class="big" aria-hidden="true"><use href="/icons.svg#c-heron-cheer"/></svg>
+        <h2>Your team is already typing…</h2>
+        <p class="lead">Take the job. Keep your secret. Ship something.</p>
+        <a class="btn go big" href="/play/">Start playing</a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="foot">
+    <span class="logo"><svg class="ic logo-ic" aria-hidden="true"><use href="/icons.svg#c-heron"/></svg> Fix it with Scrum</span>
+    <span>A learning game about Scrum and reading code.</span>
+    <a href="/play/">Play</a>
+  </footer>
+
+  <script type="module" src="/landing.js"></script>
 </body>
 </html>

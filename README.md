@@ -66,7 +66,7 @@ python -m pytest                     # 128 tests (rules, API, gateway, web safet
 python tools/validate_content.py     # content schema + golden outputs
 python tools/dump_openapi.py         # regenerate openapi.yaml after an API change
 python tools/load_test.py            # 10-player load check (mock model)
-python run_dev.py                    # http://127.0.0.1:8000  (no model: authored fallback dialogue)
+python run_dev.py                    # http://127.0.0.1:8000 = landing page, /play/ = the game (no model: authored fallback dialogue)
 ```
 
 Environment (outside the repo): `SESSION_SECRET`, `DB_PATH`, `INSTRUCTOR_CODE`, `MODEL_URL` (llama-server, 127.0.0.1), `MODEL_NAME`, `MODEL_SLOTS`. What is built and what is not: [docs/implementation-status.md](docs/implementation-status.md).

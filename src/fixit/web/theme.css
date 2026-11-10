@@ -1,7 +1,7 @@
 /* THEME: edit this file to restyle the game. style.css only reads these tokens. */
 :root {
   /* surface + text */
-  --bg:#FFFFFF; --panel:#FFFFFF; --soft:#F7F7F7; --line:#E5E5E5; --text:#4B4B4B; --muted:#777777;
+  --bg:#FFFFFF; --desk:#E4F1FB; --panel:#FFFFFF; --soft:#F7F7F7; --line:#E5E5E5; --text:#4B4B4B; --muted:#777777;
 
   /* brand colours: each has a main shade and a darker "lift" shade used for the 3D button edge */
   --green:#58CC02;  --green-d:#58A700;  --green-soft:#D7FFB8;
@@ -10,6 +10,9 @@
   --yellow:#FFC800; --yellow-d:#E5B400; --yellow-soft:#FFF5CC;
   --purple:#CE82FF; --purple-d:#A568CC; --purple-soft:#F3E3FF;
   --orange:#FF9600; --orange-d:#E08600;
+
+  /* app header colours (white text sits on these) */
+  --app-slack:#8E4DB8; --app-github:#3B4252; --app-play:#3F8A00; --app-youtube:#D12A2A; --app-shop:#B86A00;
 
   /* shape */
   --radius:16px;      /* cards, buttons */

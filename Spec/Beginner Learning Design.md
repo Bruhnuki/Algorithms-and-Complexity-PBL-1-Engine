@@ -105,3 +105,41 @@ On a 1366 × 768 screen the game area now starts about 210 px from the top (abou
 - No real player has tried this version. Whether it *feels* exciting needs a playtest.
 - Drag and drop was tested through its button equivalent in scripts, not with a mouse drag.
 - Sprint 3 and the boss were not played in the browser.
+
+## Round 3: stable screen, fixed tabs, calmer top strip
+
+Feedback: clicking anything made all the icons and numbers refresh; switching tabs reloaded content and the tabs changed size; the top strip looked cramped.
+
+### Why it kept refreshing
+
+Measured in the browser with a mutation counter:
+
+1. The address bar (with all the number tiles and their icons), the guide and the "pop out" bar were rebuilt on **every tab switch**, because their change check included which app was open.
+2. The GitHab page was rebuilt **every game minute while idle** (4 rebuilds in 6 seconds), because countdowns such as "Due in 4 h 52 min", "in 20 min" and a stuck teammate's minutes were part of its data.
+3. The guide's glow was removed and re-added on every update, which restarted its animation.
+4. The unread badge sat inside each tab and made it wider, so tabs changed size whenever a badge appeared or vanished (Slackish went from 117 px to 145 px).
+
+### What changed
+
+- **Built once, patched in place:** the address bar, the six number tiles with their icons, the guide and the tab strip are created once. Updates only change their text, bar width or colour. A number change still tweens and shows its +/− chip, but nothing is re-created.
+- **Countdowns are live text:** "Due in ...", "in N min" and "N min so far" update in place and no longer count as page data.
+- **Smaller regions:** the action-card hand is its own region, separate from the status chips, and the chips ignore Points and practice use counts.
+- **The glow stays put:** it moves only when the target changes, and revealing it scrolls only the page, never the whole browser frame.
+- **Tabs have one fixed size:** equal width (96 to 156 px), 40 px tall, the badge floats over the corner. On phones they become 44 px icon tabs. A tab drag needs a deliberate 14 px pull, so a wobbly click is just a click. "Pop out" moved into the tab row.
+- **Calmer top strip:** one tab row, one row for the address and numbers (fixed-size tiles, tabular digits), the guide with a clear "Next" label and a muted "why" line, and one row of chips with no orphaned items. Below 1240 px the numbers get tighter; below 900 px they wrap.
+
+### Measured after
+
+| Check | Before | After |
+| --- | --- | --- |
+| Elements rebuilt while idle for 8 s | 4 page rebuilds | 0 |
+| 11 tab switches: meters, icons, guide, heron, tabs, address bar | rebuilt each time | the same DOM elements |
+| Tab widths over all switches | 117 to 145 px | 156 px every time (150 px at 1100 px wide) |
+| "Give to Ines" click | whole interface | only the GitHab page content |
+
+182 tests pass.
+
+### Not checked
+
+- Moving focus: after a click inside the page, keyboard focus is lost when that page rebuilds. The page is rebuilt only when its own data changes, but a finer per-card update would fix it fully.
+- Drag-and-drop with a real mouse and the sticky-note drag were not exercised beyond pop-out and put-back.

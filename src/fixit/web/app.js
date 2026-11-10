@@ -367,43 +367,44 @@ async function cmd(type, payload = {}) {
   if (run.state.status === "ended") return debrief();
 }
 
-function meters(s) {
-  const el = buildMeters(s), m = s.meters;
-  const now = { Points: m.points, Rating: Number(m.rating), Cover: m.cover, Focus: Math.round(m.focus) };
+// The status meters are built ONCE. After that only their numbers, bars and colours change, in place,
+// so icons never flash and nothing is re-created when you click something.
+const METER_DEFS = [["Rating", "rating", "star", "sky", false], ["Points", "points", "coin", "yellow", false], ["Cover", "suspicion", "search", "lav", true],
+  ["Focus", "energy", "bolt", "mint", true], ["Warnings", "strikes", "warn", "coral", false], ["Clock", "clock", "clock", "white", false]];
+function buildMeters() {
+  return h("div", { id: "meters", role: "group", "aria-label": "Your status" }, METER_DEFS.map(([k, termKey, icon, tone, bar]) =>
+    h("div", { class: `meter t-${tone}`, "data-k": k }, h("span", { class: "lbl", "aria-hidden": "true" }, ic(icon)), h("span", { class: "mname" }, term(termKey)), h("b", {}),
+      bar ? h("div", { class: "bar" }, h("i", {})) : null)));
+}
+const METER_FMT = { Points: (n) => String(Math.round(n)), Rating: (n) => n.toFixed(2), Cover: (n) => String(Math.round(n)), Focus: (n) => String(Math.round(n)) };
+function syncMeters(s) {
+  const root = document.getElementById("meters");
+  if (!root) return;
+  const m = s.meters, now = { Points: m.points, Rating: Number(m.rating), Cover: m.cover, Focus: Math.round(m.focus) };
   const prev = run.lastM;
   run.lastM = now;
-  if (!prev || REDUCED) return el;
-  const fmt = { Points: (n) => String(Math.round(n)), Rating: (n) => n.toFixed(2), Cover: (n) => String(Math.round(n)), Focus: (n) => String(Math.round(n)) };
+  const tile = (k) => root.querySelector(`[data-k="${k}"]`);
   for (const k of Object.keys(now)) {
-    const a = prev[k], b = now[k];
-    if (a === b) continue;
-    const good = k === "Cover" ? b < a : b > a;
-    const tile = el.querySelector(`[data-k="${k}"]`);
-    if (!tile) continue;
-    const chip = h("span", { class: "delta " + (good ? "good" : "bad") }, (b > a ? "+" : "−") + fmt[k](Math.abs(b - a)));
-    tile.classList.add(good ? "gain" : "loss");
-    tile.append(chip);
-    chip.addEventListener("animationend", () => chip.remove());
-    tween(tile.querySelector("b"), a, b, fmt[k]);
+    const t = tile(k), b = t.querySelector("b"), txt = METER_FMT[k](now[k]);
+    if (b.dataset.v === undefined || b.dataset.v === "") { b.textContent = txt; b.dataset.v = txt; }
+    else if (b.dataset.v !== txt) {
+      const a = prev ? prev[k] : now[k], good = k === "Cover" ? now[k] < a : now[k] > a;
+      b.dataset.v = txt;
+      if (REDUCED || !prev) b.textContent = txt;
+      else {
+        const chip = h("span", { class: "delta " + (good ? "good" : "bad") }, (now[k] > a ? "+" : "−") + METER_FMT[k](Math.abs(now[k] - a)));
+        t.classList.add(good ? "gain" : "loss"); t.append(chip);
+        chip.addEventListener("animationend", () => { chip.remove(); t.classList.remove("gain", "loss"); });
+        tween(b, a, now[k], METER_FMT[k]);
+      }
+    }
   }
-  return el;
-}
-
-function buildMeters(s) {
-  const m = s.meters;
-  // every meter says what it is in words; tap the word for a plain explanation
-  const box = (k, termKey, v, low, icon, tone, pct) => {
-    const bar = pct == null ? null : h("div", { class: "bar" }, h("i", {}));
-    if (bar) bar.firstChild.style.width = Math.max(0, Math.min(100, pct)) + "%";
-    return h("div", { class: `meter t-${tone}` + (low ? " low" : ""), "data-k": k },
-      h("span", { class: "lbl", "aria-hidden": "true" }, ic(icon)), h("span", { class: "mname" }, termKey ? term(termKey) : k), h("b", {}, v), bar);
-  };
-  const stage = { PLANNING: "Planning", STANDUP: "Standup", BUILD: "Work time", REVIEW: "Review" }[s.stage] || s.stage;
-  return h("div", { id: "meters", role: "group", "aria-label": "Your status" },
-    box("Rating", "rating", Number(m.rating).toFixed(2), m.rating < 3, "star", "sky"), box("Points", "points", m.points, false, "coin", "yellow"),
-    box("Cover", "suspicion", m.cover, m.cover >= 70, "search", "lav", m.cover), box("Focus", "energy", Math.round(m.focus), m.focus < 30, "bolt", "mint", m.focus),
-    s.warnings ? box("Warnings", "strikes", s.warnings, true, "warn", "coral") : null,
-    box("Stage", null, stage + " · day " + s.day, false, "calendar", "white"), box("Clock", "clock", s.clock_min + " min", false, "clock", "white"));
+  tile("Rating").classList.toggle("low", m.rating < 3);
+  tile("Cover").classList.toggle("low", m.cover >= 70); tile("Cover").querySelector(".bar i").style.width = Math.max(0, Math.min(100, m.cover)) + "%";
+  tile("Focus").classList.toggle("low", m.focus < 30); tile("Focus").querySelector(".bar i").style.width = Math.max(0, Math.min(100, m.focus)) + "%";
+  const w = tile("Warnings"); w.hidden = !s.warnings; w.classList.add("low"); w.querySelector("b").textContent = String(s.warnings);
+  const clk = tile("Clock").querySelector("b"), ct = s.clock_min + " min";
+  if (clk.textContent !== ct) clk.textContent = ct;
 }
 
 const STAGE_FLOW = [["PLANNING", "Plan"], ["STANDUP", "Standup"], ["BUILD", "Work"], ["REVIEW", "Review"]];
@@ -493,6 +494,14 @@ const typeIcon = (t) => { t = String(t); return t.includes("fix") ? "bug" : t.in
 const TYPE_LABEL = { fix: "Bug", build: "New feature", help_call: "Help request", status_demand: "Status update", problem_report: "Problem report" };
 const TYPE_TERM = { fix: "bug", build: "feature" };
 const typeLabel = (t) => TYPE_LABEL[t] || String(t).replace("_", " ");
+// countdowns are live text: they tick every update without rebuilding the page they sit in
+const dueText = (at, clock) => at == null ? "Overdue" : at <= clock ? "Due now" : `Due in ${dur(at - clock)}`;
+const liveDue = (at, clock) => h("span", { class: "live-due", "data-at": at == null ? "" : String(at) }, dueText(at, clock));
+const inText = (at, clock) => Math.round(at - clock) <= 0 ? "now" : `in ${Math.round(at - clock)} min`;
+function syncLive(s) {
+  document.querySelectorAll(".live-due").forEach((e) => { const t = dueText(e.dataset.at === "" ? null : Number(e.dataset.at), s.clock_min); if (e.textContent !== t) e.textContent = t; });
+  document.querySelectorAll(".live-in").forEach((e) => { const t = inText(Number(e.dataset.at), s.clock_min); if (e.textContent !== t) e.textContent = t; });
+}
 const dur = (mins) => { mins = Math.max(0, Math.round(mins)); const hh = Math.floor(mins / 60), mm = mins % 60; return hh ? `${hh} h ${mm} min` : `${mm} min`; };
 
 function pilePanel(s) {
@@ -525,7 +534,7 @@ function pilePanel(s) {
       c.bounty ? h("span", { class: "chip good" }, "Bounty: extra points for a clean fix") : null,
       h("div", { class: "tag" }, TYPE_TERM[c.type] ? term(TYPE_TERM[c.type], typeLabel(c.type)) : typeLabel(c.type), ` from ${who(c.sender)}`,
         c.state === "delegated" ? ` · ${who(c.assignee || "dev1")} is on it` : c.state === "returned" ? ` · back from ${who(c.assignee || "dev1")}` : ""),
-      h("div", { class: "tag" }, c.deadline_min == null ? "Overdue" : c.deadline_min <= s.clock_min ? "Due now" : `Due in ${dur(c.deadline_min - s.clock_min)}`,
+      h("div", { class: "tag" }, liveDue(c.deadline_min, s.clock_min),
         c.payoff.points ? ` · reward +${c.payoff.points} points` : "", c.penalty.cover ? ` · ignore it and Suspicion +${c.penalty.cover}` : ""),
       c.escalation ? h("div", { class: "tag louder" }, term("escalation", louder[c.escalation] || louder[2])) : null,
       s.x ? priceTag(s, c) : null,
@@ -689,7 +698,7 @@ function teamBoard(s) {
     const body = !m.task ? h("p", { class: "lane-free" }, "Free. Drag a request here.")
       : [h("div", { class: "lane-task" }, ic("hammer"), " " + (m.title || "Working")),
         h("div", { class: "bar mprog" + (m.stuck ? " stuck" : ""), "data-dev": d }, h("i", {})),
-        m.stuck ? h("div", { class: "stuckbox" }, h("b", {}, `${nm} is stuck!`), h("span", { class: "small" }, ` No progress until you help (${m.stuck_min} min so far).`),
+        m.stuck ? h("div", { class: "stuckbox" }, h("b", {}, `${nm} is stuck!`), h("span", { class: "small" }, " No progress until you help (", h("span", { class: "stuckmin", "data-dev": d }, m.stuck_min), " min so far)."),
           h("button", { class: "primary", "data-guide": "unblock:" + d, onclick: () => cmd("unblock", { dev: d }) }, `Unblock (${x.unblock_min} min)`))
           : h("small", { class: "muted eta", "data-dev": d }, `About ${m.eta_min} min left`)];
     const el = h("div", { class: "lane-card" + (m.stuck ? " is-stuck" : m.task ? " busy" : " free"), "data-lane": d },
@@ -706,6 +715,7 @@ function syncTeam(s) {
   const team = s.x && s.x.team;
   if (!team) return;
   document.querySelectorAll(".mprog[data-dev]").forEach((b) => { const m = team[b.dataset.dev]; if (m) b.firstChild.style.width = Math.round(100 * m.progress) + "%"; });
+  document.querySelectorAll(".stuckmin[data-dev]").forEach((e) => { const m = team[e.dataset.dev]; if (m && e.textContent !== String(m.stuck_min)) e.textContent = String(m.stuck_min); });
   document.querySelectorAll(".eta[data-dev]").forEach((e) => { const m = team[e.dataset.dev]; if (m && m.eta_min != null) e.textContent = `About ${m.eta_min} min left`; });
 }
 
@@ -830,8 +840,8 @@ const needs = (s, kind) => hasCard(s, kind) ? "" : ` (needs a ${CARD_KINDS[kind]
 
 function handEl(s) {
   const hd = s.x && s.x.hand;
-  if (!hd) return null;
-  return h("div", { class: "hand", "aria-label": "Your action cards" },
+  if (!hd) return h("div", { class: "hand", "data-region": "hand", hidden: true });
+  return h("div", { class: "hand", "data-region": "hand", "aria-label": "Your action cards" },
     h("span", { class: "lbl" }, "Hand"),
     hd.cards.length ? hd.cards.map((k) => h("span", { class: "acard k-" + k, title: CARD_KINDS[k][2] }, ic(CARD_KINDS[k][1]), " " + CARD_KINDS[k][0]))
       : h("span", { class: "muted small" }, "No cards left."),
@@ -900,7 +910,6 @@ function hudEl(s) {
       x.protected_min ? h("span", { class: "chip good" }, ic("check"), ` Protected ${x.protected_min} min`) : null,
       x.boss_live ? h("span", { class: "chip boss", title: boss.rule }, ic("flag"), ` Boss: ${boss.name}. ${boss.rule}`)
         : s.sprint > 1 ? h("span", { class: "chip faint", title: boss.rule }, ic("flag"), ` Sprint ${x.boss_sprint} boss: ${boss.name}`) : null),
-    handEl(s),
     has("momentum") || x.practices.length ? h("div", { class: "hud-row" },
       has("momentum") ? [h("span", { class: "lbl" }, "Momentum"), mom] : null,
       !has("momentum") ? null : ready ? Object.keys(ULTIMATES).map((k) => h("button", { class: "ult", title: ULTIMATES[k].text, onclick: () => cmd("use_ultimate", { kind: k }) }, ULTIMATES[k].name))
@@ -916,7 +925,7 @@ function intentsEl(s) {
   const x = s.x;
   if (!x || !(x.features || []).includes("intents")) return null;
   return h("section", { class: "card intents", "aria-label": "Coming up" }, h("h3", {}, ic("clock"), " Coming up"),
-    x.intents.length ? h("ul", {}, x.intents.slice(0, 5).map((i) => h("li", {}, h("b", {}, i.in_min <= 0 ? "now" : `in ${i.in_min} min`), " " + i.text)))
+    x.intents.length ? h("ul", {}, x.intents.slice(0, 5).map((i) => h("li", {}, h("b", { class: "live-in", "data-at": String(s.clock_min + i.in_min) }, inText(s.clock_min + i.in_min, s.clock_min)), " " + i.text)))
       : h("p", { class: "muted small" }, "Nothing announced for the next two hours."));
 }
 
@@ -1036,7 +1045,7 @@ function startTabDrag(e, id) {
   const tearing = (ev) => { const r = document.querySelector("#browser .tabstrip").getBoundingClientRect(); return ev.clientY > r.bottom + 36 || ev.clientY < r.top - 36; };
   const move = (ev) => {
     if (!ghost) {
-      if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 8) return;
+      if (Math.hypot(ev.clientX - sx, ev.clientY - sy) < 14) return;   // a click that wobbles a little is still a click
       run.dragging = true; document.body.classList.add("dragging");
       ghost = h("div", { class: "ghost" }, ic(app.icon), h("b", {}, app.name), h("small", {}, ""));
       document.body.append(ghost);
@@ -1095,48 +1104,62 @@ function noteEl(s, n) {
 // ---- The browser frame is built once. After that render() patches only the regions whose data changed,
 // so tabs, hover, scroll position and running animations are not thrown away every few seconds.
 function badgeEl(id, s) { const n = badgeFor(id, s); return n > 0 ? h("span", { class: "badge", "aria-label": badgeLabel(id, n) }, n) : null; }
+const popOut = () => { const app = APPS.find((a) => a.id === run.app); detach(app.id, innerWidth - 470 - 34 * run.notes.length, 150 + 34 * run.notes.length); };
 
 function tabsEl(s) {
   const left = attached();
   return h("div", { class: "tabstrip", role: "tablist", "aria-label": "Open apps", "data-region": "tabs" }, left.map((a) => h("button", { class: `btab app-${a.id}` + (a.id === run.app ? " active" : ""), role: "tab", "aria-selected": String(a.id === run.app), "data-app": a.id, "data-guide": "tab:" + a.id,
     onpointerdown: (e) => startTabDrag(e, a.id), onclick: () => { if (!swallow) openApp(a.id); } },
-    h("span", { class: "fav", "aria-hidden": "true" }, ic(a.icon)), h("span", {}, a.name), badgeEl(a.id, s))),
-    null);
+    h("span", { class: "fav", "aria-hidden": "true" }, ic(a.icon)), h("span", { class: "tname" }, a.name), badgeEl(a.id, s))),
+    h("button", { class: "nbtn pop", title: "Pop this app out as a sticky note", "aria-label": "Pop out as a sticky note", onclick: popOut }, ic("note")));
 }
 // unread counts change often: update them in place instead of rebuilding the tabs
 function syncBadges(s) {
   document.querySelectorAll("#browser .btab").forEach((b) => {
     const id = b.dataset.app, n = badgeFor(id, s);
     b.classList.toggle("active", id === run.app); b.setAttribute("aria-selected", String(id === run.app));
+    const pop = document.querySelector("#browser .tabstrip .pop"); if (pop) pop.disabled = attached().length <= 1;
     let el = b.querySelector(".badge");
     if (n > 0) { if (!el) { el = h("span", { class: "badge" }); b.append(el); } el.textContent = String(n); el.setAttribute("aria-label", badgeLabel(id, n)); }
     else if (el) el.remove();
   });
 }
-const addrEl = (s) => h("div", { class: "addr", "data-region": "addr" }, h("span", { class: "navg", "aria-hidden": "true" }, ic("chev-l"), ic("chev-r"), ic("refresh")),
-  h("div", { class: "url" }, ic("lock"), " " + APPS.find((a) => a.id === run.app).url), meters(s));
+const buildAddr = () => h("div", { class: "addr" }, h("div", { class: "url" }, ic("lock"), h("span", { class: "urltext" })), buildMeters());
+function syncAddr(s) {
+  const u = document.querySelector("#browser .urltext"), url = APPS.find((a) => a.id === run.app).url;
+  if (u && u.textContent !== url) u.textContent = url;
+  syncMeters(s);
+}
 function shownGuide(s) {
   const g = guide(s);
   if (g.app && g.app !== run.app && !isNote(g.app)) return { ...g, step: `Open ${appName(g.app)}, then: ${g.step[0].toLowerCase() + g.step.slice(1)}`, target: "tab:" + g.app };
   return g;
 }
-const coachEl = (s) => { const g = shownGuide(s); return h("div", { class: "coach", "data-region": "coach" }, h("span", { class: "heron", "aria-hidden": "true" }, ic("c-heron")),
-  h("div", { class: "say" }, h("b", { class: "gstep" }, h("span", { class: "nextlbl" }, "Next: "), g.step), g.why ? h("div", { class: "gwhy" }, g.why) : null)); };
+const buildCoach = () => h("div", { class: "coach" }, h("span", { class: "heron", "aria-hidden": "true" }, ic("c-heron")),
+  h("div", { class: "say" }, h("div", { class: "gline" }, h("span", { class: "nextlbl" }, "Next"), h("b", { class: "gstep" })), h("div", { class: "gwhy" })));
+function syncCoach(s) {
+  const g = shownGuide(s), st = document.querySelector("#browser .gstep"), why = document.querySelector("#browser .gwhy");
+  if (!st) return;
+  if (st.textContent !== g.step) st.textContent = g.step;
+  if (why.textContent !== (g.why || "")) { why.textContent = g.why || ""; }
+  why.hidden = !g.why;
+}
+// The glow moves only when the target changes. It is never removed and re-added on every update (that restarted the animation).
+function revealInPage(el) {
+  const sc = el.closest(".page, .note-body");
+  if (!sc) return;
+  const r = el.getBoundingClientRect(), p = sc.getBoundingClientRect();
+  if (r.top < p.top + 8 || r.bottom > p.bottom - 8) sc.scrollTo({ top: sc.scrollTop + (r.top - p.top) - p.height / 3, behavior: REDUCED ? "auto" : "smooth" });   // scroll the page only, never the whole window
+}
 function applyGuide(s) {
-  document.querySelectorAll(".guide-on").forEach((e) => e.classList.remove("guide-on"));
   const g = shownGuide(s);
-  if (!g.target) return;
-  const el = [...document.querySelectorAll(`[data-guide="${g.target}"]`)].find((e) => e.offsetParent !== null);
+  const el = g.target ? [...document.querySelectorAll(`[data-guide="${g.target}"]`)].find((e) => e.offsetParent !== null) : null;
+  document.querySelectorAll(".guide-on").forEach((e) => { if (e !== el) e.classList.remove("guide-on"); });
   if (!el) return;
-  el.classList.add("guide-on");
-  if (run.lastGuide !== g.target) { run.lastGuide = g.target; el.scrollIntoView({ block: "nearest", behavior: REDUCED ? "auto" : "smooth" }); }
+  if (!el.classList.contains("guide-on")) el.classList.add("guide-on");
+  if (run.lastGuide !== g.target) { run.lastGuide = g.target; revealInPage(el); }
 }
 const callEl = (s) => h("div", { class: "callslot", "data-region": "call" }, callCard(s), run.error ? h("div", { class: "err pad", role: "alert" }, run.error) : null);
-function appheadEl() {
-  const app = APPS.find((a) => a.id === run.app);
-  return h("div", { class: `apphead app-${app.id}`, "data-region": "apphead" }, h("span", { class: "ai", "aria-hidden": "true" }, ic(app.icon)), h("b", {}, app.name), h("span", {}, app.tag),
-    h("button", { class: "nbtn pop", title: "Pop out as a sticky note", "aria-label": "Pop out as a sticky note", disabled: attached().length <= 1, onclick: () => detach(app.id, innerWidth - 470 - 34 * run.notes.length, 150 + 34 * run.notes.length) }, ic("note"), " Pop out"));
-}
 // One live page per app. Switching tabs only shows and hides them, so scroll position, typed text and
 // open panels survive. A page is redrawn only when its own data changes (and only while it is on screen).
 function syncPages(s) {
@@ -1164,32 +1187,35 @@ const activePage = () => document.querySelector(`#browser .page[data-app="${run.
 const notesLayer = (s) => h("div", { class: "notes" }, run.notes.map((n) => noteEl(s, n)));
 
 function browserFrame(s) {
-  return h("div", { class: "win", id: "browser" }, tabsEl(s), addrEl(s), coachEl(s), hudEl(s), callEl(s), appheadEl(), h("div", { class: "winbody" }));
+  return h("div", { class: "win", id: "browser" }, tabsEl(s), buildAddr(), buildCoach(), hudEl(s), handEl(s), callEl(s), h("div", { class: "winbody" }));
 }
 
 // what each page actually draws; a page is rebuilt only when this changes
 const PAGE_DEPS = {
   slack: (s) => [run.lines.slice(-12).map((l) => l.id), s.stage, s.standup, s.x ? [s.x.standup_timer_s, s.x.prices] : null],
   github: (s) => [s.pile, s.stage, s.work, s.open_card, s.day, s.perks, run.runs, s.standup,
-    s.x ? [s.x.shop, s.x.intents, s.x.move_costs, s.x.retro_left, s.x.next_clean_factor, s.x.practices, s.meters.points, s.x.goal,
+    s.x ? [s.x.shop, s.x.intents.map((i) => [i.text, i.kind]), s.x.move_costs, s.x.retro_left, s.x.next_clean_factor, s.x.practices, s.meters.points, s.x.goal,
       s.x.hand, s.x.release, s.x.mult, s.x.review, run.reviewing,
-      s.x.team && Object.values(s.x.team).map((m) => [m.task, m.stuck, m.stuck && m.stuck_min, !m.task && 0]), s.x.combo] : null],
+      s.x.team && Object.values(s.x.team).map((m) => [m.task, m.stuck]), s.x.combo] : null],
   play: (s) => [Number(s.meters.rating), reviewList().length],
   youtube: (s) => [s.unlocked],
   shop: (s) => [s.perks, s.x ? [s.x.shop, s.meters.points, s.x.heat, s.x.hand] : null],
 };
 const REGIONS = {
   tabs: { sig: () => attached().map((a) => a.id).join(), build: tabsEl },
-  addr: { sig: (s) => JSON.stringify([s.meters, s.warnings, s.stage, s.day, run.app]), build: addrEl },
-  coach: { sig: (s) => JSON.stringify(shownGuide(s)), build: coachEl },
-  hud: { sig: (s) => JSON.stringify(s.x ? [s.sprint, s.stage, s.meters.points, s.x.clock_running, s.x.process_score, s.x.style.rank, s.x.last_stand,
-    s.x.protected_min, s.x.momentum, s.x.practices, s.x.boss_live, s.x.goal, s.x.hand, s.x.mult, s.x.release && s.x.release.items.length] : null), build: hudEl },
+  hud: { sig: (s) => JSON.stringify(s.x ? [s.sprint, s.stage, s.x.clock_running, s.x.process_score, s.x.style.rank, s.x.last_stand,
+    s.x.protected_min, s.x.momentum, s.x.practices.map((p) => [p.id, p.level]), s.x.boss_live, s.x.goal, s.x.mult, s.x.release && s.x.release.items.length] : null), build: hudEl },
+  hand: { sig: (s) => JSON.stringify(s.x && s.x.hand ? [s.x.hand, s.stage] : null), build: handEl },
   call: { sig: (s) => JSON.stringify(s.call || null) + "|" + (run.error || "") + "|" + hasCard(s, "call"), build: callEl },
-  apphead: { sig: () => run.app + "|" + attached().length, build: appheadEl },
   rail: { sig: (s) => [pathIndex(s), s.sprint, s.pile.filter((c) => c.state === "done").length, s.pile.length].join(), build: roadmap },
 };
 const notesSig = (s) => JSON.stringify(run.notes.map((n) => [n.id, n.x, n.y, n.w, n.z, n.min, n.ping, badgeFor(n.id, s), PAGE_DEPS[n.id](s)]));
 const scrollables = () => [...document.querySelectorAll(".note-body")];
+
+// Everything that only needs its text, width or class changed: patched in place, never rebuilt.
+function syncChrome(s) {
+  syncAddr(s); syncCoach(s); syncBadges(s); syncTeam(s); syncLive(s);
+}
 
 function updateScreen(s) {
   const frame = document.getElementById("browser");
@@ -1197,8 +1223,7 @@ function updateScreen(s) {
     mount(h("div", { class: "gamelayout" }, roadmap(s), browserFrame(s)), notesLayer(s));
     run.regs = Object.fromEntries(Object.entries(REGIONS).map(([k, r]) => [k, r.sig(s)])); run.notesSig = notesSig(s);
     run.pageSigs = {};
-    syncPages(s);
-    syncTeam(s);
+    syncPages(s); syncChrome(s);
     return;
   }
   const keep = scrollables().map((e) => e.scrollTop);   // a rebuilt list must not jump back to the top
@@ -1209,8 +1234,7 @@ function updateScreen(s) {
     document.querySelector(`#root [data-region="${name}"]`).replaceWith(r.build(s));
   }
   syncPages(s);
-  syncTeam(s);
-  syncBadges(s);
+  syncChrome(s);
   const ns = notesSig(s);
   if (ns !== run.notesSig) { run.notesSig = ns; document.querySelector(".notes").replaceWith(notesLayer(s)); }
   scrollables().forEach((e, i) => { if (keep[i]) e.scrollTop = keep[i]; });
@@ -1220,7 +1244,7 @@ function render() {
   if (!run || !run.state || run.dragging) return;   // never rebuild the screen under a drag
   const s = run.state;
   const sig = JSON.stringify({ ...s, clock_min: 0, day_used_min: 0 }) + run.lines.length + run.wall.length + JSON.stringify(run.runs || null) + (run.error || "");
-  if (sig === run.sig && document.getElementById("meters")) { const clk = document.querySelector('#meters [data-k="Clock"] b'); if (clk) clk.textContent = s.clock_min + " min"; return; }  // nothing changed but the clock
+  if (sig === run.sig && document.getElementById("meters")) { syncMeters(s); syncLive(s); return; }  // nothing changed but the clock
   run.sig = sig;
   // a new stage opens the app where that stage happens (or nudges its note if you pulled it out)
   if (!run.app) run.app = s.stage === "STANDUP" ? "slack" : "github";

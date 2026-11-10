@@ -11,6 +11,7 @@ def mvp_content():
     c = content_mod.get()
     bal = copy.deepcopy(c.balance)
     bal["experimental"]["enabled"] = False
+    bal["calm"]["enabled"] = False
     return dataclasses.replace(c, balance=bal)
 
 
@@ -25,6 +26,7 @@ def _with_originals(on: bool, onboarding: bool = False):
     for o in bal["originals"].values():
         o["enabled"] = on
     bal["onboarding"]["enabled"] = onboarding   # mechanic tests want every mechanic from minute one
+    bal["calm"]["enabled"] = False              # the arcade mechanics tests need the arcade rules; calm mode has its own tests
     return dataclasses.replace(c, balance=bal)
 
 

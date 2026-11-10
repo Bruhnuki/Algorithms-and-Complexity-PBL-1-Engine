@@ -14,7 +14,7 @@ from .content import Content, run_ticket
 
 COMMANDS = ("open_card", "flag_line", "select_patch", "run_script", "toggle_dod", "push", "hold", "triage_reorder",
             "delegate", "coach", "defer", "reply_standup", "answer_call", "watch_tutorial", "buy_perk",
-            "use_assistant", "advance_stage", "tick",
+            "use_assistant", "advance_stage", "tick", "guide_answer", "guide_next",
             # experimental branch only (rejected when balance.experimental.enabled is false)
             "configure", "buy_practice", "reroll_shop", "lock_offer", "retro", "use_ultimate")
 SERVER_ONLY = ("configure",)   # issued by the API at run creation; never accepted from a browser
@@ -64,6 +64,8 @@ def start_run(seed: int, content: Content) -> tuple[dict, list[dict]]:
     if _exp(content):
         _x_start(s, ev, content)
     _fire_schedule(s, ev, content)
+    if _calm(content):
+        _g_queue(s, ev, content, "planning")
     return s, ev
 
 
@@ -122,6 +124,10 @@ def _log(s: dict, what: str) -> None:
     s["process_log"].append(what)
     if s.get("x"):
         _xlog(s, what)
+    g = s.get("guide")
+    if g is not None and what in g["stats"]:
+        g["stats"][what] += 1
+        g["sprint_stats"][what] += 1
 
 
 def _ticket(content: Content, tid: str) -> dict:
@@ -172,6 +178,8 @@ def _spawn_card(s: dict, ev: list, content: Content, spec: dict) -> None:
             "hidden_bug": False, "returns_s": None}
     if s.get("x"):
         _x_card_spawned(s, content, card, spec)
+    if _calm(content):
+        card["deadline_s"] = None   # learning mode: nothing is due, nothing gets louder
     s["pile"].append(card)
     _emit(s, ev, "card_spawned", card_id=cid, card_type=card["type"], sender=card["sender"], ticket=card["ticket"])
 
@@ -209,13 +217,14 @@ def _pick_ping(s: dict, content: Content) -> str:
 
 
 def _ring(s: dict, ev: list, content: Content, sender: str) -> None:
-    if s["call"] is not None:
+    calm = _calm(content)
+    if s["call"] is not None and not calm:
         _miss_call(s, ev, content)
     if s["coach_credit"] > 0:
         s["coach_credit"] -= 1
         _emit(s, ev, "call_skipped", sender=sender)
     else:
-        s["call"] = {"sender": sender, "expires_s": s["clock_s"] + content.balance["calls"]["window_min"] * 60}
+        s["call"] = {"sender": sender, "expires_s": 1e12 if calm else s["clock_s"] + content.balance["calls"]["window_min"] * 60}
         _emit(s, ev, "call_rang", sender=sender, expires_s=s["call"]["expires_s"])
 
 
@@ -249,6 +258,8 @@ def _tick_world(s: dict, ev: list, content: Content) -> None:
 
 
 def _escalate(s: dict, ev: list, content: Content, c: dict) -> None:
+    if _calm(content):
+        return
     if s.get("x") and not _x_may_escalate(s, c):
         return
     c["escalation"] = min(content.balance["escalation"]["max_level"], c["escalation"] + 1)
@@ -299,6 +310,8 @@ def _check_end(s: dict, ev: list, content: Content) -> None:
         ending = "lose_rating"
     elif s["warnings"] >= (_x_warnings_lose_at(s, content) if s.get("x") else lim["warnings_lose_at"]):
         ending = "lose_warnings"
+    if ending and _safe_sprint(s):
+        ending = None   # the first sprint is for learning: mistakes teach, they do not end the run
     if ending:
         s["status"], s["ending"] = "ended", ending
         _emit(s, ev, "run_ended", ending=ending)
@@ -377,13 +390,15 @@ def _resolve_review(s: dict, ev: list, content: Content) -> None:
                   points=b["attack_check"]["points"])
     if s.get("x"):
         _x_goal_check(s, ev, content)
-    if s["meters"]["rating"] < b["limits"]["rating_warn_below"]:
+    if s["meters"]["rating"] < b["limits"]["rating_warn_below"] and not _safe_sprint(s):
         s["warnings"] += 1
         _emit(s, ev, "warning_issued", warnings=s["warnings"])
     _check_end(s, ev, content)
     total = b["experimental"]["sprints_total"] if s.get("x") else b["sprints_total"]
     if s.get("x"):
         _x_end_sprint(s, ev, content)
+    if s["status"] == "active" and s.get("guide") is not None:
+        return   # learning mode: the Retrospective comes next, and only after it does the next sprint (or the win) begin
     if s["status"] == "active" and s["sprint"] >= total:
         s["status"], s["ending"] = "ended", "win"
         _emit(s, ev, "run_ended", ending="win")
@@ -548,15 +563,18 @@ def _h_push(s, ev, content, p):
         cover = b["push"]["dod_unticked_cover"]
         _meter(s, "cover", cover, content)
         _log(s, "dod_skipped")
+        _g_debt(s, ev, content, +1)
     elif w["last_run"] and w["last_run"]["all_pass"]:
         _log(s, "dod_honest")
+        _g_debt(s, ev, content, -1)
     else:
         _log(s, "dod_dishonest")
     if w["from_delegate"] and w["reviewed"]:
         _log(s, "review_before_push")
     honest = all(w["dod"].values()) and bool(w["last_run"] and w["last_run"]["all_pass"])
     pts, extra = _award(s, ev, content, pts, result, t["id"], honest, ps_before)
-    s["shipped"].append({"ticket": t["id"], "result": result, "effect": o["effect"], "sprint": s["sprint"], "rating": rating})
+    s["shipped"].append({"ticket": t["id"], "result": result, "effect": o["effect"], "sprint": s["sprint"], "rating": rating,
+                         "dod": all(w["dod"].values())})
     c["state"] = "done"
     s["open_card"] = None
     _spend(s, ev, content, "push")
@@ -584,7 +602,7 @@ def _h_delegate(s, ev, content, p):
     c["assignee"] = dev if team else (c["sender"] if c["sender"] in ("dev1", "dev2") else ("dev1", "dev2")[s["next_card"] % 2])
     base = (_O(content, "team_board")["bug_chance"][dev] * (_fx(s, content, "pair_programming", "bug_chance_mult") if _has(s, "pair_programming") else 1)
             * (content.balance["perks"]["team_training"]["bug_mult"] if "team_training" in s["perks"] else 1)) if team else _bug_chance(s, content)
-    c["hidden_bug"] = bool(c["ticket"]) and draw(s, "delegation_bug") < base + _trust_penalty(s, content, c["assignee"])
+    c["hidden_bug"] = bool(c["ticket"]) and draw(s, "delegation_bug") < max(0.0, base + _g_adjust(s, c["assignee"])) + _trust_penalty(s, content, c["assignee"])
     if s.get("x") and _has(s, "pair_programming") and c["ticket"]:
         _use_practice(s, ev, content, "pair_programming")
     back = _O(content, "change_review")["return_after_min"] if _orig(content, "change_review") else content.balance["delegation"]["return_after_min"]
@@ -616,6 +634,7 @@ def _h_coach(s, ev, content, p):
     _log(s, "coach")
     _log(s, "blocker_cleared")
     _trust_gain(s, ev, content, c["sender"], "trust_per_coach", "coached")
+    _g_coached(s, ev, content, c["sender"])
     _spend(s, ev, content, "coach")
     _emit(s, ev, "card_coached", card_id=c["id"])
 
@@ -654,6 +673,8 @@ def _h_reply_standup(s, ev, content, p):
     st = s["pending_standup"]
     if not st:
         _illegal("no standup question pending")
+    if s.get("guide") is not None and s["guide"]["pending"]:
+        _illegal("finish the scene first")
     ans = p["answer"]
     if ans not in content.balance["standup_cover"]:
         _illegal("unknown answer")
@@ -665,6 +686,10 @@ def _h_reply_standup(s, ev, content, p):
     _meter(s, "cover", delta, content)
     s["standups"].append({"n": st["n"], "ticket": st["ticket"], "answer": ans, "contradicted": False})
     s["pending_standup"] = None
+    if s.get("guide") is not None:   # learning-mode tally only; the style rank and process score are untouched
+        k = "accurate" if ans == "accurate" else "bluff"
+        s["guide"]["stats"][k] += 1
+        s["guide"]["sprint_stats"][k] += 1
     _log(s, "standup_held")
     _emit(s, ev, "standup_answered", n=st["n"], answer=ans, cover=delta, ticket=st["ticket"])
 
@@ -706,6 +731,8 @@ def _h_buy_perk(s, ev, content, p):
         _illegal("already owned")
     if p["perk_id"] != "ai_assistant" and not s.get("x"):
         _illegal("that skill is not sold in this version")
+    if _calm(content) and p["perk_id"] not in content.balance["calm"]["perks"]:
+        _illegal("that skill is not sold in learning mode")
     if s.get("x") and "no_assistant" in s["x"]["heat"] and p["perk_id"] == "ai_assistant":
         _illegal("Heat: the AI Assistant is switched off in this run")
     if s["meters"]["points"] < perk["price"]:
@@ -739,6 +766,13 @@ def _h_advance_stage(s, ev, content, p):
         _illegal("hold the open card first")
     if s["pending_standup"]:
         _illegal("answer the standup question first")
+    guide = s.get("guide")
+    if guide is not None and guide["pending"]:
+        _illegal("finish the scene first")
+    if guide is None and to == "RETRO":
+        raise GameError("ILLEGAL_TRANSITION", f"{s['stage']} -> {to}")
+    if guide is not None and s["stage"] == "RETRO":
+        return _g_end_retro(s, ev, content)
     two = 2
     if s["stage"] == "BUILD" and to == "STANDUP" and s["day"] >= two:
         _illegal("a sprint has only two standups")
@@ -756,13 +790,19 @@ def _h_advance_stage(s, ev, content, p):
     _emit(s, ev, "stage_advanced", stage=to, sprint=s["sprint"], day=s["day"])
     if to == "STANDUP":
         _begin_standup(s, ev, content)
+        if guide is not None:
+            _g_queue(s, ev, content, f"daily_{s['day']}")
     elif to == "REVIEW":
         _resolve_review(s, ev, content)
+        if guide is not None and s["status"] == "active":
+            _g_queue(s, ev, content, "review")
+    elif to == "RETRO":
+        _g_queue(s, ev, content, "retro")
 
 
 def _h_tick(s, ev, content, p):
-    if s["stage"] != "BUILD":
-        return
+    if s["stage"] != "BUILD" or _calm(content):
+        return   # learning mode has no real-time clock: time only moves when you act
     t = content.balance["time"]
     ms = max(0, min(int(p["real_ms"]), t["tick_max_real_ms"]))
     if s.get("x") and not _x_clock_running(s, content):
@@ -820,7 +860,7 @@ def _bug_chance(s: dict, content: Content) -> float:
 
 
 def _accurate_ok(s: dict, st: dict) -> bool:
-    return st["concept"] in s["unlocked"] or _has(s, "psychological_safety")
+    return s.get("guide") is not None or st["concept"] in s["unlocked"] or _has(s, "psychological_safety")
 
 
 def _rand_between(s: dict, purpose: str, lo: float, hi: float) -> float:
@@ -840,6 +880,8 @@ FEATURES = ("delegate", "practices", "intents", "lanes", "style", "director", "h
 
 
 def _features_for(sprint: int, content: Content) -> list[str]:
+    if _calm(content):   # no action cards, releases, multipliers, momentum or director in learning mode
+        return [f for f in FEATURES if f in ("delegate", "practices", "lanes", "style")]
     ob = content.balance.get("onboarding", {})
     if not ob.get("enabled"):
         return list(FEATURES)
@@ -869,6 +911,8 @@ def _x_start(s: dict, ev: list, content: Content) -> None:
               "last_card": None, "next_spot_s": 0.0, "next_director_s": X["director"]["every_min"] * 60.0,
               "relief_used": False, "bounty_card": None, "achievements": [], "free_runs": {},
               "sprint_start_s": 0.0, "bluffed_this_sprint": False, "flags": [], "goals": []}
+    if _calm(content):
+        _g_init(s, content)
     _refresh_features(s, ev, content)
     _o_start(s, ev, content)
     bosses = sorted(X["bosses"])
@@ -901,6 +945,8 @@ def _x_offers(s: dict, content: Content, keep: list[dict]) -> list[dict]:
 
 
 def _x_open_shop(s: dict, ev: list, content: Content, free: bool = False) -> None:
+    if _calm(content):
+        return   # learning mode: practices are chosen at the Retrospective, not bought with points
     keep = [o for o in (s["x"].get("kept_offers") or []) if o["id"] not in s["x"]["practices"]]
     s["x"]["shop"] = {"free": free, "rerolls": 0, "offers": _x_offers(s, content, keep)}
     s["x"]["kept_offers"] = []
@@ -909,6 +955,8 @@ def _x_open_shop(s: dict, ev: list, content: Content, free: bool = False) -> Non
 
 def _x_deal_sprint(s: dict, ev: list, content: Content) -> None:
     """M5 seeded runs: draw this sprint's cards, calls and pings from the seed."""
+    if s.get("guide") is not None:
+        return _g_deal_sprint(s, ev, content)
     X, k = _X(content), s["sprint"]
     d = X["sprint_deal"]
     i = min(k - 1, len(d["code_cards"]) - 1)
@@ -994,6 +1042,8 @@ def _x_fire_schedule(s: dict, ev: list, content: Content) -> None:
 def _x_card_spawned(s: dict, content: Content, card: dict, spec: dict) -> None:
     card["bounty"] = bool(spec.get("bounty"))
     card["spot"] = bool(spec.get("spot"))
+    if card["deadline_s"] is None:
+        return
     if _has(s, "timeboxing"):
         card["deadline_s"] += _fx(s, content, "timeboxing", "deadline_bonus_min") * 60
     if s["clock_s"] < s["x"]["protect_until_s"]:
@@ -1001,7 +1051,7 @@ def _x_card_spawned(s: dict, content: Content, card: dict, spec: dict) -> None:
 
 
 def _x_boss_sprint(s: dict, content: Content) -> bool:
-    return s["sprint"] == _X(content)["boss_sprint"]
+    return s["sprint"] == _X(content)["boss_sprint"] and not _calm(content)
 
 
 def _x_boss_now(s: dict) -> str | None:
@@ -1089,8 +1139,8 @@ def _x_may_escalate(s: dict, c: dict) -> bool:
 def _x_tick_world(s: dict, ev: list, content: Content) -> None:
     if _orig(content, "team_board"):
         _team_tick(s, ev, content)
-    if s["stage"] != "BUILD":
-        return
+    if s["stage"] != "BUILD" or _calm(content):
+        return   # no spot checks, last stand or director in learning mode
     X = _X(content)
     sus = X["suspicion"]
     cover = s["meters"]["cover"]
@@ -1198,7 +1248,7 @@ def _x_auto_ship(s: dict, ev: list, content: Content) -> None:
         _meter(s, "points", pts, content)
         rating = b["push"]["rating"].get(result, 0)
         s["shipped"].append({"ticket": t["id"], "result": result, "effect": o["effect"], "sprint": s["sprint"], "rating": rating,
-                             "unreviewed": True})
+                             "unreviewed": True, "dod": False})
         c["state"], c["returns_s"] = "done", None
         _emit(s, ev, "pushed", card_id=c["id"], ticket=t["id"], result=result, label=RESULT_LABEL[result], points=pts,
               cover=0, unreviewed=True)
@@ -1217,6 +1267,8 @@ def _x_style_rank(log: list[str], content: Content) -> dict:
 def _x_goal(s: dict, content: Content) -> dict:
     G = _X(content)["sprint_goal"]
     target = G["ship_min"][min(s["sprint"] - 1, len(G["ship_min"]) - 1)]
+    if s.get("guide") is not None:
+        target = (_gsprint(content, s["sprint"]) or {}).get("goal_ship_min", target)
     done = sum(1 for sh in s["shipped"] if sh["sprint"] == s["sprint"] and sh["result"] in ("clean", "acceptable")
                and not sh.get("unreviewed"))
     return {"target": target, "shipped": done, "met": done >= target}
@@ -1229,6 +1281,8 @@ def _x_goal_check(s: dict, ev: list, content: Content) -> None:
     if g["met"]:
         _meter(s, "points", G["hit_points"], content)
         _emit(s, ev, "sprint_goal", met=True, shipped=g["shipped"], target=g["target"], points=G["hit_points"])
+    elif _safe_sprint(s):
+        _emit(s, ev, "sprint_goal", met=False, shipped=g["shipped"], target=g["target"], cover=0, safe=True)
     else:
         _meter(s, "cover", G["miss_cover"], content)
         _emit(s, ev, "sprint_goal", met=False, shipped=g["shipped"], target=g["target"], cover=G["miss_cover"])
@@ -1265,7 +1319,7 @@ def _x_begin_sprint(s: dict, ev: list, content: Content) -> None:
     x["retro_uses"], x["relief_used"] = 0, False
     x["next_director_s"] = s["clock_s"] + X["director"]["every_min"] * 60
     C = X["comeback"]
-    if s["meters"]["rating"] < C["behind_rating_below"] or s["warnings"] > 0:
+    if (s["meters"]["rating"] < C["behind_rating_below"] or s["warnings"] > 0) and not _calm(content):
         x["bounty_card"] = "pending"
         _meter(s, "focus", C["loss_bonus_focus"], content)
         _emit(s, ev, "comeback_offered", focus=C["loss_bonus_focus"], bounty=C["bounty_bonus"])
@@ -1389,6 +1443,293 @@ def _h_use_ultimate(s, ev, content, p):
         _illegal("unknown ultimate")
     x["momentum"] = 0
     _emit(s, ev, "ultimate_used", kind=kind)
+
+
+# ================================================================ CALM LEARNING MODE (guided Scrum)
+# Runs only when balance.calm.enabled is true (and content/scrum_guide.json exists). State lives in s["guide"]
+# and s["x"]["skill"/"debt"]. Scenes (Planning, Daily Scrum, Review, Retrospective) are authored in
+# content/scrum_guide.json; the server holds which scene is open and checks every answer. Nothing here is timed.
+
+def _calm(content: Content) -> bool:
+    return _exp(content) and bool(content.guide) and bool(content.balance.get("calm", {}).get("enabled"))
+
+
+def _C(content: Content) -> dict:
+    return content.balance["calm"]
+
+
+def _safe_sprint(s: dict) -> bool:
+    """The first sprint is for learning: no strikes, no firing."""
+    g = s.get("guide")
+    return g is not None and s["sprint"] <= g["safe_sprints"]
+
+
+def _gsprint(content: Content, k: int) -> dict | None:
+    sp = content.guide.get("sprints", {})
+    if not sp:
+        return None
+    return sp.get(str(k)) or sp[max(sp, key=int)]
+
+
+def _g_blank() -> dict:
+    return {"dod_skipped": 0, "dod_honest": 0, "coach": 0, "delegated": 0, "review_before_push": 0,
+            "blocker_cleared": 0, "accurate": 0, "bluff": 0}
+
+
+def _g_init(s: dict, content: Content) -> None:
+    s["guide"] = {"pending": None, "resolved": False, "tried": [], "queue": [], "done": {}, "picks": [],
+                  "stats": _g_blank(), "sprint_stats": _g_blank(), "sprint_items": [], "history": [],
+                  "safe_sprints": _C(content)["safe_sprints"]}
+    s["x"]["skill"] = {"dev1": 0.0, "dev2": 0.0}   # coaching makes a developer better for good
+    s["x"]["debt"] = 0.0                            # skipped checks make everyone's work riskier until paid back
+
+
+def _g_adjust(s: dict, dev: str) -> float:
+    """Change to a developer's mistake chance: skipped-check debt pushes it up, coaching pulls it down."""
+    if s.get("guide") is None or not s.get("x"):
+        return 0.0
+    return s["x"].get("debt", 0.0) - s["x"]["skill"].get(dev, 0.0)
+
+
+def _g_coached(s: dict, ev: list, content: Content, dev: str) -> None:
+    if s.get("guide") is None or dev not in s["x"]["skill"]:
+        return
+    C = _C(content)
+    before = s["x"]["skill"][dev]
+    after = min(C["coach_skill_cap"], round(before + C["coach_skill_gain"], 4))
+    if after != before:
+        s["x"]["skill"][dev] = after
+        _emit(s, ev, "skill_grew", dev=dev, skill=after)
+
+
+def _g_debt(s: dict, ev: list, content: Content, direction: int) -> None:
+    if s.get("guide") is None:
+        return
+    C = _C(content)
+    before = s["x"]["debt"]
+    delta = C["debt_per_skipped_dod"] if direction > 0 else -C["debt_paid_per_honest_push"]
+    after = round(max(0.0, min(C["debt_cap"], before + delta)), 4)
+    if after != before:
+        s["x"]["debt"] = after
+        _emit(s, ev, "debt_changed", debt=after, up=direction > 0)
+
+
+def _g_deal_sprint(s: dict, ev: list, content: Content) -> None:
+    """A stable Sprint Backlog: every item of the sprint is on the to-do list from the start. One teammate asks for help mid-sprint."""
+    X, k, C = _X(content), s["sprint"], _C(content)
+    t0 = s["clock_s"]
+    s["x"]["sprint_start_s"] = t0
+    cfg = _gsprint(content, k) or {}
+    picks = [t for t in cfg.get("tickets", []) if t in content.tickets] or sorted(content.tickets)[:3]
+    s["x"]["used_tickets"] += [t for t in picks if t not in s["x"]["used_tickets"]]
+    d = X["sprint_deal"]
+    items = []
+    for n, t in enumerate(picks):
+        kind = content.tickets[t]["kind"]
+        items.append({"at_s": t0, "kind": "card", "spec": {"type": "build" if kind == "build" else "fix",
+                      "sender": "po" if kind == "build" else ("dev1", "dev2")[n % 2], "ticket": t, "deadline": 0,
+                      "payoff": dict(d["code_payoff"]), "penalty": {}}})
+    for n in range(cfg.get("help_calls", 1)):
+        items.append({"at_s": t0 + (C["help_call_at_min"] + 150 * n) * 60, "kind": "card",
+                      "spec": {"type": "help_call", "sender": ("dev2", "dev1")[n % 2], "ticket": None, "deadline": 0,
+                               "payoff": {}, "penalty": {}}})
+    for sender, at in (("dev1", 60), ("dev2", 420)):
+        items.append({"at_s": t0 + at * 60, "kind": "ping", "sender": sender})
+    order = {"card": 0, "event": 1, "ping": 2, "call": 3}
+    s["x"]["sched"] = sorted(items, key=lambda x: (x["at_s"], order[x["kind"]]))
+    s["x"]["boss_live"] = False
+    s["x"]["bounty_card"] = None
+    s["sched_pos"] = 0
+    s["guide"]["sprint_items"] = list(picks)
+    _emit(s, ev, "sprint_dealt", sprint=k, tickets=picks, boss=None)
+
+
+def _g_beats(content: Content, k: int, when: str) -> list[dict]:
+    return [b for b in content.guide["beats"] if b["sprint"] == k and b["when"] == when]
+
+
+def _g_beat(content: Content, bid: str) -> dict:
+    return next(b for b in content.guide["beats"] if b["id"] == bid)
+
+
+def _g_queue(s: dict, ev: list, content: Content, when: str) -> None:
+    g = s["guide"]
+    g["queue"] = [b["id"] for b in _g_beats(content, s["sprint"], when) if b["id"] not in g["done"]]
+    _g_pop(s, ev)
+
+
+def _g_pop(s: dict, ev: list) -> None:
+    g = s["guide"]
+    g["resolved"], g["tried"] = False, []
+    g["pending"] = g["queue"].pop(0) if g["queue"] else None
+    if g["pending"]:
+        _emit(s, ev, "guide_scene", beat=g["pending"])
+
+
+def _g_pool(s: dict, beat: dict) -> list[str]:
+    return [p for p in beat.get("pool", []) if p not in s["x"]["practices"]]
+
+
+def _g_sprint_facts(s: dict, content: Content) -> dict:
+    g, k = s["guide"], s["sprint"]
+    mine = [sh for sh in s["shipped"] if sh["sprint"] == k]
+    done = [sh for sh in mine if sh["result"] in ("clean", "acceptable") and sh.get("dod", True) and not sh.get("unreviewed")]
+    problems = [sh for sh in mine if sh["result"] in ("buggy", "security_hole")]
+    return {"mine": len(mine), "done": len(done), "problems": len(problems), "total": len(g["sprint_items"])}
+
+
+def _g_text(s: dict, content: Content, text: str) -> str:
+    if "{" not in text:
+        return text
+    g, f, st = s["guide"], _g_sprint_facts(s, content), s["guide"]["sprint_stats"]
+    done_line = (f"The Sprint Backlog had {f['total']} items. {f['done']} met the Definition of Done and form this Sprint's Increment.")
+    if f["mine"] > f["done"]:
+        done_line += f" {f['mine'] - f['done']} more went to users but are not truly Done (a mistake slipped in, a Done box was left unticked, or nobody checked it)."
+    if f["total"] > f["mine"]:
+        done_line += f" {f['total'] - f['mine']} not finished, so they go back to the Product Backlog."
+    parts = [f"This Sprint the team sent {f['mine']} item{'s' if f['mine'] != 1 else ''} to users and {f['done']} were truly Done."]
+    if f["problems"]:
+        parts.append(f"{f['problems']} had a problem that users noticed.")
+    if st["dod_skipped"]:
+        parts.append(f"The Done checklist was skipped {st['dod_skipped']} time{'s' if st['dod_skipped'] != 1 else ''}.")
+    parts.append(f"You coached {st['coach']} time{'s' if st['coach'] != 1 else ''}." if st["coach"] else "You did not coach anyone this Sprint.")
+    if st["bluff"]:
+        parts.append(f"{st['bluff']} Daily Scrum answer{'s were' if st['bluff'] != 1 else ' was'} not fully honest.")
+    if s["x"]["debt"] > 0:
+        parts.append("Skipped checks left hidden risk: the team makes more mistakes now.")
+    return text.replace("{done_line}", done_line).replace("{retro_facts}", " ".join(parts))
+
+
+def _g_suggest(s: dict, content: Content) -> list[str]:
+    st, f, out = s["guide"]["sprint_stats"], _g_sprint_facts(s, content), []
+    if st["dod_skipped"] or s["x"]["debt"] > 0:
+        out.append("definition_of_done_p")
+    if f["problems"]:
+        out.append("pair_programming")
+    if st["bluff"]:
+        out.append("psychological_safety")
+    if st["coach"] == 0:
+        out.append("swarming")
+    if s["meters"]["focus"] < 40:
+        out.append("sustainable_pace")
+    return out
+
+
+def _need_beat(s: dict, content: Content) -> tuple[dict, dict]:
+    g = s.get("guide")
+    if g is None or not g["pending"]:
+        _illegal("no scene is waiting")
+    return g, _g_beat(content, g["pending"])
+
+
+def _h_guide_answer(s, ev, content, p):
+    g, b = _need_beat(s, content)
+    if g["resolved"]:
+        _illegal("press Continue")
+    cid = p["choice_id"]
+    if b["kind"] == "quiz":
+        ch = next((c for c in b["choices"] if c["id"] == cid), None)
+        if ch is None:
+            _illegal("no such choice")
+        if any(t["id"] == cid for t in g["tried"]):
+            _illegal("you already tried that one")
+        ok = bool(ch.get("correct"))
+        g["tried"].append({"id": cid, "ok": ok})
+        if ok:
+            g["resolved"] = True
+            g["done"][b["id"]] = {"first_try": len(g["tried"]) == 1, "tries": len(g["tried"])}
+        _emit(s, ev, "guide_answered", beat=b["id"], choice=cid, ok=ok, first_try=ok and len(g["tried"]) == 1)
+    else:
+        if cid not in _g_pool(s, b):
+            _illegal("that improvement is not on offer")
+        s["x"]["practices"][cid] = {"level": 1, "uses": 0}
+        g["picks"].append({"sprint": s["sprint"], "practice": cid})
+        g["tried"].append({"id": cid, "ok": True})
+        g["resolved"] = True
+        g["done"][b["id"]] = {"first_try": True, "tries": 1, "choice": cid}
+        _emit(s, ev, "practice_gained", practice=cid, price=0, retro=True)
+        _emit(s, ev, "guide_answered", beat=b["id"], choice=cid, ok=True, first_try=True)
+
+
+def _h_guide_next(s, ev, content, p):
+    g, _ = _need_beat(s, content)
+    if not g["resolved"]:
+        _illegal("answer the question first")
+    _g_pop(s, ev)
+
+
+def _g_end_retro(s: dict, ev: list, content: Content) -> None:
+    """The Retrospective is over: the next sprint begins, or the run is won."""
+    g = s["guide"]
+    g["history"].append({"sprint": s["sprint"], "stats": dict(g["sprint_stats"])})
+    if s["sprint"] >= _X(content)["sprints_total"]:
+        s["status"], s["ending"] = "ended", "win"
+        _emit(s, ev, "run_ended", ending="win")
+        return
+    for c in s["pile"]:   # unfinished Sprint Backlog items go back to the Product Backlog
+        if c["state"] in ("pile", "open", "returned"):
+            c["state"] = "backlog" if c["ticket"] else "done"
+    g["sprint_stats"] = _g_blank()
+    s.update(sprint=s["sprint"] + 1, stage="PLANNING", day=1, standups=[], pending_standup=None,
+             repeat_counts={}, day_start_s=s["clock_s"])
+    _emit(s, ev, "stage_advanced", stage="PLANNING", sprint=s["sprint"])
+    _x_begin_sprint(s, ev, content)
+    _g_queue(s, ev, content, "planning")
+
+
+def _g_score(s: dict, content: Content) -> dict:
+    quiz = [b for b in content.guide["beats"] if b["kind"] == "quiz"]
+    done = [s["guide"]["done"][b["id"]] for b in quiz if b["id"] in s["guide"]["done"]]
+    return {"asked": len(done), "first_try": sum(1 for d in done if d["first_try"]), "of": len(quiz)}
+
+
+def _g_public(s: dict, content: Content) -> dict:
+    g, k = s["guide"], s["sprint"]
+    cfg = _gsprint(content, k) or {}
+    committed = not (s["stage"] == "PLANNING" and (g["pending"] or g["queue"]))
+    backlog = [{"ticket": t, "title": content.tickets[t]["title"], "in_sprint": True} for t in cfg.get("tickets", []) if t in content.tickets]
+    backlog += [{"ticket": t, "title": content.tickets[t]["title"], "in_sprint": False} for t in cfg.get("backlog_more", []) if t in content.tickets]
+    pend = None
+    if g["pending"]:
+        b = _g_beat(content, g["pending"])
+        same = _g_beats(content, k, b["when"])
+        pend = {"id": b["id"], "speaker": b["speaker"], "concept": b["concept"], "kind": b["kind"], "when": b["when"],
+                "scene": _g_text(s, content, b["scene"]), "question": b["question"], "resolved": g["resolved"],
+                "step": len(same) - len(g["queue"]), "of": len(same)}
+        if b["kind"] == "quiz":
+            fb = {c["id"]: c["feedback"] for c in b["choices"]}
+            pend["choices"] = [{"id": c["id"], "text": c["text"]} for c in b["choices"]]
+            pend["tried"] = [{"id": t["id"], "ok": t["ok"], "feedback": fb[t["id"]]} for t in g["tried"]]
+        else:
+            opts, hint = content.guide["retro_options"], _g_suggest(s, content)
+            pool = list(b.get("pool", [])) if g["resolved"] else _g_pool(s, b)
+            pend["choices"] = [{"id": pid, "text": opts[pid][0], "detail": opts[pid][1], "suggested": pid in hint} for pid in pool if pid in opts]
+            pend["tried"] = [{"id": t["id"], "ok": True, "feedback": opts[t["id"]][1]} for t in g["tried"] if t["id"] in opts]
+        if g["resolved"]:
+            pend["teach"] = b["teach"]
+    return {"theme": cfg.get("theme"), "goal": cfg.get("goal"), "committed": committed, "backlog": backlog,
+            "pending": pend, "score": _g_score(s, content),
+            "premise": content.guide["premise"] if k == 1 and not g["done"] else None}
+
+
+def _g_story(s: dict, content: Content) -> list[str]:
+    g, sc = s["guide"], _g_score(s, content)
+    st, x = g["stats"], s["x"]
+    lines = [f"You answered {sc['first_try']} of {sc['asked']} Scrum questions correctly on the first try. The rest you worked out after reading why."]
+    if st["coach"]:
+        lines.append(f"You coached {st['coach']} time{'s' if st['coach'] != 1 else ''}. Your developers now make fewer mistakes: that is what a Scrum Master's coaching buys.")
+    else:
+        lines.append("You never coached anyone, so the team never got better at solving problems alone.")
+    if st["dod_skipped"]:
+        lines.append(f"The Done checklist was skipped {st['dod_skipped']} time{'s' if st['dod_skipped'] != 1 else ''}. Skipped checks come back as hidden mistakes later.")
+    elif st["dod_honest"]:
+        lines.append("You kept the Definition of Done honest, so what you called Done really was.")
+    else:
+        lines.append("You never finished an item against the Definition of Done, so the team had no Increment to show.")
+    opts = content.guide["retro_options"]
+    if g["picks"]:
+        lines.append("Your Retrospectives chose: " + ", ".join(opts[p["practice"]][0] for p in g["picks"] if p["practice"] in opts) + ".")
+    return lines
 
 
 # ================================================================ ORIGINAL (spec-breaking) mechanics
@@ -1697,7 +2038,7 @@ def _h_unblock(s, ev, content, p):
     if not m or not m["stuck"]:
         _illegal("they are not stuck")
     T = _O(content, "team_board")
-    quick = m["stuck_min"] <= T["quick_unblock_min"]
+    quick = m["stuck_min"] <= T["quick_unblock_min"] and not _calm(content)
     _spend_min(s, ev, content, T["unblock_min"])
     m.update(stuck=False, stuck_min=0.0)
     if quick:
@@ -1900,7 +2241,8 @@ def _review_ship(s: dict, ev: list, content: Content, c: dict, auto: bool = Fals
     honest = reviewed and not left
     pts, extra = _award(s, ev, content, pts, result, t["id"], honest, ps_before)
     s["shipped"].append({"ticket": t["id"], "result": result, "effect": o["effect"], "sprint": s["sprint"],
-                         "rating": b["push"]["rating"].get(result, 0), **({} if reviewed else {"unreviewed": True})})
+                         "rating": b["push"]["rating"].get(result, 0), "dod": reviewed and not left,
+                         **({} if reviewed else {"unreviewed": True})})
     c["state"], c["returns_s"] = "done", None
     _emit(s, ev, "pushed", card_id=c["id"], ticket=t["id"], result=result, label=RESULT_LABEL[result], points=pts, cover=0,
           review=True, unreviewed=not reviewed, **extra)
@@ -1956,7 +2298,8 @@ def _o_public(s: dict, content: Content) -> dict:
             mins = _task_minutes(content, d, c) if c else 0
             team[d] = {"task": m["task"], "title": (content.tickets[c["ticket"]]["title"] if c and c["ticket"] else c and c["type"]),
                        "progress": round(m["progress"], 3), "eta_min": round((1 - m["progress"]) * mins) if c else None,
-                       "stuck": m["stuck"], "stuck_min": round(m["stuck_min"]), "speed": T["speed"][d], "bug_chance": T["bug_chance"][d]}
+                       "stuck": m["stuck"], "stuck_min": round(m["stuck_min"]), "speed": T["speed"][d],
+                       "bug_chance": round(max(0.0, T["bug_chance"][d] + _g_adjust(s, d)), 3)}
         out["team"] = team
         out["unblock_min"] = T["unblock_min"]
         out["stuck_limit"] = T["stuck_escalate_min"]
@@ -2000,7 +2343,12 @@ def _x_public(s: dict, content: Content) -> dict:
                 "reroll_price": 0 if sh["free"] and sh["rerolls"] == 0 else prices[min(sh["rerolls"], len(prices) - 1)]}
     style = _x_style_rank(x["style_log"], content)
     boss_sprint = X["boss_sprint"]
-    return {"sprints_total": X["sprints_total"], "boss": x["boss"], "boss_sprint": boss_sprint, "goal": _x_goal(s, content),
+    calm = s.get("guide") is not None
+    goal = _x_goal(s, content)
+    if calm:
+        goal = {**goal, "text": (_gsprint(content, s["sprint"]) or {}).get("goal")}
+    return {"calm": calm, "skill": x.get("skill"), "debt": x.get("debt"),
+            "sprints_total": X["sprints_total"], "boss": x["boss"], "boss_sprint": boss_sprint, "goal": goal,
             "boss_live": bool(x.get("boss_live")), "clock_running": s["stage"] == "BUILD" and _x_clock_running(s, content),
             "move_costs": costs, "day_minutes": _day_minutes(s, content), "intents": intents,
             "practices": [{"id": k, **v} for k, v in x["practices"].items()], "slots": X["practices"]["slots"],
@@ -2016,7 +2364,8 @@ def _x_public(s: dict, content: Content) -> dict:
             "bug_odds": round(_bug_chance(s, content), 3), "focus_switch_cost": X["focus"]["switch_cost"],
             "standup_timer_s": X["bosses"]["demo_day"]["standup_timer_s"] if _x_boss_now(s) == "demo_day" else None,
             "seed": s["seed"], "features": x.get("features", list(FEATURES)),
-            "perk_shop": [{"id": k, "price": v["price"]} for k, v in content.balance["perks"].items()],
+            "perk_shop": [{"id": k, "price": v["price"]} for k, v in content.balance["perks"].items()
+                          if not calm or k in content.balance["calm"]["perks"]],
             "unlocks_next": [f for f in _features_for(s["sprint"] + 1, content) if f not in x.get("features", FEATURES)],
             **_o_public(s, content)}
 
@@ -2030,8 +2379,9 @@ HANDLERS = {"open_card": _h_open_card, "flag_line": _h_flag_line, "select_patch"
             "lock_offer": _h_lock_offer, "retro": _h_retro, "use_ultimate": _h_use_ultimate,
             "regroup": _h_regroup, "add_card": _h_add_card, "remove_card": _h_remove_card,
             "review_inspect": _h_review_inspect, "review_fix": _h_review_fix, "review_ship": _h_review_ship,
-            "review_send_back": _h_review_send_back, "ship_release": _h_ship_release, "unblock": _h_unblock}
-EXPERIMENTAL_ONLY = ("configure", "buy_practice", "reroll_shop", "lock_offer", "retro", "use_ultimate", "regroup", "add_card",
+            "review_send_back": _h_review_send_back, "ship_release": _h_ship_release, "unblock": _h_unblock,
+            "guide_answer": _h_guide_answer, "guide_next": _h_guide_next}
+EXPERIMENTAL_ONLY = ("guide_answer", "guide_next", "configure", "buy_practice", "reroll_shop", "lock_offer", "retro", "use_ultimate", "regroup", "add_card",
                      "remove_card", "review_inspect", "review_fix", "review_ship", "review_send_back", "ship_release", "unblock")
 
 
@@ -2088,9 +2438,12 @@ def _x_debrief(s: dict, content: Content) -> dict:
         lines.append(story["bluffed"])
     heat = len(x["heat"])
     run_score = round(s["meters"]["points"] * (1 + X["heat"]["bonus_per_level"] * heat))
-    return {"sprints_played": len(x["style_history"]), "style": x["style_history"], "max_cover": x["max_cover"],
+    if s.get("guide") is not None:
+        lines = ([story[s["ending"]]] if s["ending"] in story and s["ending"] != "win" else []) + _g_story(s, content)
+    return {"scrum": _g_score(s, content) if s.get("guide") is not None else None,
+            "sprints_played": len(x["style_history"]), "style": x["style_history"], "max_cover": x["max_cover"],
             "near_miss": x["max_cover"] >= X["suspicion"]["last_stand_from"], "clutches": x["clutches"],
-            "story": lines[:4], "heat": x["heat"], "run_score": run_score, "practices": list(x["practices"]),
+            "story": lines[:5 if s.get("guide") is not None else 4], "heat": x["heat"], "run_score": run_score, "practices": list(x["practices"]),
             "achievements": x["achievements"], "boss": x["boss"], "seed": s["seed"], "goals": x["goals"]}
 
 
@@ -2127,7 +2480,8 @@ def public_state(s: dict, content: Content) -> dict:
                       **({"review": _review_public(c)} if c.get("review") else {}),
                       **(_x_card_public(s, c) if s.get("x") else {})}
                      for c in s["pile"]],
-            **({"x": _x_public(s, content)} if s.get("x") else {})}
+            **({"x": _x_public(s, content)} if s.get("x") else {}),
+            **({"guide": _g_public(s, content)} if s.get("guide") is not None else {})}
 
 
 def _speed_public(s: dict, content: Content, w: dict):

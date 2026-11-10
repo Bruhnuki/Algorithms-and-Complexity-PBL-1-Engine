@@ -7,9 +7,9 @@ const card = (icon, title, text, chip, tone = "good") => ({ icon, title, text, c
 const STEPS = [
   { kind: "hello", pose: "c-heron", say: "Hi! I'm Herb, your coach." },
   { kind: "cards", pose: "c-heron", say: "Here's your story.", cards: [
-    card("alert", "The company is in trouble", "It went bankrupt and let its tech experts go."),
-    card("search", "Your résumé was... creative", "You said you can code. You can't, really."),
-    card("star", "Your real job: Scrum Master", "You keep the team working well. Nobody must find out you can't code."),
+    card("alert", "The shop app is in trouble", "Customers leave at checkout because the prices come out wrong."),
+    card("star", "You are the Scrum Master", "You do not code and you do not set priorities. You help the team work the Scrum way."),
+    card("flag", "Three Sprints to learn it", "Each Sprint has the same five moments real teams use. Nothing is timed."),
   ] },
   { kind: "cards", pose: "c-heron", say: "Meet your team.", cards: [
     card("c-marlo", "Marlo, Product Owner", "Decides what matters most. Sends you requests."),
@@ -17,12 +17,12 @@ const STEPS = [
     card("c-tobi", "Tobi, Developer", "Writes code. New, often stuck."),
   ] },
   { kind: "cards", pose: "c-heron-cheer", say: "How the game works.", cards: [
-    card("calendar", "Short rounds", "Work comes in sprints of 2 days. Each day starts with a quick team meeting."),
-    card("bug", "Fix what's broken", "Requests land in your to-do list. You fix bugs by picking the right line of code."),
-    card("check", "I'll guide every step", "The game teaches one new idea at a time. Look for the glowing button."),
+    card("calendar", "Five Scrum moments", "Sprint Planning, the Daily Scrum, the work, the Sprint Review and the Retrospective."),
+    card("chat", "Short scenes", "Each moment starts with a quick scene and one question. A wrong answer just explains why."),
+    card("check", "I'll guide every step", "Take your time. Look for the glowing button."),
   ] },
   { kind: "pick", pose: "c-heron", say: "Pick a project.", cards: [
-    { id: "easy", level: "Easy", name: "The Coupon Shop", live: true, text: "A small shop app with a few bugs.", meta: "3 sprints · about 25 minutes" },
+    { id: "easy", level: "Easy", name: "The Checkout Fix", live: true, text: "Learn what Scrum really is by running three Sprints.", meta: "3 Sprints · no timers" },
     { id: "medium", level: "Medium", live: false, text: "A bigger app and a bigger mess." },
     { id: "hard", level: "Hard", live: false, text: "Real users and real pressure." },
   ] },

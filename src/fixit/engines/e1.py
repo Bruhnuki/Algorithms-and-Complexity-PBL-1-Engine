@@ -6,8 +6,9 @@ pbl_engine is available; keep these signatures.
 """
 from __future__ import annotations
 
-STAGES = ("PLANNING", "STANDUP", "BUILD", "REVIEW")
-ALLOWED = {"PLANNING": {"STANDUP"}, "STANDUP": {"BUILD"}, "BUILD": {"STANDUP", "REVIEW"}, "REVIEW": set()}
+STAGES = ("PLANNING", "STANDUP", "BUILD", "REVIEW", "RETRO")
+# RETRO is only entered in learning mode (balance.calm.enabled); the original game rolls straight from REVIEW to the next sprint.
+ALLOWED = {"PLANNING": {"STANDUP"}, "STANDUP": {"BUILD"}, "BUILD": {"STANDUP", "REVIEW"}, "REVIEW": {"RETRO"}, "RETRO": {"PLANNING"}}
 BUDGET_DEFAULT, BUDGET_CAP = 3000, 4000
 
 

@@ -590,3 +590,33 @@ details.fold > summary small { color:var(--muted); font:700 12px var(--font-body
 .demo-card { position:absolute; left:-46px; top:-30px; width:92px; height:34px; border-radius:10px; background:#fff; border:3px solid var(--blue); opacity:.9; box-shadow:0 8px 18px rgba(24,70,110,.2); }
 .concept-body p { font-size:18px; } .concept-card { width:min(420px, 100%); }
 .speed { position:sticky; top:0; z-index:3; box-shadow:0 4px 10px rgba(24,70,110,.08); }
+
+/* ---- Learning mode: the Scrum scene dialog and the Planning / Review / Retrospective screens ---- */
+#scene { position:fixed; inset:0; z-index:90; display:grid; place-items:center; padding:16px; background:rgba(20,40,60,.45); }
+#scene[hidden] { display:none; }
+.scene-card { display:flex; flex-direction:column; gap:12px; width:min(660px, 100%); max-height:calc(100vh - 32px); overflow:auto; padding:22px; background:#fff; border:var(--bw) solid var(--line); border-bottom-width:6px; border-radius:20px; animation:pop .35s both; }
+.scene-head { display:flex; align-items:center; gap:14px; }
+.scene-head h2 { margin:2px 0 0; font-size:22px; }
+.scene-head .heron .ic, .scene-head .heron .av { width:64px; height:64px; flex:none; }
+.scene-text { margin:0; font-size:16px; line-height:1.55; }
+.scene-q { margin:4px 0 0; font-size:18px; }
+.scene-choices { display:flex; flex-direction:column; gap:8px; }
+.scene-choice { display:flex; align-items:flex-start; gap:10px; width:100%; margin:0; padding:12px 14px; text-align:left; text-transform:none; letter-spacing:0; font:600 15px/1.4 var(--font-body); color:var(--text); }
+.scene-choice .ct { display:flex; flex-direction:column; gap:3px; min-width:0; } .scene-choice .ct b { font-weight:700; } .scene-choice .ct small { font-weight:500; color:var(--muted); }
+.scene-choice .ci { flex:none; width:20px; height:20px; } .scene-choice .ci .ic { width:20px; height:20px; }
+.scene-choice.wrong { opacity:.75; border-color:var(--red); background:var(--red-soft); color:var(--red-d); }
+.scene-choice.right { border-color:var(--green); background:var(--green-soft); color:var(--green-d); }
+.scene-choice.hint { border-color:var(--purple); background:var(--purple-soft); }
+.scene-choice .evid { color:var(--purple-d); font-weight:700; }
+.scene-fb { padding:10px 14px; border-radius:12px; font-size:15px; line-height:1.5; }
+.scene-fb.ok { background:var(--green-soft); color:var(--green-d); } .scene-fb.no { background:var(--red-soft); color:var(--red-d); }
+.scene-teach { display:flex; gap:10px; align-items:flex-start; padding:10px 14px; border-radius:12px; background:var(--yellow-soft); line-height:1.5; }
+.scene-teach .ic { width:22px; height:22px; flex:none; } .scene-teach small { display:block; font:800 12px var(--font-head); text-transform:uppercase; letter-spacing:.5px; color:#8a6a00; }
+.premise { padding:12px 14px; border-radius:12px; background:var(--blue-soft); } .premise p { margin:6px 0 0; font-size:15px; line-height:1.5; }
+.stagecard .lead { margin:0 0 8px; font-size:17px; }
+.goalbox { display:flex; gap:10px; align-items:flex-start; margin:8px 0; padding:10px 14px; border-radius:12px; background:#FFF3E0; }
+.goalbox .ic { width:22px; height:22px; flex:none; } .goalbox small { display:block; font:800 12px var(--font-head); text-transform:uppercase; letter-spacing:.5px; color:var(--orange-d); } .goalbox b { display:block; font-size:16px; }
+.backlog { margin:6px 0 12px; padding-left:22px; } .backlog li { margin:6px 0; padding-left:4px; } .backlog li.in { font-weight:700; }
+.backlog .btitle { margin-right:8px; } .backlog .chip { vertical-align:middle; }
+.chip.goalchip { white-space:normal; }
+@media (max-width:520px) { .scene-card { padding:16px; } .scene-head .heron .ic, .scene-head .heron .av { width:48px; height:48px; } }

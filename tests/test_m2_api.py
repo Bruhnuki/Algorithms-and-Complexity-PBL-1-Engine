@@ -298,7 +298,8 @@ def test_INSTR1_transcript_list_and_open(env, content):
     s.post("/api/v1/assessments/pre", json={"answers": {k: 0 for k in key}})
     s.post("/api/v1/assessments/post", json={"answers": key})
     rows = i.get(f"/api/v1/instructor/cohorts/{cid}/runs").json()["runs"]
-    assert len(rows) == 1 and rows[0]["process_score"] > 0 and abs(rows[0]["gain"] - 0.9) < 1e-9
+    pre = sum(1 for v in key.values() if v == 0) / len(key)   # the pre-test answers 0 everywhere; the post-test has the key
+    assert len(rows) == 1 and rows[0]["process_score"] > 0 and abs(rows[0]["gain"] - (1.0 - pre)) < 1e-9
     t = i.get(f"/api/v1/instructor/runs/{rid}/transcript").json()
     assert any(e["type"] == "pushed" for e in t["events"])
     assert any(e["type"] == "pushed" and e["result"] in ("clean", "acceptable", "buggy", "security_hole") for e in t["events"])

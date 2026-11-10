@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 
 import jsonschema
@@ -22,6 +22,7 @@ class Content:
     teammates: dict
     assessment: dict
     version: str = "content-1"
+    guide: dict = field(default_factory=dict)   # guided Scrum scenes (content/scrum_guide.json)
 
     @property
     def allowed(self) -> set[str]:
@@ -55,10 +56,14 @@ def load(root: Path = ROOT) -> Content:
             jsonschema.validate(d, schemas[schema])
             out[d["id"]] = d
         return out
+    guide = {}
+    if (root / "scrum_guide.json").exists():
+        guide = _json(root / "scrum_guide.json")
+        jsonschema.validate(guide, _json(root / "schemas" / "guide.schema.json"))
     return Content(
         balance=yaml.safe_load((root / "balance.yaml").read_text(encoding="utf-8")),
         tickets=many("tickets", "ticket"), tutorials=many("tutorials", "tutorial"),
-        teammates=many("teammates", "teammate"), assessment=_json(root / "assessment.json"))
+        teammates=many("teammates", "teammate"), assessment=_json(root / "assessment.json"), guide=guide)
 
 
 _cache: Content | None = None

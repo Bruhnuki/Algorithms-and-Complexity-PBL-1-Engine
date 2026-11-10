@@ -1,0 +1,24 @@
+{
+ "type": "object",
+ "required": ["version", "premise", "sprints", "retro_options", "beats"],
+ "properties": {
+  "beats": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": ["id", "sprint", "when", "kind", "speaker", "concept", "scene", "question", "teach"],
+    "properties": {
+     "when": {"enum": ["planning", "daily_1", "daily_2", "review", "retro"]},
+     "kind": {"enum": ["quiz", "pick"]},
+     "speaker": {"enum": ["po", "dev1", "dev2", "heron"]},
+     "choices": {
+      "type": "array",
+      "minItems": 2,
+      "items": {"type": "object", "required": ["id", "text", "feedback"]}
+     },
+     "pool": {"type": "array", "minItems": 2, "items": {"type": "string"}}
+    }
+   }
+  }
+ }
+}

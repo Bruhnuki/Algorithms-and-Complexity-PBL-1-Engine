@@ -5,12 +5,12 @@
 // key: [the word players see, a one-line everyday explanation]
 export const TERMS = {
   scrum: ["Scrum", "A way of working where a small team builds something in short rounds, checks in every day, and improves as it goes."],
-  sprint: ["Sprint", "A short round of work. Here a sprint lasts 2 days. At the end, users see what the team made."],
-  standup: ["Standup", "A quick meeting at the start of each day. Everyone says what they did and what is blocking them."],
-  todo: ["To-do list", "Every request waiting for the team. Real teams call it the backlog."],
-  po: ["Product Owner", "Decides what is most important to build next. Here that is Marlo."],
-  dev: ["Developer", "Writes the code. Ines and Tobi are your developers."],
-  sm: ["Scrum Master", "That is you. You do not write the code yourself; you keep the team working smoothly and clear what blocks them."],
+  sprint: ["Sprint", "A short, fixed round of work with one goal. Real teams use one to four weeks; here a sprint lasts 2 days. At the end the team shows what it made."],
+  standup: ["Daily Scrum", "A short daily meeting (at most 15 minutes) where the Developers check progress toward the Sprint Goal and plan the next day. Honest answers matter."],
+  todo: ["Sprint Backlog", "The items the Developers chose to finish this Sprint, plus their plan. The Product Backlog is the bigger ordered list the Product Owner keeps."],
+  po: ["Product Owner", "The one person who decides what is most important to build next and keeps the Product Backlog in order. Here that is Marlo."],
+  dev: ["Developer", "Builds the work and decides how much fits in a Sprint. Ines and Tobi are your developers."],
+  sm: ["Scrum Master", "That is you. You do not set priorities or hand out tasks. You help the team use Scrum well, coach them, and remove what blocks them."],
   bug: ["Bug", "A mistake in the code that makes the app do the wrong thing."],
   feature: ["New feature", "Something new the app should be able to do."],
   code: ["Code", "The instructions that tell the app what to do. Each line is one step."],
@@ -28,7 +28,7 @@ export const TERMS = {
   teamwork: ["Teamwork score", "How well you work like a real Scrum Master: holding standups, helping people, reviewing, being honest. Separate from points."],
   escalation: ["Getting louder", "Ignore a request and it comes back louder: first a message, then a call, then a meeting, and Suspicion goes up."],
   security: ["Security hole", "A mistake that lets strangers see or change data they should not. Tests often do not catch it."],
-  goal: ["Sprint goal", "What the team promises to finish this sprint. Miss it and you get a strike."],
+  goal: ["Sprint Goal", "The single reason the Sprint is worth doing: an outcome for users, not a list of tasks. It stays fixed while the team works."],
   practice: ["Practice", "A good team habit, like checking work before it ships. Here practices are power-ups that change the rules in your favour."],
   release: ["Release", "A batch of finished changes sent to users together."],
   cards: ["Action cards", "Your hand of moves for the day. Each move needs the matching card."],
@@ -37,8 +37,8 @@ export const TERMS = {
 
 // "New idea" cards. Each one teaches ONE concept the first time it matters. app.js decides when.
 export const CONCEPTS = {
-  welcome: { title: "Your to-do list", text: "Fix one request before the sprint ends.", terms: [] },
-  standup: { title: "Daily standup", text: "Answer honestly. Bluffing raises Suspicion.", terms: [] },
+  welcome: { title: "Your Sprint Backlog", text: "These are the items the team chose in Sprint Planning. Nothing is timed: take your time.", terms: [] },
+  standup: { title: "Daily Scrum", text: "Say honestly where the work stands. Bluffing raises Suspicion.", terms: [] },
   bug: { title: "A bug!", text: "Find the line that doesn't match the description.", terms: [] },
   team: { title: "Your team", text: "Drag a request onto Ines or Tobi. Watch them work.", terms: [] },
   test: { title: "Testing", text: "Green means the examples work.", terms: [] },

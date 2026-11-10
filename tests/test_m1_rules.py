@@ -266,7 +266,11 @@ def test_SPRINT1_illegal_transition(content):
     for src in e1.STAGES:
         for dst in e1.STAGES:
             assert e1.can_transition(src, dst) == (dst in e1.ALLOWED[src])
-    assert e1.ALLOWED["REVIEW"] == set()
+    # the arcade game ends a sprint at REVIEW; RETRO is reachable only in learning mode (see test_calm.py)
+    assert e1.ALLOWED["REVIEW"] == {"RETRO"} and e1.ALLOWED["RETRO"] == {"PLANNING"}
+    s_review = dict(s, stage="REVIEW")
+    with pytest.raises(GameError):
+        run(s_review, content, "advance_stage", to="RETRO")
 
 
 def test_SPRINT1_full_stage_sequence(content):

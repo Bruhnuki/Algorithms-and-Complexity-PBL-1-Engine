@@ -1,48 +1,78 @@
 {
- "id": "assessment_v1",
+ "id": "assessment_v2",
  "questions": [
   {
    "id": "q1",
-   "text": "Who owns the order of the Product Backlog?",
+   "text": "Marlo (the Product Owner) and the Developers disagree about which item matters most. Who decides the order of the Product Backlog?",
    "choices": [
-    "Scrum Master",
-    "Product Owner",
-    "Developers"
+    "The Scrum Master",
+    "The Product Owner",
+    "The Developers, by voting"
    ],
    "answer": 1
   },
   {
    "id": "q2",
-   "text": "What is the Definition of Done for?",
+   "text": "The Sprint Goal is \"Customers see the correct price at checkout\". On day 2 Marlo asks you to add an unrelated feature to this Sprint. What is the best response?",
    "choices": [
-    "A shared honest checklist for finished work",
-    "A deadline",
-    "A meeting agenda"
+    "Add it. The Product Owner is the boss",
+    "Keep the goal, talk it through with Marlo and the Developers, and put the new idea on the Product Backlog for next time",
+    "Ignore Marlo until the Sprint ends"
    ],
-   "answer": 0
+   "answer": 1
   },
   {
    "id": "q3",
-   "text": "A daily standup is mainly to...",
+   "text": "At the Daily Scrum a developer says everything is fine, but you saw them stuck all morning. What does a good Scrum Master do?",
    "choices": [
-    "Report to management",
-    "Inspect progress and clear blockers",
-    "Assign blame"
+    "Say nothing. It is their business",
+    "Ask openly, help remove the blocker, and make it safe to say \"I am stuck\"",
+    "Tell the Product Owner the developer is slow"
    ],
    "answer": 1
   },
   {
    "id": "q4",
-   "text": "A Scrum Master mostly...",
+   "text": "A feature is in the app and passes its tests, but nobody ticked \"safe for users\" on the Done checklist. At the Sprint Review, is it part of the Increment?",
    "choices": [
-    "Writes all the code",
-    "Coaches the team and removes impediments",
-    "Sets the product priorities"
+    "Yes. It is already live",
+    "No. It does not meet the Definition of Done",
+    "Only if the Product Owner likes it"
    ],
    "answer": 1
   },
   {
    "id": "q5",
+   "text": "The team keeps making the same mistake sprint after sprint. Which Scrum event is for deciding how to stop it?",
+   "choices": [
+    "The Sprint Review",
+    "The Daily Scrum",
+    "The Sprint Retrospective"
+   ],
+   "answer": 2
+  },
+  {
+   "id": "q6",
+   "text": "A teammate keeps asking you to solve their problems and you always do it yourself. What happens over time?",
+   "choices": [
+    "The team gets faster and faster",
+    "It is fast now, but the team never learns to solve problems alone",
+    "Nothing changes"
+   ],
+   "answer": 1
+  },
+  {
+   "id": "q7",
+   "text": "Marlo wants the team to take 8 items into the Sprint. The Developers say they can finish 4. Who decides how many go in?",
+   "choices": [
+    "Marlo, because she owns the backlog",
+    "The Scrum Master, by assigning work",
+    "The Developers, who forecast what they can finish"
+   ],
+   "answer": 2
+  },
+  {
+   "id": "q8",
    "text": "What does this return? function f(x) { if x == 1 { return 10 } else { return 20 } } with f(2)",
    "choices": [
     "10",
@@ -52,42 +82,12 @@
    "answer": 1
   },
   {
-   "id": "q6",
-   "text": "function g(a, b) { return a / b } with g(4, 0)",
-   "choices": [
-    "0",
-    "4",
-    "crashes"
-   ],
-   "answer": 2
-  },
-  {
-   "id": "q7",
-   "text": "function h(p) { return p * 0.5 } is meant to give 10% off. What is wrong?",
-   "choices": [
-    "Nothing",
-    "It gives 50% off",
-    "It adds tax"
-   ],
-   "answer": 1
-  },
-  {
-   "id": "q8",
+   "id": "q9",
    "text": "A change passes all the listed examples. Is it safe to ship?",
    "choices": [
     "Yes, always",
     "Not necessarily; examples may miss a security problem",
     "Only on Fridays"
-   ],
-   "answer": 1
-  },
-  {
-   "id": "q9",
-   "text": "Doing every task yourself instead of coaching the team...",
-   "choices": [
-    "Is always best",
-    "Is fast now but hides the team's growth",
-    "Is forbidden"
    ],
    "answer": 1
   },

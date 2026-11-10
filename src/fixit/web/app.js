@@ -231,6 +231,12 @@ const XTOAST = {
   focus_switch: (e) => ["warn", "Switching tasks: Focus " + e.focus],
   sprint_goal: (e) => e.met ? ["good", `Sprint goal met: ${e.shipped} of ${e.target} shipped (+${e.points} pts)`]
     : ["bad", `Sprint goal missed: ${e.shipped} of ${e.target} shipped. Demotion warning and +${e.cover} Cover`],
+  release_shipped: (e) => e.failed ? ["bad", `Release shipped with a bug inside: bonus lost (${e.points} pts)`] : ["good", `Release shipped: ${e.base} × ${e.mult} = ${e.points} pts`],
+  trust_changed: (e) => ["warn", `${NAMES[e.dev] || e.dev} trust down to ${e.trust}`],
+  card_sent_back: () => ["info", "Sent back to the team"],
+  change_fixed: () => ["good", "Change fixed"],
+  deck_changed: (e) => ["info", e.added ? `Added a ${CARD_KINDS[e.added][0]} card to your deck` : `Removed a ${CARD_KINDS[e.removed][0]} card`],
+  hand_drawn: (e) => ["info", `New hand: ${e.cards.map((k) => CARD_KINDS[k][0]).join(", ")}`],
   sprint_dealt: (e) => ["info", e.boss ? "Boss sprint: " + (BOSSES[e.boss] || {}).name : "Sprint " + e.sprint + " dealt"],
 };
 
@@ -245,7 +251,7 @@ function collect(events) {
 }
 
 const wallText = (e) => ({
-  pushed: `Pushed ${e.ticket}: ${e.label} (${e.points >= 0 ? "+" : ""}${e.points} pts)`, push_blocked: `Push blocked: runtime error (${e.points} pts)`,
+  pushed: `Pushed ${e.ticket}: ${e.label} (${e.points >= 0 ? "+" : ""}${e.points} pts${e.held ? ", waiting in the release" : ""}${e.mult ? `, ×${e.mult}` : ""})`, push_blocked: `Push blocked: runtime error (${e.points} pts)`,
   review_resolved: "Reviews are in.", rating_resolved: `Rating moved ${e.delta >= 0 ? "+" : ""}${e.delta}`,
   attack_check_resolved: `Security attack on ${e.ticket}: ${e.rating} rating, ${e.points} points`, warning_issued: `Demotion warning ${e.warnings}`,
   contradiction_detected: "A teammate caught your earlier answer contradicting the result: +" + e.cover + " Cover", card_escalated: `Card ${e.card_id} escalated to ${["message", "call", "meeting"][e.level]}`, call_missed: "Missed call " + e.misses,
@@ -336,11 +342,12 @@ function steps(s) {
 const typeIcon = (t) => { t = String(t); return t.includes("fix") ? "bug" : t.includes("help") ? "sos" : t.includes("build") ? "hammer" : t.includes("problem") ? "alert" : t.includes("status") ? "megaphone" : "pin"; };
 
 function pilePanel(s) {
-  const moves = (c) => s.stage !== "BUILD" || c.state === "delegated" ? [] : [
-    c.state !== "open" ? h("button", { title: "Start on this request yourself", onclick: () => cmd("open_card", { card_id: c.id }), disabled: !!s.open_card }, c.state === "returned" ? "Review" : "Work") : h("button", { title: "Put this down for now", onclick: () => cmd("hold") }, "Hold"),
-    h("button", { title: "Hand this to a teammate", onclick: () => cmd("delegate", { card_id: c.id }) }, "Delegate"),
-    c.type === "help_call" ? h("button", { title: "Help the teammate work it out", onclick: () => cmd("coach", { card_id: c.id }) }, "Coach") : null,
-    h("button", { title: "Push this to later", onclick: () => cmd("defer", { card_id: c.id }) }, "Defer")];
+  const moves = (c) => s.stage !== "BUILD" || c.state === "delegated" ? [] : c.review ? [
+    h("button", { class: "primary", title: "Review this submission change by change", onclick: () => { run.reviewing = c.id; run.sig = null; render(); } }, "Review changes")] : [
+    c.state !== "open" ? h("button", { title: "Start on this request yourself" + needs(s, "work"), onclick: () => cmd("open_card", { card_id: c.id }), disabled: !!s.open_card || !hasCard(s, "work") }, c.state === "returned" ? "Review" : "Work") : h("button", { title: "Put this down for now", onclick: () => cmd("hold") }, "Hold"),
+    h("button", { title: "Hand this to a teammate" + needs(s, "delegate"), disabled: !hasCard(s, "delegate"), onclick: () => cmd("delegate", { card_id: c.id }) }, "Delegate"),
+    c.type === "help_call" ? h("button", { title: "Help the teammate work it out" + needs(s, "coach"), disabled: !hasCard(s, "coach"), onclick: () => cmd("coach", { card_id: c.id }) }, "Coach") : null,
+    h("button", { title: "Push this to later" + needs(s, "defer"), disabled: !hasCard(s, "defer"), onclick: () => cmd("defer", { card_id: c.id }) }, "Defer")];
   const live = s.pile.filter((c) => c.state !== "done");
   return h("section", { class: "card", id: "pile", "aria-label": "Pile" }, h("h2", {}, ic("clipboard"), " Issues (" + live.length + ")"), h("p", { class: "sub" }, "Your Pile: everything your team is asking you for."),
     live.map((c) => h("div", { class: `pile-item esc${c.escalation}` + (c.state === "open" ? " open" : "") + (c.bounty ? " bounty" : "") + (c.spot ? " spot" : "") },
@@ -394,12 +401,15 @@ function codeDesk(s) {
         x ? h("p", { class: "goalnote" }, ic("flag"), ` Sprint goal: ship ${x.goal.target} ticket${x.goal.target > 1 ? "s" : ""} that you fixed or reviewed yourself. Miss it and you get a demotion warning.`) : null,
         h("p", {}, "Look at the Pile, then start the sprint."), h("button", { class: "primary", onclick: () => cmd("advance_stage", { to: "STANDUP" }) }, "Go to standup")));
   }
+  const rev = s.stage === "BUILD" && !w && run.reviewing && s.pile.find((c) => c.id === run.reviewing && c.review);
+  if (rev) return reviewDesk(s, rev);
   if (s.stage === "BUILD" && !w) {
     const next = s.day >= 2 ? ["REVIEW", "End sprint (Review)"] : ["STANDUP", "End day 1 (next standup)"];
     const short = s.x && s.day >= 2 && !s.x.goal.met;
     return h("section", { class: "card" }, h("h2", {}, ic("branch"), " Fix-it desk"), h("p", { class: "muted" }, s.open_card ? "This card has no code. Send your reply." : "Open a card from the Pile."),
       s.open_card ? h("button", { onclick: () => cmd("push") }, "Send reply") : null,
       short ? h("p", { class: "cost risk" }, `Sprint goal not met yet (${s.x.goal.shipped}/${s.x.goal.target}). Ending now means a demotion warning.`) : null,
+      s.x ? releaseEl(s) : null,
       h("div", { class: "row" }, h("button", { onclick: () => cmd("advance_stage", { to: next[0] }), disabled: !!s.open_card }, next[1])));
   }
   if (!w) return h("section", { class: "card" }, h("h2", {}, "CodeDesk"));
@@ -411,7 +421,7 @@ function codeDesk(s) {
     h("p", { class: "muted" }, w.kind === "fix" ? "Step 1: click the line you think is wrong. Step 2: pick the replacement below. Step 3: run the script to check." : "Fill the blank line from the tray."),
     w.options.map((o) => h("button", { class: "opt" + (w.selected === o.id ? " sel" : "") + (w.assistant === o.id ? " hint" : ""), onclick: () => cmd("select_patch", { option_id: o.id }) }, o.text.trim())),
     w.assistant ? h("p", { class: "muted" }, "AI Assistant suggests the highlighted option (it can be wrong).") : null,
-    h("div", { class: "row" }, h("button", { title: "Test your fix and see if it works", onclick: runScript }, ic("play"), " Run Script" + (s.x ? ` (${s.x.move_costs.test} min)` : "")), perks ? h("button", { onclick: () => cmd("use_assistant") }, "AI Assistant") : null),
+    h("div", { class: "row" }, h("button", { title: "Test your fix and see if it works" + needs(s, "test"), disabled: !hasCard(s, "test"), onclick: runScript }, ic("play"), " Run Script" + (s.x ? ` (${s.x.move_costs.test} min)` : "")), perks ? h("button", { disabled: !hasCard(s, "assist"), title: needs(s, "assist"), onclick: () => cmd("use_assistant") }, "AI Assistant") : null),
     lastRun ? h("div", {}, lastRun.map((r) => h("div", { class: "run " + (r.pass ? "pass" : "fail") }, ic(r.pass ? "check" : "cross"), " ", r.text))) : null,
     h("h3", {}, "Checklist: is it really done?"),
     ["tests", "matches_doc", "no_security"].map((b) => h("label", { class: "check" }, h("input", { type: "checkbox", checked: w.dod[b], onchange: () => cmd("toggle_dod", { box: b }) }), h("span", {}, { tests: "Tests pass", matches_doc: "Matches the doc", no_security: "No security concern" }[b]))),
@@ -428,6 +438,8 @@ function pushDeal(s, w) {
   else if (!w.last_run) lines.push(h("div", { class: "cost risk" }, "Boxes ticked without running the script counts as a dishonest checklist."));
   if (x.next_clean_factor < 1) lines.push(h("div", { class: "cost" }, `Repeat reward: another clean push this sprint is worth ${Math.round(x.next_clean_factor * 100)}% of the first.`));
   if (x.last_stand) lines.push(h("div", { class: "cost good" }, "Last stand: an honest, clean push now pulls your Cover back down."));
+  if (x.mult) lines.push(h("div", { class: "cost good" }, `Points × ${x.mult.next_honest} if tested and fully ticked, × ${x.mult.next_other} otherwise.`));
+  if (x.release) lines.push(h("div", { class: "cost" }, x.release.items.length >= x.release.max ? "The release is full: ship it before pushing more." : `Goes into the release (${x.release.items.length + 1} of ${x.release.max}); points arrive when you ship it.`));
   return lines;
 }
 
@@ -462,7 +474,7 @@ async function runScript() {
 function callCard(s) {
   return s.call ? h("div", { class: "callbar", role: "alert" }, h("span", { class: "ring", "aria-hidden": "true" }, ic("phone")),
     h("div", { class: "grow" }, h("b", {}, "Call from " + (NAMES[s.call.sender] || s.call.sender)), h("div", { class: "muted" }, "Answer it (15 min) or ignore it.")),
-    h("button", { onclick: () => cmd("answer_call") }, "Answer")) : null;
+    h("button", { disabled: !hasCard(s, "call"), title: "Answer" + needs(s, "call"), onclick: () => cmd("answer_call") }, hasCard(s, "call") ? "Answer" : "No Call card")) : null;
 }
 
 function slackApp(s) {
@@ -528,7 +540,7 @@ function youtubeApp(s) {
     h("div", { class: "videos" }, TUTORIALS.map((t, i) => {
       const got = s.unlocked.includes(t.id);
       return h("div", { class: "video" }, h("div", { class: "thumb th" + i, "aria-hidden": "true" }, ic(got ? "check" : "play")), h("b", {}, got ? t.title : "??? " + t.title),
-        h("button", { onclick: () => cmd("watch_tutorial", { tutorial_id: t.id }), disabled: got }, got ? "Watched" : "Watch (30 min)"));
+        h("button", { onclick: () => cmd("watch_tutorial", { tutorial_id: t.id }), disabled: got || !hasCard(s, "learn"), title: needs(s, "learn") }, got ? "Watched" : hasCard(s, "learn") ? "Watch (30 min)" : "Needs a Learn card"));
     })));
 }
 
@@ -570,6 +582,67 @@ const ULTIMATES = {
 };
 const DUOS = new Set(["tdd_pair", "steady_flow"]);
 
+// ------------------------------------------------------------ ORIGINAL (spec-breaking) mechanics (state.x.hand / release / mult / review)
+const CARD_KINDS = {
+  work: ["Work", "hammer", "Open a card, or fix a faulty change"], test: ["Test", "play", "Run the script, or test one change"],
+  delegate: ["Delegate", "chat", "Hand a card to the team"], coach: ["Coach", "bulb", "Coach a teammate through a help call"],
+  defer: ["Defer", "clock", "Push a card to later"], call: ["Call", "phone", "Answer a ringing call"],
+  learn: ["Learn", "tv", "Watch a tutorial"], assist: ["Assist", "robot", "Ask the AI Assistant"],
+};
+const hasCard = (s, kind) => !s.x || !s.x.hand || s.x.hand.cards.includes(kind);
+const needs = (s, kind) => hasCard(s, kind) ? "" : ` (needs a ${CARD_KINDS[kind][0]} card)`;
+
+function handEl(s) {
+  const hd = s.x && s.x.hand;
+  if (!hd) return null;
+  return h("div", { class: "hand", "aria-label": "Your action cards" },
+    h("span", { class: "lbl" }, "Hand"),
+    hd.cards.length ? hd.cards.map((k) => h("span", { class: "acard k-" + k, title: CARD_KINDS[k][2] }, ic(CARD_KINDS[k][1]), " " + CARD_KINDS[k][0]))
+      : h("span", { class: "muted small" }, "No cards left."),
+    h("span", { class: "muted small" }, `Deck ${hd.deck} · discard ${hd.discard}`),
+    s.stage === "BUILD" ? h("button", { class: "ult", title: "Throw this hand away and draw a fresh one", onclick: () => cmd("regroup") }, `Regroup (${hd.regroup_min} min)`) : null);
+}
+
+function releaseEl(s) {
+  const r = s.x && s.x.release;
+  if (!r) return null;
+  const n = r.items.length;
+  return h("section", { class: "card release", "aria-label": "Release train" },
+    h("h3", {}, ic("rocket"), ` Release train: ${n} of ${r.max} waiting`),
+    n ? h("ul", {}, r.items.map((i) => h("li", {}, `${i.ticket} · ${i.points} pts`))) : h("p", { class: "muted small" }, "Pushes wait here until you ship the release."),
+    h("p", { class: "small" }, n ? `Ship now: ${r.base} × ${r.mult} = ${Math.round(r.base * r.mult)} pts. One more push makes it × ${r.next_mult}. If anything in it is buggy, the bonus is lost.`
+      : `Each extra push adds to the release bonus (× ${r.next_mult} for two). Anything left unshipped goes out at the review.`),
+    s.stage === "BUILD" ? h("button", { class: "primary", disabled: !n, onclick: () => cmd("ship_release") }, ic("rocket"), ` Ship the release (${r.ship_min} min)`) : null);
+}
+
+// Change-by-change review of returned work: the count is known, which change is faulty is not
+function reviewDesk(s, c) {
+  const r = c.review, R = s.x.review || {}, perks = s.perks.includes("ai_assistant");
+  const trust = R.trust ? R.trust[r.assignee || "dev1"] : null;
+  const fixed = r.changes.filter((ch) => ch.fixed).length, found = r.changes.filter((ch) => ch.shown === "faulty").length;
+  return h("section", { class: "card", "aria-label": "Review submission" },
+    h("h2", {}, ic("search"), " Review: " + (c.title || c.ticket)),
+    h("p", { class: "bossnote" }, `${r.faulty_count} of ${r.changes.length} changes are faulty. Find them before you ship.`),
+    h("div", { class: "changes" }, r.changes.map((ch, i) => h("div", { class: "change " + (ch.fixed ? "fixed" : ch.shown || "unknown") },
+      h("b", {}, `Change ${i + 1}`), h("span", { class: "small" }, ch.fixed ? "Fixed" : ch.shown === "faulty" ? "Faulty" + (ch.sure ? "" : " (AI says)") : ch.shown === "ok" ? (ch.sure ? "Fine" : "Fine (AI says)") : "Not checked"),
+      ch.fixed || (ch.sure && ch.shown === "ok") ? null : ch.shown === "faulty"
+        ? h("button", { class: "primary", disabled: !hasCard(s, "work"), title: "Fix this change" + needs(s, "work"), onclick: () => cmd("review_fix", { card_id: c.id, index: i }) }, `Fix (${R.fix_min} min)`)
+        : h("div", { class: "row" },
+          h("button", { disabled: !hasCard(s, "test"), title: "Run the tests on this change" + needs(s, "test"), onclick: () => cmd("review_inspect", { card_id: c.id, index: i, tool: "test" }) }, `Test ${R.inspect_min}m`),
+          h("button", { disabled: trust === 0, title: "Ask the author. Costs their trust.", onclick: () => cmd("review_inspect", { card_id: c.id, index: i, tool: "ask" }) }, "Ask"),
+          perks ? h("button", { disabled: !hasCard(s, "assist"), title: "AI Assistant: wrong 1 time in 5" + needs(s, "assist"), onclick: () => cmd("review_inspect", { card_id: c.id, index: i, tool: "assistant" }) }, "AI") : null)))),
+    h("p", { class: "muted small" }, `Found ${found}, fixed ${fixed}.` + (trust != null ? ` ${NAMES[r.assignee || "dev1"]} trust: ${trust} of ${R.trust_max}. Low trust means more bugs from them.` : "")),
+    h("div", { class: "row" },
+      h("button", { class: "primary", onclick: () => { run.reviewing = null; cmd("review_ship", { card_id: c.id }); } }, ic("rocket"), " Ship it"),
+      h("button", { onclick: () => { run.reviewing = null; cmd("review_send_back", { card_id: c.id }); } }, "Send it back"),
+      h("button", { onclick: () => { run.reviewing = null; run.sig = null; render(); } }, "Close")));
+}
+
+function multEl(s) {
+  const m = s.x && s.x.mult;
+  return m ? h("span", { class: "chip", title: "Push points are multiplied by your process score and your honest-push streak." }, ic("star"), ` ×${m.next_honest} honest · streak ${m.streak}`) : null;
+}
+
 function hudEl(s) {
   const x = s.x;
   if (!x) return h("div", { class: "hud", "data-region": "hud", hidden: true });
@@ -584,10 +657,13 @@ function hudEl(s) {
       h("span", { class: "chip " + (x.clock_running ? "live" : "paused"), title: "The clock runs while you stand at the Pile and stops while you read a card or answer a standup." }, ic("clock"), x.clock_running ? " Clock running" : " Clock paused"),
       h("span", { class: "chip", title: "Points come from pushes. Process score comes from how you work. The debrief shows the gap." }, ic("coin"), ` ${s.meters.points} pts`, h("span", { class: "sep" }, " | "), ic("check"), ` Process ${x.process_score}`),
       h("span", { class: "chip", title: "Variety of good habits this sprint. Repeating one action stops counting." }, ic("star"), ` Style ${x.style.rank}`),
+      multEl(s),
+      x.release ? h("span", { class: "chip", title: "Pushes waiting in the release" }, ic("rocket"), ` Release ${x.release.items.length}/${x.release.max}`) : null,
       x.last_stand ? h("span", { class: "chip danger" }, ic("warn"), " Last stand") : null,
       x.protected_min ? h("span", { class: "chip good" }, ic("check"), ` Protected ${x.protected_min} min`) : null,
       x.boss_live ? h("span", { class: "chip boss", title: boss.rule }, ic("flag"), ` Boss: ${boss.name}. ${boss.rule}`)
         : h("span", { class: "chip faint", title: boss.rule }, ic("flag"), ` Sprint ${x.boss_sprint} boss: ${boss.name}`)),
+    handEl(s),
     h("div", { class: "hud-row" },
       h("span", { class: "lbl" }, "Momentum"), mom,
       ready ? Object.keys(ULTIMATES).map((k) => h("button", { class: "ult", title: ULTIMATES[k].text, onclick: () => cmd("use_ultimate", { kind: k }) }, ULTIMATES[k].name))
@@ -626,7 +702,12 @@ function shopEl(s) {
       h("div", { class: "row" }, h("button", { class: "primary", disabled: full || (!sh.free && s.meters.points < o.price), onclick: () => cmd("buy_practice", { practice_id: o.id }) }, sh.free ? "Take it" : `Buy · ${o.price} pts`),
         h("button", { onclick: () => cmd("lock_offer", { practice_id: o.id }), title: "A locked offer stays when you reroll" }, o.locked ? "Unlock" : "Lock"))))),
     h("div", { class: "row" }, h("button", { onclick: () => cmd("reroll_shop"), disabled: s.meters.points < sh.reroll_price }, `Reroll (${sh.reroll_price ? sh.reroll_price + " pts" : "free"})`),
-      full ? h("span", { class: "muted" }, "All practice slots are full.") : null));
+      full ? h("span", { class: "muted" }, "All practice slots are full.") : null),
+    x.hand && !sh.free ? h("div", { class: "deckshop" }, h("h3", {}, "Your deck"), h("p", { class: "muted small" }, `Add a card for ${x.hand.add_price} pts or remove one for ${x.hand.remove_price} pts. A thinner deck draws what you need more often.`),
+      h("div", { class: "decklist" }, Object.keys(CARD_KINDS).filter((k) => x.hand.deck_list[k] || x.hand.shop_cards.includes(k)).map((k) => h("div", { class: "deckrow" },
+        h("span", { class: "acard k-" + k }, ic(CARD_KINDS[k][1]), ` ${CARD_KINDS[k][0]} × ${x.hand.deck_list[k] || 0}`),
+        x.hand.shop_cards.includes(k) ? h("button", { disabled: s.meters.points < x.hand.add_price, onclick: () => cmd("add_card", { kind: k }) }, "+") : null,
+        h("button", { disabled: !(x.hand.deck_list[k] > 0) || s.meters.points < x.hand.remove_price, onclick: () => cmd("remove_card", { kind: k }) }, "−"))))) : null);
 }
 
 // One big project per difficulty. Only the Easy project is playable so far.
@@ -838,18 +919,19 @@ function browserFrame(s) {
 const PAGE_DEPS = {
   slack: (s) => [run.lines.slice(-12).map((l) => l.id), s.stage, s.standup, s.x ? [s.x.standup_timer_s, s.x.prices] : null],
   github: (s) => [s.pile, s.stage, s.work, s.open_card, s.day, s.perks, run.runs, s.standup,
-    s.x ? [s.x.shop, s.x.intents, s.x.move_costs, s.x.retro_left, s.x.next_clean_factor, s.x.practices, s.meters.points, s.x.goal] : null],
+    s.x ? [s.x.shop, s.x.intents, s.x.move_costs, s.x.retro_left, s.x.next_clean_factor, s.x.practices, s.meters.points, s.x.goal,
+      s.x.hand, s.x.release, s.x.mult, s.x.review, run.reviewing] : null],
   play: (s) => [Number(s.meters.rating), reviewList().length],
   youtube: (s) => [s.unlocked],
-  shop: (s) => [s.perks, s.x ? [s.x.shop, s.meters.points, s.x.heat] : null],
+  shop: (s) => [s.perks, s.x ? [s.x.shop, s.meters.points, s.x.heat, s.x.hand] : null],
 };
 const REGIONS = {
   tabs: { sig: () => attached().map((a) => a.id).join(), build: tabsEl },
   addr: { sig: (s) => JSON.stringify([s.meters, s.warnings, s.stage, s.day, run.app]), build: addrEl },
   coach: { sig: (s) => s.stage + "|" + coachHint(s), build: coachEl },
   hud: { sig: (s) => JSON.stringify(s.x ? [s.sprint, s.stage, s.meters.points, s.x.clock_running, s.x.process_score, s.x.style.rank, s.x.last_stand,
-    s.x.protected_min, s.x.momentum, s.x.practices, s.x.boss_live, s.x.goal] : null), build: hudEl },
-  call: { sig: (s) => JSON.stringify(s.call || null) + "|" + (run.error || ""), build: callEl },
+    s.x.protected_min, s.x.momentum, s.x.practices, s.x.boss_live, s.x.goal, s.x.hand, s.x.mult, s.x.release && s.x.release.items.length] : null), build: hudEl },
+  call: { sig: (s) => JSON.stringify(s.call || null) + "|" + (run.error || "") + "|" + hasCard(s, "call"), build: callEl },
   apphead: { sig: () => run.app + "|" + attached().length, build: appheadEl },
   rail: { sig: (s) => [pathIndex(s), s.sprint, s.pile.filter((c) => c.state === "done").length, s.pile.length].join(), build: roadmap },
 };
@@ -914,6 +996,7 @@ async function debrief() {
     d.x ? xDebrief(d.x) : null,
     h("div", { class: "row" }, h("button", { class: "primary", onclick: () => questions("post", () => mount(h("section", { class: "card narrow" }, h("h2", {}, "Thanks for playing")))) }, "Take the post-test"), h("button", { onclick: setupRun }, "Play again"))));
   if (d.ending === "win") { lastPt = null; burst(40); setTimeout(() => burst(30), 350); }
+  if (d.x) showLeaderboard(d.x.seed);
 }
 
 function xDebrief(x) {
@@ -925,7 +1008,21 @@ function xDebrief(x) {
       x.goals.length ? h("span", { class: "chip" }, ic("flag"), " Goals " + x.goals.map((g) => g.met ? "met" : "missed").join(" · ")) : null),
     h("h3", {}, "What the team says"), x.story.map((l) => h("p", { class: "story" }, l)),
     x.practices.length ? h("p", { class: "muted" }, "Practices: " + x.practices.map(practiceName).join(", ")) : null,
-    h("p", { class: "muted" }, `Challenge code ${x.seed}: share it so classmates can play the same sprints.`));
+    h("p", { class: "muted" }, `Challenge code ${x.seed}: share it so classmates can play the same sprints.`),
+    h("div", { id: "lb" }));
+}
+
+// O5: public leaderboard for this challenge code
+async function showLeaderboard(seed) {
+  const box = document.getElementById("lb");
+  if (!box) return;
+  try {
+    const lb = await api("/api/v1/leaderboard?seed=" + seed);
+    box.replaceChildren(h("h3", {}, ic("chest"), ` Leaderboard for code ${seed}`),
+      h("table", {}, h("tr", {}, ["#", "Player", "Run score", "Style", "Ending"].map((x) => h("th", {}, x))),
+        lb.top.map((r) => h("tr", { class: r.you ? "you" : "" }, h("td", {}, r.place), h("td", {}, r.name + (r.you ? " (you)" : "")), h("td", {}, r.score), h("td", {}, r.style), h("td", {}, r.ending)))),
+      h("p", { class: "muted" }, lb.your_best ? `Your best: #${lb.your_best.place} of ${lb.players} · the median score is ${lb.median}.` : `${lb.players} finished runs on this code.`));
+  } catch (_) { box.replaceChildren(); }   // leaderboard switched off
 }
 
 // ------------------------------------------------------------ instructor

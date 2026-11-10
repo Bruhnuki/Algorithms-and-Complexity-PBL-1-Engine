@@ -1510,8 +1510,8 @@ def _make_review(s: dict, content: Content, c: dict) -> None:
 
 def _review_public(c: dict) -> dict:
     r = c["review"]   # never sends which change is really faulty, only what the player has seen
-    return {"faulty_count": r["faulty_count"], "inspected": r["inspected"],
-            "changes": [{"shown": ch["shown"], "fixed": ch["fixed"]} for ch in r["changes"]]}
+    return {"faulty_count": r["faulty_count"], "inspected": r["inspected"], "assignee": c.get("assignee"),
+            "changes": [{"shown": ch["shown"], "fixed": ch["fixed"], "sure": bool(ch.get("sure"))} for ch in r["changes"]]}
 
 
 def _review_card(s: dict, content: Content, p: dict) -> tuple[dict, dict]:
@@ -1530,6 +1530,8 @@ def _h_review_inspect(s, ev, content, p):
     if not 0 <= i < len(r["changes"]):
         _illegal("no such change")
     ch = r["changes"][i]
+    if ch.get("sure"):
+        _illegal("you already know this change for certain")
     if tool == "test":
         _play(s, ev, content, "test")
         shown = "faulty" if ch["faulty"] else "ok"
@@ -1554,6 +1556,7 @@ def _h_review_inspect(s, ev, content, p):
     else:
         _illegal("unknown tool")
     ch["shown"] = shown
+    ch["sure"] = tool != "assistant"   # tests and the author tell the truth; the assistant may not
     r["inspected"] += 1
     _emit(s, ev, "change_inspected", card_id=c["id"], index=i, tool=tool, shown=shown)
 

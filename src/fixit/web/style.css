@@ -513,3 +513,16 @@ body.in-game main#root { padding:8px 10px; }
   .gamelayout .meter b { font-size:14px; min-width:2ch; } .gamelayout .meter[data-k="Points"] b { min-width:4ch; } .gamelayout .meter[data-k="Clock"] b { min-width:6ch; }
 }
 @media (max-width:900px) { .gamelayout #meters { flex-wrap:wrap; overflow:visible; } }
+
+/* ===== Calmer: messages in a corner that never block, quieter secondary buttons ===== */
+#toasts { left:auto; right:14px; bottom:14px; transform:none; width:min(280px, calc(100vw - 28px)); align-items:stretch; gap:6px; z-index:40; }
+.toast { padding:8px 12px; gap:8px; font-size:13px; border-bottom-width:3px; border-radius:12px; box-shadow:0 6px 16px rgba(24,70,110,.14); }
+.toast .ti .ic { width:18px; height:18px; }
+button.quiet { background:transparent; border-color:transparent; box-shadow:none; color:var(--muted); text-transform:none; letter-spacing:0; font-size:12px; padding:5px 8px; border-bottom-width:2px; }
+button.quiet:hover:not(:disabled) { background:var(--soft); color:var(--text); }
+.gamelayout .pile-item .tag { line-height:1.35; }
+
+.pile-item .row { display:flex; flex-wrap:wrap; align-items:center; gap:6px; }
+.pile-item .givelbl { color:var(--muted); font:800 12px var(--font-head); }
+.pile-item button.give { padding:4px 10px; font-size:12px; }
+.pile-item button.quiet { margin-left:auto; }

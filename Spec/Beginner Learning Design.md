@@ -143,3 +143,19 @@ Measured in the browser with a mutation counter:
 
 - Moving focus: after a click inside the page, keyboard focus is lost when that page rebuilds. The page is rebuilt only when its own data changes, but a finer per-card update would fix it fully.
 - Drag-and-drop with a real mouse and the sticky-note drag were not exercised beyond pop-out and put-back.
+
+## Round 4: calmer screen, Word book fix, sticky-note shrinking
+
+### Fixed bugs
+- **Word book** printed "[object HTMLElement]" because pairs of elements were nested one level too deep. It now lists all 29 words.
+- **Sticky notes refreshed and shrank on every tab click.** Notes were rebuilt whenever anything changed, and their own width was part of that check. The width was read from the on-screen box, which includes the tilt and the grow-in animation, so it came out smaller than the real width (390 px instead of 420 px). Each rebuild saved the smaller number and then measured smaller again. Notes are now created once and patched in place. Their width comes from the layout size, never triggers a redraw, and keeps a size you pull the note to (tested: 420 px stays 420 px over 11 tab switches; a pulled 520 px stays 520 px; minimize, reopen and put back still work).
+
+### Less on screen at once
+- **Messages** now sit in the bottom-right corner, small, two at a time, never block a click, and only show results (good, bad, warning). Removed: "Opening Slackish", "Step complete", "request got louder" (the card already says it), "new hand", "sprint dealt" and other progress messages.
+- **To-do cards** show one line (type, who, when it is due) instead of four. The reward and penalty moved into a hover tooltip. A cost line appears only when doing it now would make other requests louder. Buttons are one compact row: Fix it myself, Give to Ines, Tobi, and a quiet Later.
+- **Status chips**: sprint, sprint goal and teamwork score. The clock chip, style chip and boss preview are gone (the Game clock tile and the boss banner say it when it matters).
+- **Team board**: removed the extra explanation lines; the combo banner appears only once you have a combo.
+- **New idea cards** cut from 25 to 13, each two short sentences: welcome, standup, bug, team, test, checklist, checking work, stuck, outage, practices, action cards, releases, boss. Everything else is learned by doing.
+
+### Not checked
+- Whether the screen now feels calm enough. The next test should be a person who has never seen the game; if they still click without reading, cut more (for example the "why" line under the guide, or the Coming up list).

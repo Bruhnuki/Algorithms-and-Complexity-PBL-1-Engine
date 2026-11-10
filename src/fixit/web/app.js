@@ -33,11 +33,15 @@ const mount = (...nodes) => {
   if (!(wasGame && document.getElementById("browser"))) playEnter();
 };
 
+// Messages are small, sit in the bottom corner and never block clicks. Only results are shown (good, bad, warning):
+// "info" messages are dropped, because the guide and the screen already say where you are.
 function toast(kind, msg) {
-  const t = h("div", { class: "toast " + kind }, h("span", { class: "ti" }, ic({ good: "check", bad: "cross", warn: "warn", info: "star" }[kind])), h("span", {}, msg));
+  if (kind === "info") return;
+  if ([...toasts.children].some((c) => c.dataset.msg === msg)) return;
+  const t = h("div", { class: "toast " + kind, "data-msg": msg }, h("span", { class: "ti" }, ic({ good: "check", bad: "cross", warn: "warn" }[kind])), h("span", {}, msg));
   toasts.append(t);
-  while (toasts.children.length > 3) toasts.firstChild.remove();
-  setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 300); }, 3400);
+  while (toasts.children.length > 2) toasts.firstChild.remove();
+  setTimeout(() => { t.classList.add("out"); setTimeout(() => t.remove(), 300); }, 3000);
 }
 
 function burst(n = 22) {
@@ -215,30 +219,20 @@ function loadSeen() { try { seen = new Set(JSON.parse(localStorage.getItem(seenK
 function markSeen(id) { seen.add(id); try { localStorage.setItem(seenKey(), JSON.stringify([...seen])); } catch (_) { /* storage can be blocked */ } }
 function conceptFor(s) {
   const x = s.x || {}, f = new Set(x.features || []), build = s.stage === "BUILD";
+  // Only the ideas a beginner really needs, in the order they come up. Everything else is learned by doing.
   const checks = [
     ["welcome", s.stage === "PLANNING" && s.sprint === 1],
     ["standup", s.stage === "STANDUP" && !!s.standup],
-    ["call", !!s.call],
     ["bug", build && !s.open_card && s.pile.some((c) => c.type === "fix" && c.state === "pile")],
-    ["code", !!(s.work && s.work.kind === "fix")],
+    ["team", !!x.team && build && !s.work],
     ["test", !!(s.work && s.work.last_run)],
     ["dod", !!(s.work && s.work.last_run && s.work.last_run.all_pass)],
-    ["shipped", reviewList().length > 0],
-    ["help", build && s.pile.some((c) => c.type === "help_call" && c.state === "pile")],
-    ["escalation", s.pile.some((c) => c.escalation > 0 && c.state !== "done")],
-    ["suspicion", s.meters.cover >= 20],
-    ["review_end", s.sprint === 2 && s.stage === "PLANNING"],
-    ["practices", !!(x.shop && f.has("practices"))],
-    ["team", !!x.team && build && !s.work],
+    ["review_changes", s.pile.some((c) => c.review)],
     ["stuck", !!x.team && Object.values(x.team).some((m) => m.stuck)],
     ["outage", s.pile.some((c) => c.outage && c.state !== "done")],
-    ["combo", !!(x.combo && x.combo.count >= 1)],
-    ["review_changes", s.pile.some((c) => c.review)],
-    ["coming_up", f.has("intents") && build],
+    ["practices", !!(x.shop && f.has("practices"))],
     ["hand", f.has("hand") && !!x.hand && build],
-    ["multiplier", f.has("multiplier") && build],
     ["release", f.has("release") && build],
-    ["momentum", f.has("momentum") && x.momentum > 0],
     ["boss", !!x.boss_live],
   ];
   const hit = checks.find(([id, ok]) => ok && !seen.has(id) && CONCEPTS[id]);
@@ -305,7 +299,6 @@ const XTOAST = {
   style_ranked: (e) => ["info", "Sprint style rank: " + e.rank],
   achievement: () => ["good", "Achievement: a whole sprint with no bluffing"],
   card_reset: () => ["good", "Retrospective: card calmed down"],
-  focus_switch: (e) => ["warn", "Switching tasks costs Energy: " + e.focus],
   sprint_goal: (e) => e.met ? ["good", `Sprint goal met: ${e.shipped} of ${e.target} sent (+${e.points} pts)`]
     : ["bad", `Sprint goal missed: ${e.shipped} of ${e.target} sent. A strike and Suspicion +${e.cover}`],
   release_shipped: (e) => e.failed ? ["bad", `Release shipped with a bug inside: bonus lost (${e.points} pts)`] : ["good", `Release shipped: ${e.base} × ${e.mult} = ${e.points} pts`],
@@ -350,7 +343,7 @@ function react(e) {
   if (t === "pushed") { if (e.points > 0) { toast("good", wallText(e)); burst(); } else toast("bad", wallText(e)); }
   else if (t === "push_blocked" || t === "warning_issued") { toast("bad", wallText(e)); shakeScreen(); }
   else if (t === "attack_check_resolved" || t === "call_missed") toast("bad", wallText(e));
-  else if (t === "contradiction_detected" || t === "card_escalated") toast("warn", wallText(e));
+  else if (t === "contradiction_detected") toast("warn", wallText(e));   // "getting louder" is already shown on the card itself
   else if (t === "rating_resolved") toast(e.delta >= 0 ? "good" : "bad", wallText(e));
 }
 
@@ -508,21 +501,20 @@ function pilePanel(s) {
   const f = new Set((s.x && s.x.features) || []), canDelegate = !s.x || f.has("delegate");
   const isCode = (c) => c.type === "fix" || c.type === "build";
   const team = s.x && s.x.team;
-  const give = (c, d) => h("button", { "data-guide": `give:${c.id}:${d}`, title: `Hand it to ${who(d)}` + needs(s, "delegate"), disabled: !hasCard(s, "delegate") || !!team[d].task,
-    onclick: () => cmd("delegate", { card_id: c.id, to: d }) }, team[d].task ? `${who(d)} is busy` : `Give to ${who(d)}`);
+  const give = (c, d) => h("button", { class: "give", "data-guide": `give:${c.id}:${d}`, title: team[d].task ? `${who(d)} is busy right now` : `Give it to ${who(d)}` + needs(s, "delegate"), disabled: !hasCard(s, "delegate") || !!team[d].task,
+    onclick: () => cmd("delegate", { card_id: c.id, to: d }) }, who(d));
   const moves = (c) => s.stage !== "BUILD" || c.state === "delegated" ? [] : c.review ? [
     h("button", { class: "primary", "data-guide": "review:" + c.id, title: "Check their work change by change", onclick: () => { run.reviewing = c.id; run.sig = null; render(); } }, "Check their work")] : [
     c.state !== "open" ? h("button", { "data-guide": "work:" + c.id, title: (isCode(c) ? "Read the code and fix it yourself" : "Open it and reply") + needs(s, "work"), onclick: () => cmd("open_card", { card_id: c.id }), disabled: !!s.open_card || !hasCard(s, "work") },
       c.state === "returned" ? "Check their work" : isCode(c) ? "Fix it myself" : "Open")
       : h("button", { title: "Put it back on the list for now", onclick: () => cmd("hold") }, "Put it down"),
-    canDelegate && team && c.state === "pile" ? [give(c, "dev1"), give(c, "dev2")]
+    canDelegate && team && c.state === "pile" ? [h("span", { class: "givelbl" }, "Give to"), give(c, "dev1"), give(c, "dev2")]
       : canDelegate && !team ? h("button", { title: "Hand it to a developer. You check their work when it comes back." + needs(s, "delegate"), disabled: !hasCard(s, "delegate"), onclick: () => cmd("delegate", { card_id: c.id }) }, "Ask the team") : null,
     c.type === "help_call" ? h("button", { "data-guide": "coach:" + c.id, title: "Teach them how to solve it" + needs(s, "coach"), disabled: !hasCard(s, "coach"), onclick: () => cmd("coach", { card_id: c.id }) }, "Help them") : null,
-    h("button", { title: "Move it down the list. It gets a little louder." + needs(s, "defer"), disabled: !hasCard(s, "defer"), onclick: () => cmd("defer", { card_id: c.id }) }, "Later")];
+    h("button", { class: "quiet", title: "Move it down the list. It gets a little louder." + needs(s, "defer"), disabled: !hasCard(s, "defer"), onclick: () => cmd("defer", { card_id: c.id }) }, "Later")];
   const live = s.pile.filter((c) => c.state !== "done");
   const louder = ["", "Getting louder: they called you", "Getting louder: they want a meeting"];
   return h("section", { class: "card", id: "pile", "aria-label": "To-do list" }, h("h2", {}, ic("clipboard"), " ", term("todo"), ` (${live.length})`),
-    h("p", { class: "sub" }, "Everything your team is asking you for."),
     live.length ? null : h("p", { class: "muted" }, "Nothing here right now. New requests arrive during the day."),
     live.map((c) => h("div", { class: `pile-item esc${c.escalation}` + (c.state === "open" ? " open" : "") + (c.bounty ? " bounty" : "") + (c.spot ? " spot" : "") + (c.outage ? " outage" : "") + (c.urgent ? " urgent" : ""),
       draggable: team && s.stage === "BUILD" && c.state === "pile" ? "true" : null,
@@ -532,10 +524,9 @@ function pilePanel(s) {
       c.urgent ? h("span", { class: "chip goal" }, ic("bolt"), " Urgent: bonus if done on time") : null,
       h("b", {}, ic(typeIcon(c.type)), " " + (c.spot ? "Spot check: " : "") + (c.title || typeLabel(c.type))),
       c.bounty ? h("span", { class: "chip good" }, "Bounty: extra points for a clean fix") : null,
-      h("div", { class: "tag" }, TYPE_TERM[c.type] ? term(TYPE_TERM[c.type], typeLabel(c.type)) : typeLabel(c.type), ` from ${who(c.sender)}`,
+      h("div", { class: "tag", title: [c.payoff.points ? `Reward: +${c.payoff.points} points.` : "", c.penalty.cover ? `Ignore it and Suspicion goes up by ${c.penalty.cover}.` : ""].join(" ").trim() },
+        TYPE_TERM[c.type] ? term(TYPE_TERM[c.type], typeLabel(c.type)) : typeLabel(c.type), ` · ${who(c.sender)} · `, liveDue(c.deadline_min, s.clock_min),
         c.state === "delegated" ? ` · ${who(c.assignee || "dev1")} is on it` : c.state === "returned" ? ` · back from ${who(c.assignee || "dev1")}` : ""),
-      h("div", { class: "tag" }, liveDue(c.deadline_min, s.clock_min),
-        c.payoff.points ? ` · reward +${c.payoff.points} points` : "", c.penalty.cover ? ` · ignore it and Suspicion +${c.penalty.cover}` : ""),
       c.escalation ? h("div", { class: "tag louder" }, term("escalation", louder[c.escalation] || louder[2])) : null,
       s.x ? priceTag(s, c) : null,
       h("div", { class: "row" }, moves(c).flat(),
@@ -549,10 +540,10 @@ function priceTag(s, c) {
   const work = c.ticket ? cost.read : cost.open_other;
   const out = [];
   if (s.stage === "BUILD" && c.state === "pile") {
-    const n = slip(work);
-    out.push(h("div", { class: "cost" + (n ? " risk" : "") }, `Takes about ${work} min` + (n ? ` · meanwhile ${n} other request${n > 1 ? "s" : ""} get${n > 1 ? "" : "s"} louder` : "")));
+    const n = slip(work);   // only say something when there is a real cost to doing this now
+    if (n) out.push(h("div", { class: "cost risk" }, `Doing this now: ${n} other request${n > 1 ? "s" : ""} will get louder`));
   }
-  if (c.ticket && c.state === "delegated") out.push(h("div", { class: "odds" }, ic("bug"), ` About ${Math.round(100 * x.bug_odds)}% of team fixes come back with a mistake. Check it when it returns. If the sprint ends first, it goes to users unchecked.`));
+  if (c.ticket && c.state === "delegated") out.push(h("div", { class: "tag" }, "Check it when it comes back."));
   return out;
 }
 
@@ -675,7 +666,7 @@ function slackApp(s) {
 }
 
 // ---- The live team board: drag a request onto a person (or use the buttons). Teammates work in real time.
-const TEAM_INFO = { dev1: ["Ines", "Fast and careful"], dev2: ["Tobi", "Slow, makes more mistakes"] };
+const TEAM_INFO = { dev1: ["Ines", "Fast and careful"], dev2: ["Tobi", "Slow, more mistakes"] };
 function dropZone(el, onDrop) {
   el.addEventListener("dragover", (e) => { if (run.dragCard) { e.preventDefault(); el.classList.add("over"); } });
   el.addEventListener("dragleave", () => el.classList.remove("over"));
@@ -687,8 +678,7 @@ function teamBoard(s) {
   const next = s.day >= 2 ? ["REVIEW", "Finish the sprint", "end-sprint"] : ["STANDUP", "End the day", "end-day"];
   const short = s.day >= 2 && !x.goal.met;
   const me = dropZone(h("div", { class: "lane-card me" },
-    h("div", { class: "lane-head" }, ic("c-heron", "lane-av"), h("div", {}, h("b", {}, "You"), h("small", {}, "Scrum Master · drop a request here to fix it yourself"))),
-    h("p", { class: "muted small" }, "Fixing it yourself is slower for you, but you control the quality."),
+    h("div", { class: "lane-head" }, ic("c-heron", "lane-av"), h("div", {}, h("b", {}, "You"), h("small", {}, "Drop a request here to fix it yourself"))),
     short ? h("p", { class: "cost risk" }, `Sprint goal not met yet (${x.goal.shipped} of ${x.goal.target}). Finishing now means a strike.`) : null,
     releaseEl(s),
     h("div", { class: "row" }, h("button", { "data-guide": next[2], onclick: () => cmd("advance_stage", { to: next[0] }), disabled: !!s.open_card }, next[1]))),
@@ -702,12 +692,11 @@ function teamBoard(s) {
           h("button", { class: "primary", "data-guide": "unblock:" + d, onclick: () => cmd("unblock", { dev: d }) }, `Unblock (${x.unblock_min} min)`))
           : h("small", { class: "muted eta", "data-dev": d }, `About ${m.eta_min} min left`)];
     const el = h("div", { class: "lane-card" + (m.stuck ? " is-stuck" : m.task ? " busy" : " free"), "data-lane": d },
-      h("div", { class: "lane-head" }, avatar(d, m.stuck ? "panicked" : "calm"), h("div", {}, h("b", {}, nm), h("small", {}, trait + ` · ${Math.round(100 * m.bug_chance)}% chance of mistakes`))), body);
+      h("div", { class: "lane-head" }, avatar(d, m.stuck ? "panicked" : "calm"), h("div", {}, h("b", {}, nm), h("small", {}, trait))), body);
     return m.task ? el : dropZone(el, (id) => cmd("delegate", { card_id: id, to: d }));
   });
   return h("section", { class: "board" },
-    h("div", { class: "combo" + (cb && cb.count ? " hot" : "") }, h("b", {}, cb && cb.count ? `Combo ${cb.count}` : "No combo yet"),
-      h("span", { class: "small" }, cb ? ` · next on-time finish pays ×${cb.next_mult}. Anything that gets louder breaks it.` : "")),
+    cb && cb.count ? h("div", { class: "combo hot" }, h("b", {}, `Combo ${cb.count}`), h("span", { class: "small" }, ` Next on-time finish pays ×${cb.next_mult}. A request getting louder breaks it.`)) : null,
     h("div", { class: "lanes3" }, me, mates));
 }
 // progress bars move every second without rebuilding the page
@@ -782,7 +771,7 @@ function youtubeApp(s) {
       }))),
     h("section", { class: "card wordbook", "aria-label": "Word book" }, h("h2", {}, ic("clipboard"), " Word book"),
       h("p", { class: "sub" }, "Every new word in the game, in everyday language. Tap any underlined word in the game to see it too."),
-      h("dl", {}, Object.values(TERMS).sort((a, b) => a[0].localeCompare(b[0])).map(([w, d]) => [h("dt", {}, w), h("dd", {}, d)]))),
+      h("dl", {}, Object.values(TERMS).sort((a, b) => a[0].localeCompare(b[0])).flatMap(([w, d]) => [h("dt", {}, w), h("dd", {}, d)]))),
     h("section", { class: "card welcome-like", "aria-label": "How scoring works" }, h("h2", {}, ic("coin"), " How scoring works"),
       h("h3", {}, "What earns you points"), h("div", { class: "w-cards n4" }, SCORING.earn.map(card)),
       h("h3", {}, "What costs you"), h("div", { class: "w-cards n4" }, SCORING.lose.map(card)),
@@ -901,15 +890,13 @@ function hudEl(s) {
     h("div", { class: "hud-row" },
       h("span", { class: "chip" }, ic("calendar"), ` Sprint ${s.sprint} of ${x.sprints_total}`),
       goalChip(x.goal),
-      h("span", { class: "chip " + (x.clock_running ? "live" : "paused") }, ic("clock"), " ", term("clock", x.clock_running ? "Clock running" : "Clock paused")),
       h("span", { class: "chip" }, ic("check"), " ", term("teamwork"), ` ${x.process_score}`),
-      has("style") ? h("span", { class: "chip", title: "Variety of good habits this sprint. Repeating one action stops counting." }, ic("star"), ` Style ${x.style.rank}`) : null,
       multEl(s),
       x.release ? h("span", { class: "chip", title: "Pushes waiting in the release" }, ic("rocket"), ` Release ${x.release.items.length}/${x.release.max}`) : null,
       x.last_stand ? h("span", { class: "chip danger" }, ic("warn"), " Last stand") : null,
       x.protected_min ? h("span", { class: "chip good" }, ic("check"), ` Protected ${x.protected_min} min`) : null,
       x.boss_live ? h("span", { class: "chip boss", title: boss.rule }, ic("flag"), ` Boss: ${boss.name}. ${boss.rule}`)
-        : s.sprint > 1 ? h("span", { class: "chip faint", title: boss.rule }, ic("flag"), ` Sprint ${x.boss_sprint} boss: ${boss.name}`) : null),
+        : null),
     has("momentum") || x.practices.length ? h("div", { class: "hud-row" },
       has("momentum") ? [h("span", { class: "lbl" }, "Momentum"), mom] : null,
       !has("momentum") ? null : ready ? Object.keys(ULTIMATES).map((k) => h("button", { class: "ult", title: ULTIMATES[k].text, onclick: () => cmd("use_ultimate", { kind: k }) }, ULTIMATES[k].name))
@@ -1088,16 +1075,20 @@ function startNoteDrag(e, n, el) {
 function noteEl(s, n) {
   clampPos(n);
   const app = APPS.find((a) => a.id === n.id), b = badgeFor(n.id, s);
-  const el = h("section", { class: `note app-${n.id}` + (n.min ? " min" : "") + (n.ping ? " ping" : ""), role: "group", "aria-label": app.name + " sticky note" },
+  const el = h("section", { class: `note app-${n.id}` + (n.min ? " min" : "") + (n.ping ? " ping" : ""), role: "group", "aria-label": app.name + " sticky note", "data-id": n.id },
     h("div", { class: "note-head", onpointerdown: (e) => startNoteDrag(e, n, el) },
       ic("pin"), h("span", { class: "ai", "aria-hidden": "true" }, ic(app.icon)), h("b", {}, app.name),
       b > 0 ? h("span", { class: "badge", "aria-label": badgeLabel(n.id, b) }, b) : null, h("span", { class: "grow" }),
-      h("button", { class: "nbtn", title: n.min ? "Open note" : "Shrink note", "aria-label": n.min ? "Open note" : "Shrink note", onclick: () => { n.min = !n.min; run.sig = null; render(); } }, ic(n.min ? "open" : "minus")),
+      h("button", { class: "nbtn nmin", title: n.min ? "Open note" : "Shrink note", "aria-label": n.min ? "Open note" : "Shrink note", onclick: (e) => {
+        n.min = !n.min; const btn = e.currentTarget; btn.title = btn.ariaLabel = n.min ? "Open note" : "Shrink note"; btn.replaceChildren(ic(n.min ? "open" : "minus")); el.classList.toggle("min", n.min);
+      } }, ic(n.min ? "open" : "minus")),
       h("button", { class: "nbtn", title: "Put back in the browser", "aria-label": "Put back in the browser", onclick: () => dock(n.id) }, ic("undo"))),
     h("div", { class: "note-body" }, PAGES[n.id](s)));
   el.style.left = n.x + "px"; el.style.top = n.y + "px"; el.style.width = n.w + "px"; el.style.zIndex = 20 + n.z; el.style.setProperty("--tilt", n.tilt + "deg");
   el.addEventListener("pointerdown", () => { n.z = ++noteZ; el.style.zIndex = 20 + n.z; });
-  if (!n.min && typeof ResizeObserver !== "undefined") new ResizeObserver(() => { const w = Math.round(el.getBoundingClientRect().width); if (Math.abs(w - n.w) > 2) n.w = w; }).observe(el);   // remember the width you pulled it to
+  // Remember the width you pulled it to. offsetWidth is the layout width: unlike getBoundingClientRect it ignores the tilt and any
+  // grow-in animation, so it can never read "smaller" than the note really is. It only stores a number; it never redraws anything.
+  if (typeof ResizeObserver !== "undefined") new ResizeObserver(() => { if (el.classList.contains("min")) return; const w = el.offsetWidth; if (w > 0 && Math.abs(w - n.w) > 2) n.w = w; }).observe(el);
   return el;
 }
 
@@ -1184,7 +1175,31 @@ function syncPages(s) {
   }
 }
 const activePage = () => document.querySelector(`#browser .page[data-app="${run.app}"]`);
-const notesLayer = (s) => h("div", { class: "notes" }, run.notes.map((n) => noteEl(s, n)));
+const notesLayer = (s) => h("div", { class: "notes" });
+// Sticky notes are created once and then only patched: position, stacking, unread badge and, only when its own data changes, the page inside.
+function syncNotes(s) {
+  const layer = document.querySelector(".notes");
+  if (!layer) return;
+  const have = new Map([...layer.children].map((e) => [e.dataset.id, e]));
+  for (const [id, e] of have) if (!run.notes.some((n) => n.id === id)) e.remove();
+  for (const n of run.notes) {
+    const el = have.get(n.id), sig = JSON.stringify(PAGE_DEPS[n.id](s));
+    if (!el) { layer.append(noteEl(s, n)); n.sig = sig; continue; }
+    el.classList.toggle("min", !!n.min); el.classList.toggle("ping", !!n.ping);
+    if (!run.dragging) { el.style.left = n.x + "px"; el.style.top = n.y + "px"; }
+    el.style.zIndex = 20 + n.z;
+    const head = el.querySelector(".note-head"), b = badgeFor(n.id, s);
+    let badge = head.querySelector(".badge");
+    if (b > 0) { if (!badge) { badge = h("span", { class: "badge" }); head.insertBefore(badge, head.querySelector(".grow")); } if (badge.textContent !== String(b)) badge.textContent = String(b); badge.setAttribute("aria-label", badgeLabel(n.id, b)); }
+    else if (badge) badge.remove();
+    if (sig !== n.sig) {
+      n.sig = sig;
+      const body = el.querySelector(".note-body"), keep = body.scrollTop;
+      body.replaceChildren(PAGES[n.id](s));
+      body.scrollTop = keep;
+    }
+  }
+}
 
 function browserFrame(s) {
   return h("div", { class: "win", id: "browser" }, tabsEl(s), buildAddr(), buildCoach(), hudEl(s), handEl(s), callEl(s), h("div", { class: "winbody" }));
@@ -1209,7 +1224,6 @@ const REGIONS = {
   call: { sig: (s) => JSON.stringify(s.call || null) + "|" + (run.error || "") + "|" + hasCard(s, "call"), build: callEl },
   rail: { sig: (s) => [pathIndex(s), s.sprint, s.pile.filter((c) => c.state === "done").length, s.pile.length].join(), build: roadmap },
 };
-const notesSig = (s) => JSON.stringify(run.notes.map((n) => [n.id, n.x, n.y, n.w, n.z, n.min, n.ping, badgeFor(n.id, s), PAGE_DEPS[n.id](s)]));
 const scrollables = () => [...document.querySelectorAll(".note-body")];
 
 // Everything that only needs its text, width or class changed: patched in place, never rebuilt.
@@ -1221,9 +1235,8 @@ function updateScreen(s) {
   const frame = document.getElementById("browser");
   if (!frame) {                                   // first time on this screen: build everything once
     mount(h("div", { class: "gamelayout" }, roadmap(s), browserFrame(s)), notesLayer(s));
-    run.regs = Object.fromEntries(Object.entries(REGIONS).map(([k, r]) => [k, r.sig(s)])); run.notesSig = notesSig(s);
-    run.pageSigs = {};
-    syncPages(s); syncChrome(s);
+    run.regs = Object.fromEntries(Object.entries(REGIONS).map(([k, r]) => [k, r.sig(s)])); run.pageSigs = {};
+    syncPages(s); syncChrome(s); syncNotes(s);
     return;
   }
   const keep = scrollables().map((e) => e.scrollTop);   // a rebuilt list must not jump back to the top
@@ -1235,8 +1248,7 @@ function updateScreen(s) {
   }
   syncPages(s);
   syncChrome(s);
-  const ns = notesSig(s);
-  if (ns !== run.notesSig) { run.notesSig = ns; document.querySelector(".notes").replaceWith(notesLayer(s)); }
+  syncNotes(s);
   scrollables().forEach((e, i) => { if (keep[i]) e.scrollTop = keep[i]; });
 }
 
@@ -1250,12 +1262,11 @@ function render() {
   if (!run.app) run.app = s.stage === "STANDUP" ? "slack" : "github";
   else if (run.lastStage && run.lastStage !== s.stage && ["PLANNING", "STANDUP", "BUILD"].includes(s.stage)) {
     const to = s.stage === "STANDUP" ? "slack" : "github";
-    if (isNote(to)) { pingNote(to); toast("info", appName(to) + " is open in a note"); }
-    else if (to !== run.app) { run.app = to; toast("info", "Opening " + appName(to)); }
+    if (isNote(to)) pingNote(to);
+    else if (to !== run.app) run.app = to;
   }
   if (isNote(run.app)) run.app = attached()[0].id;
   const at = pathIndex(s);
-  if (run.lastPath != null && at > run.lastPath) toast("good", "Step complete: " + PATH_NODES[at - 1].label);   // quiet: the roadmap shows the rest
   const lastId = run.lines.length ? run.lines[run.lines.length - 1].id : 0;
   run.freshAfter = run.slackSeen ?? 0; run.wallFresh = run.playSeen ?? 0;   // only lines you have not seen yet animate in
   updateScreen(s);

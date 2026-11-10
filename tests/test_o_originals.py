@@ -119,8 +119,9 @@ def test_O2_inspect_fix_ship_clean_and_unreviewed_ship_is_buggy(ocontent):
 def test_O2_asking_costs_trust_and_trust_raises_bug_chance(ocontent):
     s = to_build(ocontent)
     cid, _ = returned(s, ocontent)
+    before = s["x"]["trust"]["dev1"]
     s, _ = run(s, ocontent, "review_inspect", card_id=cid, index=0, tool="ask")
-    assert s["x"]["trust"]["dev1"] == ocontent.balance["originals"]["change_review"]["trust_start"] - 1
+    assert s["x"]["trust"]["dev1"] == before - 1
     assert reducer._trust_penalty(s, ocontent, "dev1") > reducer._trust_penalty(s, ocontent, "dev2")
 
 
@@ -179,3 +180,38 @@ def test_O5_leaderboard_ranks_finished_runs_by_challenge_code(tmp_path, ocontent
     assert lb["players"] == 2 and lb["top"][0]["score"] >= lb["top"][1]["score"]
     assert lb["your_best"]["name"] == "Player0" and lb["median"] is not None
     assert names[0].get("/api/v1/leaderboard?seed=1").json()["players"] == 0
+
+
+# ---------------------------------------------------------------- rebalance: delegating with review must pay off (spec G2)
+def test_REBAL_trust_rebuilds_through_coaching_standups_and_fair_reviews(ocontent):
+    R = ocontent.balance["originals"]["change_review"]
+    s = to_build(ocontent, hand=["coach"])
+    s["x"]["trust"]["dev2"] = 1
+    s["pile"].append({"id": "h1", "type": "help_call", "sender": "dev2", "ticket": None, "deadline_s": 1e7, "escalation": 0,
+                      "state": "pile", "payoff": {}, "penalty": {}, "work": None, "hidden_bug": False, "returns_s": None})
+    s, _ = run(s, ocontent, "coach", card_id="h1")
+    assert s["x"]["trust"]["dev2"] == 1 + R["trust_per_coach"]
+    s, _ = run(s, ocontent, "advance_stage", to="STANDUP")
+    assert s["x"]["trust"]["dev2"] == 1 + R["trust_per_coach"] + R["trust_daily_recovery"]
+
+
+def test_REBAL_returned_work_gets_a_fresh_deadline_and_zero_fault_ship_counts(ocontent):
+    s = to_build(ocontent)
+    cid, card = returned(s, ocontent, bugged=False)
+    card["review"]["faulty_count"] = 0
+    for ch in card["review"]["changes"]:
+        ch["faulty"] = False
+    assert card["deadline_s"] >= s["clock_s"] + ocontent.balance["originals"]["change_review"]["review_deadline_min"] * 60 - 1
+    s, ev = run(s, ocontent, "review_ship", card_id=cid)
+    pushed = next(e for e in ev if e["type"] == "pushed")
+    assert pushed["result"] == "clean" and not pushed["unreviewed"]
+    assert reducer.public_state(s, ocontent)["x"]["goal"]["shipped"] == 1
+
+
+def test_REBAL_coaching_and_delegating_beats_doing_it_all(ocontent):
+    seeds = range(1, 13)
+    team = [bot.play(n, ocontent, "coach_delegate").s for n in seeds]
+    solo = [bot.play(n, ocontent, "solo").s for n in seeds]
+    wins = lambda runs: sum(r["ending"] == "win" for r in runs)
+    assert wins(team) >= wins(solo)
+    assert sum(reducer.process_score(r, ocontent) for r in team) > sum(reducer.process_score(r, ocontent) for r in solo)

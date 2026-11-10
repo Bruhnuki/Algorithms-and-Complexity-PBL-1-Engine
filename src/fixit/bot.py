@@ -74,7 +74,7 @@ class Bot:
                     return
                 continue
             card = cards[0]
-            if self.policy == "coach_delegate" and card["state"] == "pile" and not card["id"] in self._delegated():
+            if self.policy == "coach_delegate" and card["state"] == "pile" and not card["id"] in self._delegated() and self.time_to_delegate():
                 self.delegated.add(card["id"])
                 if self.do("delegate", card_id=card["id"]):
                     continue
@@ -91,6 +91,15 @@ class Bot:
 
     delegated: set
 
+    def time_to_delegate(self) -> bool:
+        """Only hand work off if it can come back and be reviewed before the day ends."""
+        if not self.s.get("x"):
+            return True
+        used = (self.s["clock_s"] - self.s["day_start_s"]) / 60
+        o = self.c.balance.get("originals", {}).get("change_review", {})
+        back = o.get("return_after_min") if o.get("enabled") else self.c.balance["delegation"]["return_after_min"]
+        return used + back + 60 <= reducer._day_minutes(self.s, self.c)
+
     def _delegated(self):
         if not hasattr(self, "delegated"):
             self.delegated = set()
@@ -99,8 +108,13 @@ class Bot:
     def review_changes(self, card):
         """Original O2: inspect every change, fix the faulty ones, ship."""
         for i in range(len(card["review"]["changes"])):
-            if not self.do("review_inspect", card_id=card["id"], index=i, tool="test"):
-                self.do("review_inspect", card_id=card["id"], index=i, tool="ask")
+            cur = next(c for c in self.s["pile"] if c["id"] == card["id"])["review"]
+            if sum(ch["shown"] == "faulty" for ch in cur["changes"]) >= cur["faulty_count"]:
+                break   # every faulty change is found: stop checking
+            trust = self.s["x"]["trust"].get(cur_card(self, card).get("assignee", "dev1"), 0)
+            first, second = ("ask", "test") if trust >= 2 else ("test", "ask")   # asking needs no card while trust lasts
+            if not self.do("review_inspect", card_id=card["id"], index=i, tool=first):
+                self.do("review_inspect", card_id=card["id"], index=i, tool=second)
             cur = next(c for c in self.s["pile"] if c["id"] == card["id"])
             if cur["review"]["changes"][i]["shown"] == "faulty":
                 self.do("review_fix", card_id=card["id"], index=i)
@@ -157,6 +171,10 @@ class Bot:
 
     def digest(self) -> str:
         return hashlib.sha256(json.dumps(self.events, sort_keys=True, default=str).encode()).hexdigest()
+
+
+def cur_card(bot: Bot, card: dict) -> dict:
+    return next(c for c in bot.s["pile"] if c["id"] == card["id"])
 
 
 def play(seed: int, content: Content, policy: str = "solo") -> Bot:

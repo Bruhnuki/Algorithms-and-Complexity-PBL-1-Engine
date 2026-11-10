@@ -315,6 +315,8 @@ def _begin_standup(s: dict, ev: list, content: Content) -> None:
                             "teammate": "dev1" if n % 2 else "dev2"}
     if _orig(content, "action_hand"):
         _new_hand(s, ev, content)
+    for dev in ("dev1", "dev2"):
+        _trust_gain(s, ev, content, dev, "trust_daily_recovery", "standup")
     if s.get("x"):
         f = content.balance["experimental"]["focus"]["day_refill"]
         if _has(s, "sustainable_pace"):
@@ -558,7 +560,12 @@ def _h_delegate(s, ev, content, p):
     c["hidden_bug"] = bool(c["ticket"]) and draw(s, "delegation_bug") < _bug_chance(s, content) + _trust_penalty(s, content, c["assignee"])
     if s.get("x") and _has(s, "pair_programming") and c["ticket"]:
         _use_practice(s, ev, content, "pair_programming")
-    c["returns_s"] = s["clock_s"] + content.balance["delegation"]["return_after_min"] * 60
+    back = _O(content, "change_review")["return_after_min"] if _orig(content, "change_review") else content.balance["delegation"]["return_after_min"]
+    c["returns_s"] = s["clock_s"] + back * 60
+    if _orig(content, "action_hand"):
+        got = _draw_cards(s, _O(content, "action_hand")["draw_after_delegate"])
+        if got:
+            _emit(s, ev, "cards_drawn", cards=got)
     _log(s, "delegated")
     _spend(s, ev, content, "delegate")
     _emit(s, ev, "card_delegated", card_id=c["id"], returns_s=c["returns_s"])
@@ -579,6 +586,7 @@ def _h_coach(s, ev, content, p):
         _use_practice(s, ev, content, "swarming")
     _log(s, "coach")
     _log(s, "blocker_cleared")
+    _trust_gain(s, ev, content, c["sender"], "trust_per_coach", "coached")
     _spend(s, ev, content, "coach")
     _emit(s, ev, "card_coached", card_id=c["id"])
 
@@ -1485,6 +1493,16 @@ def _h_ship_release(s, ev, content, p):
 
 
 # ---- O2 change-by-change review
+def _trust_gain(s: dict, ev: list, content: Content, dev: str, key: str, why: str) -> None:
+    if not (s.get("x") and _orig(content, "change_review")) or dev not in s["x"]["trust"]:
+        return
+    R = _O(content, "change_review")
+    before = s["x"]["trust"][dev]
+    s["x"]["trust"][dev] = min(R["trust_max"], before + R[key])
+    if s["x"]["trust"][dev] != before:
+        _emit(s, ev, "trust_changed", dev=dev, trust=s["x"]["trust"][dev], why=why)
+
+
 def _trust_penalty(s: dict, content: Content, dev: str) -> float:
     if not (s.get("x") and _orig(content, "change_review")):
         return 0.0
@@ -1506,6 +1524,8 @@ def _make_review(s: dict, content: Content, c: dict) -> None:
         faulty.add(idx.pop(int(draw(s, "review") * len(idx)) % len(idx)))
     c["review"] = {"changes": [{"faulty": i in faulty, "shown": None, "fixed": False} for i in range(n)],
                    "faulty_count": k, "inspected": 0}
+    c["deadline_s"] = s["clock_s"] + R["review_deadline_min"] * 60
+    c["escalation"] = 0
 
 
 def _review_public(c: dict) -> dict:
@@ -1579,7 +1599,8 @@ def _review_ship(s: dict, ev: list, content: Content, c: dict, auto: bool = Fals
     result = "runtime_error" if o["effect"] == "crashes" else RESULT_OF[o["effect"]]
     if result == "runtime_error":
         result = "buggy"
-    reviewed = r["inspected"] > 0 and not auto
+    # a submission known to have no faulty changes needs no further checks: shipping it is a review
+    reviewed = not auto and (r["inspected"] > 0 or r["faulty_count"] == 0)
     k = s["repeat_counts"].get(result, 0) if result in ("clean", "acceptable") else 0
     factor = b["push"]["repeat_decay"] ** k
     pts = round(b["push"]["points"][result] * (t["difficulty"] if result in ("clean", "acceptable") else 1) * factor)
@@ -1597,6 +1618,8 @@ def _review_ship(s: dict, ev: list, content: Content, c: dict, auto: bool = Fals
           review=True, unreviewed=not reviewed, **extra)
     if s.get("x") and result == "clean":
         _xlog(s, "clean_push")
+    if reviewed and not left and r["faulty_count"] > 0:
+        _trust_gain(s, ev, content, c.get("assignee", "dev1"), "trust_per_clean_review", "fair_review")
 
 
 def _h_review_ship(s, ev, content, p):

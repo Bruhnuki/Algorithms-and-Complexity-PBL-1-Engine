@@ -329,3 +329,33 @@ button.deal small { font-weight:700; text-transform:none; letter-spacing:0; opac
 .xdeb .row { flex-wrap:wrap; }
 .story { margin:6px 0; padding:8px 12px; border-left:4px solid var(--line); background:var(--soft); border-radius:6px; }
 @media (max-width:760px) { .pracs { margin-left:0; } }
+
+/* ===== App layout on the game screen: the window never scrolls; only the fake browser's page does ===== */
+body.in-game { height:100vh; height:100dvh; overflow:hidden; display:flex; flex-direction:column; }
+body.in-game header.topbar { flex:none; }
+body.in-game main#root { flex:1; min-height:0; width:100%; max-width:1440px; padding:14px 16px; }
+.gamelayout { display:flex; gap:14px; height:100%; min-height:0; }
+/* roadmap: part of the app, beside the browser window, not inside it */
+.gamelayout > .rail { align-self:stretch; border:var(--bw) solid var(--line); border-bottom-width:6px; border-radius:20px; overflow-x:hidden; overflow-y:auto; box-shadow:0 22px 44px rgba(24,70,110,.10); }
+.gamelayout > .win { flex:1; min-width:0; min-height:0; display:flex; flex-direction:column; }
+.gamelayout > .win > * { flex:none; }
+.gamelayout > .win > .winbody { flex:1; min-height:0; display:block; position:relative; }
+.gamelayout .page { height:100%; min-height:0; overflow-y:auto; overscroll-behavior:contain; }
+.gamelayout .page[hidden] { display:none; }
+.enter .gamelayout .page { animation:none; }
+/* short or narrow screens: the browser chrome scrolls with the page, still inside the fake browser */
+@media (max-height:720px), (max-width:900px) {
+  .gamelayout > .win { overflow-y:auto; overscroll-behavior:contain; }
+  .gamelayout > .win > .winbody { flex:none; }
+  .gamelayout .page { height:auto; min-height:60vh; overflow:visible; }
+}
+@media (max-width:900px) { body.in-game main#root { padding:8px; } .gamelayout { gap:8px; } }
+/* phones: the roadmap stays in its compact icon form so the browser keeps the room */
+@media (max-width:600px) {
+  .gamelayout > .rail, .gamelayout > .rail:not(.collapsed) { width:52px; }
+  .gamelayout > .rail .railtoggle { display:none; }
+  .gamelayout > .rail .railbody { min-width:0; padding:8px 0 14px; display:flex; flex-direction:column; align-items:center; }
+  .gamelayout > .rail .projhead, .gamelayout > .rail .rmore { display:none; }
+  .gamelayout > .rail .rlab { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap; }
+  .gamelayout > .rail .rnode { justify-content:center; }
+}

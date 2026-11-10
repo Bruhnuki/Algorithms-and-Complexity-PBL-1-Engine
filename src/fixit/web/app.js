@@ -28,6 +28,7 @@ function playEnter() { if (REDUCED) return; root.classList.add("enter"); setTime
 const mount = (...nodes) => {
   const wasGame = !!document.getElementById("browser");
   root.replaceChildren(...nodes.filter(Boolean));
+  document.body.classList.toggle("in-game", !!document.getElementById("browser"));
   if (!(wasGame && document.getElementById("browser"))) playEnter();
 };
 
@@ -788,6 +789,7 @@ function tabsEl(s) {
 function syncBadges(s) {
   document.querySelectorAll("#browser .btab").forEach((b) => {
     const id = b.dataset.app, n = badgeFor(id, s);
+    b.classList.toggle("active", id === run.app); b.setAttribute("aria-selected", String(id === run.app));
     let el = b.querySelector(".badge");
     if (n > 0) { if (!el) { el = h("span", { class: "badge" }); b.append(el); } el.textContent = String(n); el.setAttribute("aria-label", badgeLabel(id, n)); }
     else if (el) el.remove();
@@ -802,24 +804,47 @@ function appheadEl() {
   return h("div", { class: `apphead app-${app.id}`, "data-region": "apphead" }, h("span", { class: "ai", "aria-hidden": "true" }, ic(app.icon)), h("b", {}, app.name), h("span", {}, app.tag),
     h("button", { class: "nbtn pop", title: "Pop out as a sticky note", "aria-label": "Pop out as a sticky note", disabled: attached().length <= 1, onclick: () => detach(app.id, innerWidth - 470 - 34 * run.notes.length, 150 + 34 * run.notes.length) }, ic("note"), " Pop out"));
 }
-const pageEl = (s) => h("div", { class: "page", role: "tabpanel", "aria-label": APPS.find((a) => a.id === run.app).name, "data-region": "page" }, PAGES[run.app](s));
+// One live page per app. Switching tabs only shows and hides them, so scroll position, typed text and
+// open panels survive. A page is redrawn only when its own data changes (and only while it is on screen).
+function syncPages(s) {
+  const body = document.querySelector("#browser .winbody");
+  if (!body) return;
+  run.pageSigs = run.pageSigs || {};
+  for (const a of APPS) {
+    let el = body.querySelector(`.page[data-app="${a.id}"]`);
+    if (el && isNote(a.id)) { el.remove(); run.pageSigs[a.id] = null; continue; }   // it lives in a sticky note now
+    const show = a.id === run.app && !isNote(a.id);
+    if (!el && !show) continue;
+    if (!el) { el = h("div", { class: "page", role: "tabpanel", "aria-label": a.name, "data-app": a.id }); body.append(el); run.pageSigs[a.id] = null; }
+    el.hidden = !show;
+    if (!show) continue;
+    const sig = JSON.stringify(PAGE_DEPS[a.id](s));
+    if (sig === run.pageSigs[a.id]) continue;
+    run.pageSigs[a.id] = sig;
+    const keep = el.scrollTop, inner = [...el.querySelectorAll(".chat")].map((c) => c.scrollTop);
+    el.replaceChildren(PAGES[a.id](s));
+    el.scrollTop = keep;
+    el.querySelectorAll(".chat").forEach((c, i) => { if (inner[i] != null) c.scrollTop = inner[i]; });
+  }
+}
+const activePage = () => document.querySelector(`#browser .page[data-app="${run.app}"]`);
 const notesLayer = (s) => h("div", { class: "notes" }, run.notes.map((n) => noteEl(s, n)));
 
 function browserFrame(s) {
-  return h("div", { class: "win", id: "browser" }, tabsEl(s), addrEl(s), coachEl(s), hudEl(s), callEl(s), appheadEl(), h("div", { class: "winbody" }, roadmap(s), pageEl(s)));
+  return h("div", { class: "win", id: "browser" }, tabsEl(s), addrEl(s), coachEl(s), hudEl(s), callEl(s), appheadEl(), h("div", { class: "winbody" }));
 }
 
 // what each page actually draws; a page is rebuilt only when this changes
 const PAGE_DEPS = {
   slack: (s) => [run.lines.slice(-12).map((l) => l.id), s.stage, s.standup, s.x ? [s.x.standup_timer_s, s.x.prices] : null],
   github: (s) => [s.pile, s.stage, s.work, s.open_card, s.day, s.perks, run.runs, s.standup,
-    s.x ? [s.x.shop, s.x.intents, s.x.move_costs, s.x.retro_left, s.x.next_clean_factor, s.x.practices, s.meters.points, s.x.goal, Math.floor(s.clock_min / 10)] : null],
+    s.x ? [s.x.shop, s.x.intents, s.x.move_costs, s.x.retro_left, s.x.next_clean_factor, s.x.practices, s.meters.points, s.x.goal] : null],
   play: (s) => [Number(s.meters.rating), reviewList().length],
   youtube: (s) => [s.unlocked],
   shop: (s) => [s.perks, s.x ? [s.x.shop, s.meters.points, s.x.heat] : null],
 };
 const REGIONS = {
-  tabs: { sig: () => attached().map((a) => a.id).join() + "|" + run.app, build: tabsEl },
+  tabs: { sig: () => attached().map((a) => a.id).join(), build: tabsEl },
   addr: { sig: (s) => JSON.stringify([s.meters, s.warnings, s.stage, s.day, run.app]), build: addrEl },
   coach: { sig: (s) => s.stage + "|" + coachHint(s), build: coachEl },
   hud: { sig: (s) => JSON.stringify(s.x ? [s.sprint, s.stage, s.meters.points, s.x.clock_running, s.x.process_score, s.x.style.rank, s.x.last_stand,
@@ -827,16 +852,17 @@ const REGIONS = {
   call: { sig: (s) => JSON.stringify(s.call || null) + "|" + (run.error || ""), build: callEl },
   apphead: { sig: () => run.app + "|" + attached().length, build: appheadEl },
   rail: { sig: (s) => [pathIndex(s), s.sprint, s.pile.filter((c) => c.state === "done").length, s.pile.length].join(), build: roadmap },
-  page: { sig: (s) => run.app + "|" + JSON.stringify(PAGE_DEPS[run.app](s)), build: pageEl },
 };
 const notesSig = (s) => JSON.stringify(run.notes.map((n) => [n.id, n.x, n.y, n.w, n.z, n.min, n.ping, badgeFor(n.id, s), PAGE_DEPS[n.id](s)]));
-const scrollables = () => [...document.querySelectorAll(".chat, .note-body")];
+const scrollables = () => [...document.querySelectorAll(".note-body")];
 
 function updateScreen(s) {
   const frame = document.getElementById("browser");
   if (!frame) {                                   // first time on this screen: build everything once
-    mount(browserFrame(s), notesLayer(s));
+    mount(h("div", { class: "gamelayout" }, roadmap(s), browserFrame(s)), notesLayer(s));
     run.regs = Object.fromEntries(Object.entries(REGIONS).map(([k, r]) => [k, r.sig(s)])); run.notesSig = notesSig(s);
+    run.pageSigs = {};
+    syncPages(s);
     return;
   }
   const keep = scrollables().map((e) => e.scrollTop);   // a rebuilt list must not jump back to the top
@@ -844,8 +870,9 @@ function updateScreen(s) {
     const sig = r.sig(s);
     if (sig === run.regs[name]) continue;
     run.regs[name] = sig;
-    document.querySelector(`#browser [data-region="${name}"]`).replaceWith(r.build(s));
+    document.querySelector(`#root [data-region="${name}"]`).replaceWith(r.build(s));
   }
+  syncPages(s);
   syncBadges(s);
   const ns = notesSig(s);
   if (ns !== run.notesSig) { run.notesSig = ns; document.querySelector(".notes").replaceWith(notesLayer(s)); }
@@ -873,7 +900,7 @@ function render() {
   updateScreen(s);
   if (visible("slack")) run.slackSeen = lastId;
   if (visible("play")) run.playSeen = run.wall.length;
-  if (((run.lastStage && run.lastStage !== s.stage) || (run.lastApp && run.lastApp !== run.app)) && !REDUCED) { const d = document.querySelector("#browser .page"); if (d) { d.classList.add("swap"); setTimeout(() => d.classList.remove("swap"), 700); } }
+  if (run.lastStage && run.lastStage !== s.stage && !REDUCED) { const d = activePage(); if (d) { d.classList.add("swap"); setTimeout(() => d.classList.remove("swap"), 700); } }
   run.lastStage = s.stage; run.lastApp = run.app; run.lastPath = at;
 }
 

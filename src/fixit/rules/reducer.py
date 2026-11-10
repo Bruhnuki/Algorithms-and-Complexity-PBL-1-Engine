@@ -82,13 +82,15 @@ def _card(s: dict, cid: str) -> dict:
 
 
 def _live(s: dict) -> list[dict]:
-    return [c for c in s["pile"] if c["state"] in ("pile", "open", "returned")]
+    return [c for c in s["pile"] if c["state"] in ("pile", "open", "returned") and not c.get("hidden")]
 
 
 def _cost(s: dict, content: Content, key: str) -> float:
     t = content.balance["time"]
     m = content.balance["costs_min"][key]
     low = t["focus_low_threshold"]
+    if _calm(content):
+        return m * _x_cost_mult(s, content, key)   # learning mode: no Energy, so no tiredness surcharge
     if _exp(content):
         m *= _x_cost_mult(s, content, key)
         if _has(s, "sustainable_pace"):
@@ -180,6 +182,7 @@ def _spawn_card(s: dict, ev: list, content: Content, spec: dict) -> None:
         _x_card_spawned(s, content, card, spec)
     if _calm(content):
         card["deadline_s"] = None   # learning mode: nothing is due, nothing gets louder
+        card["hidden"] = bool(spec.get("feed"))   # items of the live feed arrive one at a time once Work starts
     s["pile"].append(card)
     _emit(s, ev, "card_spawned", card_id=cid, card_type=card["type"], sender=card["sender"], ticket=card["ticket"])
 
@@ -343,7 +346,9 @@ def _begin_standup(s: dict, ev: list, content: Content) -> None:
         _new_hand(s, ev, content)
     for dev in ("dev1", "dev2"):
         _trust_gain(s, ev, content, dev, "trust_daily_recovery", "standup")
-    if s.get("x"):
+    if s.get("guide") is not None:
+        pass   # learning mode: no Energy to refill
+    elif s.get("x"):
         f = content.balance["experimental"]["focus"]["day_refill"]
         if "focus_mode" in s["perks"]:
             f += content.balance["perks"]["focus_mode"]["morning_focus"]
@@ -380,6 +385,12 @@ def _resolve_review(s: dict, ev: list, content: Content) -> None:
             posts.append({"ticket": sh["ticket"], "delta": round(d, 4)})
     _emit(s, ev, "posts_resolved", posts=posts)
     s["resolved_ships"] = len(s["shipped"])
+    g = s.get("guide")
+    if g is not None and g["hidden"]:
+        d = -g["hidden"] * _C(content)["rating_per_point"]
+        rating += d
+        _emit(s, ev, "hidden_problem", points=g["hidden"], delta=round(d, 4))
+        g["hidden"] = 0
     _meter(s, "rating", rating, content)
     _emit(s, ev, "rating_resolved", delta=round(rating, 4), rating=s["meters"]["rating"])
     for sh in s["shipped"]:
@@ -429,6 +440,8 @@ def _h_open_card(s, ev, content, p):
     if s["open_card"] is not None:
         _illegal("a card is already open; hold it first")
     c = _card(s, p["card_id"])
+    if c.get("hidden"):
+        _illegal("that item has not arrived yet")
     if c["state"] not in ("pile", "returned"):
         _illegal("card cannot be opened")
     if c["state"] == "returned" and c.get("review"):
@@ -553,7 +566,7 @@ def _h_push(s, ev, content, p):
         return
     result = RESULT_OF[o["effect"]]
     k = s["repeat_counts"].get(result, 0) if result in ("clean", "acceptable") else 0
-    factor = b["push"]["repeat_decay"] ** k
+    factor = 1.0 if _calm(content) else b["push"]["repeat_decay"] ** k
     diff = t["difficulty"]
     pts = b["push"]["points"][result] * (diff if result in ("clean", "acceptable") else 1) * factor
     pts = round(pts)
@@ -595,9 +608,9 @@ def _h_delegate(s, ev, content, p):
         _illegal("card cannot be delegated")
     if s.get("x") and not _feat(s, "delegate"):
         _illegal("asking the team unlocks in sprint 2")
-    _play(s, ev, content, "delegate")
     if s.get("guide") is not None:
-        s["guide"]["worked"] = True
+        return _g_offload(s, ev, content, c, p)
+    _play(s, ev, content, "delegate")
     if s["open_card"] == c["id"]:
         s["open_card"] = None
     team = _orig(content, "team_board")
@@ -688,19 +701,26 @@ def _h_reply_standup(s, ev, content, p):
     if ans == "accurate" and not _accurate_ok(s, st):
         _illegal("accurate answer is not available until the concept is unlocked")
     delta = content.balance["standup_cover"][ans]
-    if s.get("x"):
-        delta = _x_standup_delta(s, ev, content, ans, delta)
-    _meter(s, "cover", delta, content)
+    eff = None
+    if s.get("guide") is not None:
+        eff = _C(content)["standup"][ans]
+        delta = 0
+        _meter(s, "rating", eff["rating"] * _C(content)["rating_per_point"], content)
+        _g_trust(s, ev, content, st["teammate"], eff["trust"], "daily_scrum")
+        s["guide"]["hidden"] += eff["hidden"]
+    else:
+        if s.get("x"):
+            delta = _x_standup_delta(s, ev, content, ans, delta)
+        _meter(s, "cover", delta, content)
     s["standups"].append({"n": st["n"], "ticket": st["ticket"], "answer": ans, "contradicted": False})
     s["pending_standup"] = None
     if s.get("guide") is not None:   # learning-mode tally only; the style rank and process score are untouched
         k = "accurate" if ans == "accurate" else "bluff"
         s["guide"]["stats"][k] += 1
         s["guide"]["sprint_stats"][k] += 1
-        if ans != "accurate":
-            _g_debt(s, ev, content, +1)
     _log(s, "standup_held")
-    _emit(s, ev, "standup_answered", n=st["n"], answer=ans, cover=delta, ticket=st["ticket"])
+    _emit(s, ev, "standup_answered", n=st["n"], answer=ans, cover=delta, ticket=st["ticket"], dev=st["teammate"],
+          rating=eff["rating"] if eff else 0, trust=eff["trust"] if eff else 0)
 
 
 def _h_answer_call(s, ev, content, p):
@@ -709,7 +729,7 @@ def _h_answer_call(s, ev, content, p):
     _play(s, ev, content, "call")
     sender, busy = s["call"]["sender"], s["open_card"] is not None
     s["call"] = None
-    if busy:
+    if busy and s.get("guide") is None:
         _meter(s, "focus", -content.balance["calls"]["focus_busy_penalty"], content)
     clue = draw(s, "call_clue") < content.balance["calls"]["clue_chance"]
     _log(s, "blocker_cleared")
@@ -803,6 +823,12 @@ def _h_advance_stage(s, ev, content, p):
         _begin_standup(s, ev, content)
         if guide is not None:
             _g_queue(s, ev, content, f"daily_{s['day']}")
+    elif to == "BUILD" and guide is not None:
+        if s["day"] >= 2:
+            _g_reveal(s, ev, 99)
+        elif not guide["feed_started"]:
+            guide["feed_started"], guide["feed_ms"] = True, 0
+            _g_reveal(s, ev, 1)
     elif to == "REVIEW":
         _resolve_review(s, ev, content)
         if guide is not None and s["status"] == "active":
@@ -812,8 +838,18 @@ def _h_advance_stage(s, ev, content, p):
 
 
 def _h_tick(s, ev, content, p):
-    if s["stage"] != "BUILD" or _calm(content):
-        return   # learning mode has no real-time clock: time only moves when you act
+    if _calm(content):
+        # learning mode has no game clock: time only moves when you act. The one real-time thing is the live feed of new items.
+        g = s.get("guide")
+        if s["stage"] == "BUILD" and g is not None and not s["x"].get("tutorial") and _g_hidden_left(s):
+            g["feed_ms"] += max(0, min(int(p["real_ms"]), content.balance["time"]["tick_max_real_ms"]))
+            every = _C(content)["feed_interval_s"] * 1000
+            while g["feed_ms"] >= every and _g_hidden_left(s):
+                g["feed_ms"] -= every
+                _g_reveal(s, ev, 1)
+        return
+    if s["stage"] != "BUILD":
+        return
     t = content.balance["time"]
     ms = max(0, min(int(p["real_ms"]), t["tick_max_real_ms"]))
     if s.get("x") and not _x_clock_running(s, content):
@@ -974,11 +1010,11 @@ def _x_deal_sprint(s: dict, ev: list, content: Content) -> None:
     t0 = s["clock_s"]
     s["x"]["sprint_start_s"] = t0
     pur = f"deal{k}"
-    unused = [t for t in sorted(content.tickets) if t not in s["x"]["used_tickets"]]
+    unused = [t for t in content.pool if t not in s["x"]["used_tickets"]]
     easy = [t for t in unused if content.tickets[t]["difficulty"] <= d["max_difficulty"][i]]
     picks = []
     for _ in range(d["code_cards"][i]):
-        src = easy or unused or sorted(content.tickets)
+        src = easy or unused or content.pool
         t = src.pop(int(draw(s, pur) * len(src)) % len(src))
         for lst in (easy, unused):
             if t in lst:
@@ -1117,6 +1153,9 @@ def _x_clock_running(s: dict, content: Content) -> bool:
 def _x_context_switch(s: dict, ev: list, content: Content, c: dict) -> None:
     """Q2: Focus is a daily budget; jumping between cards spends it."""
     last = s["x"]["last_card"]
+    if s.get("guide") is not None:
+        s["x"]["last_card"] = c["id"]
+        return   # learning mode: switching items costs no Energy
     if last is not None and last != c["id"]:
         cost = _X(content)["focus"]["switch_cost"]
         _meter(s, "focus", -cost, content)
@@ -1172,7 +1211,7 @@ def _x_tick_world(s: dict, ev: list, content: Content) -> None:
         s["x"]["next_director_s"] += D["every_min"] * 60
         live = len(_live(s))
         if live <= D["quiet_live_max"] and cover < D["quiet_cover_below"]:
-            unused = [t for t in sorted(content.tickets) if t not in s["x"]["used_tickets"]]
+            unused = [t for t in content.pool if t not in s["x"]["used_tickets"]]
             d = X["sprint_deal"]
             if unused and draw(s, "director") < 0.5:
                 t = unused[int(draw(s, "director") * len(unused)) % len(unused)]
@@ -1355,6 +1394,14 @@ def _h_configure(s, ev, content, p):
         if h not in X["heat"]["modifiers"]:
             _illegal(f"unknown heat modifier {h}")
     s["x"].update(configured=True, unlocks=unlocks, heat=heat)
+    if p.get("tutorial") and s.get("guide") is not None:
+        # the tutorial's practice sprint: the same screens and rules, but no Scrum scenes (those belong to the real Sprint 1)
+        s["x"]["tutorial"] = True
+        g = s["guide"]
+        g.update(pending=None, queue=[], resolved=False, tried=[], tutorial=True)
+        s["pile"], s["next_card"], s["x"]["used_tickets"] = [], 1, []   # replace the real Sprint 1 items with the practice ones
+        _g_deal_sprint(s, ev, content)
+        _x_fire_schedule(s, ev, content)
     if s["x"]["shop"]:   # the free pick can now include practices unlocked in earlier runs
         s["x"]["shop"]["offers"] = _x_offers(s, content, [])
     _emit(s, ev, "run_configured", unlocks=unlocks, heat=heat)
@@ -1488,57 +1535,118 @@ def _g_blank() -> dict:
 
 
 def _g_init(s: dict, content: Content) -> None:
+    C = _C(content)
     s["guide"] = {"pending": None, "resolved": False, "tried": [], "queue": [], "done": {}, "picks": [],
                   "stats": _g_blank(), "sprint_stats": _g_blank(), "sprint_items": [], "history": [],
-                  "safe_sprints": _C(content)["safe_sprints"], "worked": False}
-    s["x"]["skill"] = {"dev1": 0.0, "dev2": 0.0}   # coaching makes a developer better for good
-    s["x"]["debt"] = 0.0                            # skipped checks make everyone's work riskier until paid back
+                  "safe_sprints": C["safe_sprints"], "worked": False, "hidden": 0, "feed_started": False, "feed_ms": 0}
+    s["x"]["team_trust"] = {"dev1": C["trust_start"], "dev2": C["trust_start"]}   # trust % = the chance their work succeeds
+    s["x"]["last_offload"] = {}
 
 
 def _g_adjust(s: dict, dev: str) -> float:
-    """Change to a developer's mistake chance: skipped-check debt pushes it up, coaching pulls it down."""
-    if s.get("guide") is None or not s.get("x"):
-        return 0.0
-    return s["x"].get("debt", 0.0) - s["x"]["skill"].get(dev, 0.0)
+    return 0.0   # kept for the arcade rules; learning mode uses trust (see _g_success)
+
+
+def _g_trust(s: dict, ev: list, content: Content, dev: str, delta: int, why: str) -> None:
+    """Trust changes only through something the player did, and only then is it announced."""
+    if s.get("guide") is None or dev not in s["x"]["team_trust"]:
+        return
+    C = _C(content)
+    before = s["x"]["team_trust"][dev]
+    after = max(C["trust_min"], min(C["trust_max"], before + delta))
+    if after != before:
+        s["x"]["team_trust"][dev] = after
+        _emit(s, ev, "trust_changed", dev=dev, trust=after, delta=after - before, why=why)
 
 
 def _g_coached(s: dict, ev: list, content: Content, dev: str) -> None:
-    if s.get("guide") is None or dev not in s["x"]["skill"]:
-        return
-    C = _C(content)
-    before = s["x"]["skill"][dev]
-    after = min(C["coach_skill_cap"], round(before + C["coach_skill_gain"], 4))
-    if after != before:
-        s["x"]["skill"][dev] = after
-        _emit(s, ev, "skill_grew", dev=dev, skill=after)
+    _g_trust(s, ev, content, dev, _C(content)["coach_trust"], "coached")
 
 
 def _g_debt(s: dict, ev: list, content: Content, direction: int) -> None:
+    """Skipping the Done checklist costs the whole team's trust; an honest send rebuilds it."""
     if s.get("guide") is None:
         return
     C = _C(content)
-    before = s["x"]["debt"]
-    delta = C["debt_per_skipped_dod"] if direction > 0 else -C["debt_paid_per_honest_push"]
-    after = round(max(0.0, min(C["debt_cap"], before + delta)), 4)
-    if after != before:
-        s["x"]["debt"] = after
-        _emit(s, ev, "debt_changed", debt=after, up=direction > 0)
+    for dev in ("dev1", "dev2"):
+        _g_trust(s, ev, content, dev, -C["dod_skip_trust"] if direction > 0 else C["honest_push_trust"], "skipped_checks" if direction > 0 else "honest_checks")
+
+
+def _g_success(s: dict, content: Content, dev: str) -> float:
+    if s["x"].get("tutorial"):
+        return 1.0   # the practice Sprint always works, so the End the day flow carries on with what you did
+    fail = 1 - s["x"]["team_trust"][dev] / 100
+    if _has(s, "pair_programming"):
+        fail *= _fx(s, content, "pair_programming", "bug_chance_mult")
+    if "team_training" in s["perks"]:
+        fail *= content.balance["perks"]["team_training"]["bug_mult"]
+    return 1 - fail
+
+
+def _g_hidden_left(s: dict) -> int:
+    return sum(1 for c in s["pile"] if c.get("hidden"))
+
+
+def _g_reveal(s: dict, ev: list, n: int = 1) -> int:
+    k = 0
+    for c in s["pile"]:
+        if c.get("hidden"):
+            c["hidden"] = False
+            _emit(s, ev, "card_revealed", card_id=c["id"])
+            k += 1
+            if k >= n:
+                break
+    return k
+
+
+def _g_offload(s: dict, ev: list, content: Content, c: dict, p: dict) -> None:
+    """Giving work to Ines or Tobi is instant: it either succeeds (the item is done) or comes straight back to you. Every offload lowers that teammate's trust."""
+    if not c["ticket"]:
+        _illegal("only code work can be given to the team")
+    dev = p.get("to")
+    if dev not in ("dev1", "dev2"):
+        dev = max(("dev1", "dev2"), key=lambda d: s["x"]["team_trust"][d])
+    b, C = content.balance, _C(content)
+    t = _ticket(content, c["ticket"])
+    if s["open_card"] == c["id"]:
+        s["open_card"] = None
+    s["guide"]["worked"] = True
+    ok = draw(s, "offload_" + dev) < _g_success(s, content, dev)
+    pts = 0
+    if ok:
+        pts = round(b["push"]["points"]["clean"] * t["difficulty"])
+        _meter(s, "points", pts, content)
+        s["shipped"].append({"ticket": t["id"], "result": "clean", "effect": "correct", "sprint": s["sprint"],
+                             "rating": b["push"]["rating"]["clean"], "dod": True, "offloaded": dev})
+        c["state"], c["work"] = "done", None
+    else:
+        c["state"], c["work"] = "pile", None
+        c["failed_by"] = dev
+    if _has(s, "pair_programming"):
+        _use_practice(s, ev, content, "pair_programming")
+    s["x"]["last_offload"][dev] = {"card_id": c["id"], "title": t["title"], "ok": ok}
+    _log(s, "delegated")
+    _spend(s, ev, content, "delegate")
+    _emit(s, ev, "offload_result", card_id=c["id"], dev=dev, ok=ok, title=t["title"], points=pts)
+    _g_trust(s, ev, content, dev, -C["offload_cost"], "offloaded")
 
 
 def _g_deal_sprint(s: dict, ev: list, content: Content) -> None:
-    """A stable Sprint Backlog: every item of the sprint is on the to-do list from the start. One teammate asks for help mid-sprint."""
+    """A stable Sprint Backlog: the items of the sprint are committed at Planning. They show up in GitHab one at a time once Work starts
+    (a live feed), except in the tutorial, where everything is there at once. One teammate asks for help mid-sprint."""
     X, k, C = _X(content), s["sprint"], _C(content)
+    tutorial = bool(s["x"].get("tutorial"))
     t0 = s["clock_s"]
     s["x"]["sprint_start_s"] = t0
-    cfg = _gsprint(content, k) or {}
-    picks = [t for t in cfg.get("tickets", []) if t in content.tickets] or sorted(content.tickets)[:3]
+    cfg = (content.guide.get("tutorial_sprint") if tutorial else _gsprint(content, k)) or {}
+    picks = [t for t in cfg.get("tickets", []) if t in content.tickets] or content.pool[:3]
     s["x"]["used_tickets"] += [t for t in picks if t not in s["x"]["used_tickets"]]
     d = X["sprint_deal"]
     items = []
     for n, t in enumerate(picks):
         kind = content.tickets[t]["kind"]
         items.append({"at_s": t0, "kind": "card", "spec": {"type": "build" if kind == "build" else "fix",
-                      "sender": "po" if kind == "build" else ("dev1", "dev2")[n % 2], "ticket": t, "deadline": 0,
+                      "sender": "po" if kind == "build" else ("dev1", "dev2")[n % 2], "ticket": t, "deadline": 0, "feed": not tutorial,
                       "payoff": dict(d["code_payoff"]), "penalty": {}}})
     for n in range(cfg.get("help_calls", 1)):
         items.append({"at_s": t0 + (C["help_call_at_min"] + 150 * n) * 60, "kind": "card",
@@ -1553,6 +1661,7 @@ def _g_deal_sprint(s: dict, ev: list, content: Content) -> None:
     s["sched_pos"] = 0
     s["guide"]["sprint_items"] = list(picks)
     s["guide"]["worked"] = False
+    s["guide"]["feed_started"], s["guide"]["feed_ms"] = False, 0
     _emit(s, ev, "sprint_dealt", sprint=k, tickets=picks, boss=None)
 
 
@@ -1566,6 +1675,9 @@ def _g_beat(content: Content, bid: str) -> dict:
 
 def _g_queue(s: dict, ev: list, content: Content, when: str) -> None:
     g = s["guide"]
+    if g.get("tutorial"):
+        g["queue"], g["pending"] = [], None
+        return
     g["queue"] = [b["id"] for b in _g_beats(content, s["sprint"], when) if b["id"] not in g["done"]]
     _g_pop(s, ev)
 
@@ -1607,14 +1719,14 @@ def _g_text(s: dict, content: Content, text: str) -> str:
     parts.append(f"You coached {st['coach']} time{'s' if st['coach'] != 1 else ''}." if st["coach"] else "You did not coach anyone this Sprint.")
     if st["bluff"]:
         parts.append(f"{st['bluff']} Daily Scrum answer{'s were' if st['bluff'] != 1 else ' was'} not fully honest.")
-    if s["x"]["debt"] > 0:
-        parts.append("Skipped checks left hidden risk: the team makes more mistakes now.")
+    if min(s["x"]["team_trust"].values()) < _C(content)["trust_start"]:
+        parts.append("Trust with the team went down, so their work is less likely to succeed.")
     return text.replace("{done_line}", done_line).replace("{retro_facts}", " ".join(parts))
 
 
 def _g_suggest(s: dict, content: Content) -> list[str]:
     st, f, out = s["guide"]["sprint_stats"], _g_sprint_facts(s, content), []
-    if st["dod_skipped"] or s["x"]["debt"] > 0:
+    if st["dod_skipped"]:
         out.append("definition_of_done_p")
     if f["problems"]:
         out.append("pair_programming")
@@ -1622,8 +1734,6 @@ def _g_suggest(s: dict, content: Content) -> list[str]:
         out.append("psychological_safety")
     if st["coach"] == 0:
         out.append("swarming")
-    if s["meters"]["focus"] < 40:
-        out.append("sustainable_pace")
     return out
 
 
@@ -1940,6 +2050,8 @@ def _h_ship_release(s, ev, content, p):
 
 # ---- O2 change-by-change review
 def _trust_gain(s: dict, ev: list, content: Content, dev: str, key: str, why: str) -> None:
+    if s.get("guide") is not None:
+        return
     if not (s.get("x") and _orig(content, "change_review")) or dev not in s["x"]["trust"]:
         return
     R = _O(content, "change_review")
@@ -2143,8 +2255,8 @@ def _wave_progress(s: dict, ev: list, content: Content, c: dict, ok: bool) -> No
 def _fire_event(s: dict, ev: list, content: Content, name: str) -> None:
     E = _O(content, "events")
     if name == "wave":
-        pool = [t for t in sorted(content.tickets) if t not in s["x"]["used_tickets"]]
-        pool += [t for t in sorted(content.tickets) if t not in pool]   # reuse when the fresh ones run out
+        pool = [t for t in content.pool if t not in s["x"]["used_tickets"]]
+        pool += [t for t in content.pool if t not in pool]   # reuse when the fresh ones run out
         ids = []
         for _ in range(E["wave_size"]):
             t = pool.pop(int(draw(s, "wave") * len(pool)) % len(pool))
@@ -2157,7 +2269,7 @@ def _fire_event(s: dict, ev: list, content: Content, name: str) -> None:
         _emit(s, ev, "wave", ids=ids, minutes=E["wave_deadline_min"], points=E["wave_bonus_points"])
         return
     if name == "outage":
-        unused = [t for t in sorted(content.tickets) if t not in s["x"]["used_tickets"]] or sorted(content.tickets)
+        unused = [t for t in content.pool if t not in s["x"]["used_tickets"]] or content.pool
         t = unused[int(draw(s, "outage") * len(unused)) % len(unused)]
         s["x"]["used_tickets"].append(t)
         spec = {"type": "fix", "sender": "po", "ticket": t, "deadline": s["clock_s"] / 60 + E["outage_deadline_min"],
@@ -2311,6 +2423,9 @@ def _o_public(s: dict, content: Content) -> dict:
                        "progress": round(m["progress"], 3), "eta_min": round((1 - m["progress"]) * mins) if c else None,
                        "stuck": m["stuck"], "stuck_min": round(m["stuck_min"]), "speed": T["speed"][d],
                        "bug_chance": round(max(0.0, T["bug_chance"][d] + _g_adjust(s, d)), 3)}
+        if s.get("guide") is not None:
+            for d, m in team.items():
+                m.update(trust=x["team_trust"][d], last=x["last_offload"].get(d), forced=bool(x.get("tutorial")))
         out["team"] = team
         out["unblock_min"] = T["unblock_min"]
         out["stuck_limit"] = T["stuck_escalate_min"]
@@ -2358,7 +2473,9 @@ def _x_public(s: dict, content: Content) -> dict:
     goal = _x_goal(s, content)
     if calm:
         goal = {**goal, "text": (_gsprint(content, s["sprint"]) or {}).get("goal")}
-    return {"calm": calm, "skill": x.get("skill"), "debt": x.get("debt"),
+    return {"calm": calm, "tutorial": bool(x.get("tutorial")), "grade": _g_grade(s, content) if calm else None,
+            "standup_outcomes": ({k: dict(v) for k, v in content.balance["calm"]["standup"].items()} if calm else None),
+            "feed": {"left": _g_hidden_left(s)} if calm else None,
             "sprints_total": X["sprints_total"], "boss": x["boss"], "boss_sprint": boss_sprint, "goal": goal,
             "boss_live": bool(x.get("boss_live")), "clock_running": s["stage"] == "BUILD" and _x_clock_running(s, content),
             "move_costs": costs, "day_minutes": _day_minutes(s, content), "intents": intents,
@@ -2472,6 +2589,8 @@ def public_state(s: dict, content: Content) -> dict:
                          "options": [{"id": o["id"], "text": o["text"]} for o in t["options"]], "glossary": gl,
                          "concept": t["concept"], "flagged": w["flagged"], "selected": w["selected"], "dod": w["dod"],
                          "last_run": w["last_run"], "assistant": w["assistant"],
+                         "flag_ok": (w["flagged"] == t.get("buggy_line")) if (t["kind"] == "fix" and w["flagged"]) else None,
+                         "flag_misses": w.get("misses", 0), "tutorial": _g_tutorial_info(s, t, w),
                          "speed": _speed_public(s, content, w),
                          "scan": (None if "security_scan" not in s["perks"] or not w["selected"] else
                                   ("hole" if _option(t, w["selected"])["effect"] == "security_hole" else "clear"))}
@@ -2482,7 +2601,8 @@ def public_state(s: dict, content: Content) -> dict:
         standup = {"n": st["n"], "ticket": st["ticket"], "teammate": st["teammate"], "choices": choices}
     return {"status": s["status"], "ending": s["ending"], "sprint": s["sprint"], "stage": s["stage"], "day": s["day"],
             "clock_min": round(s["clock_s"] / 60, 1), "day_used_min": round(_day_used_min(s), 1),
-            "meters": s["meters"], "warnings": s["warnings"], "open_card": s["open_card"], "work": open_work,
+            "meters": {k: v for k, v in s["meters"].items() if not (s.get("guide") is not None and k == "focus")},
+            "warnings": s["warnings"], "open_card": s["open_card"], "work": open_work,
             "standup": standup, "call": s["call"], "unlocked": s["unlocked"], "perks": s["perks"],
             "pile": [{"id": c["id"], "type": c["type"], "sender": c["sender"], "ticket": c["ticket"],
                       "title": content.tickets[c["ticket"]]["title"] if c["ticket"] else None,
@@ -2490,9 +2610,27 @@ def public_state(s: dict, content: Content) -> dict:
                       "deadline_min": None if c["deadline_s"] is None else round(c["deadline_s"] / 60, 1),
                       **({"review": _review_public(c)} if c.get("review") else {}),
                       **(_x_card_public(s, c) if s.get("x") else {})}
-                     for c in s["pile"]],
+                     for c in s["pile"] if not c.get("hidden")],
             **({"x": _x_public(s, content)} if s.get("x") else {}),
             **({"guide": _g_public(s, content)} if s.get("guide") is not None else {})}
+
+
+def _g_grade(s: dict, content: Content) -> int:
+    """The Grade: Done work as a share of everything the project could earn (0-100)."""
+    X = _X(content)
+    top = sum(100 * content.tickets[t]["difficulty"] for k, sp in content.guide["sprints"].items() if int(k) <= X["sprints_total"]
+              for t in sp["tickets"] if t in content.tickets) or 1
+    return max(0, min(100, round(100 * s["meters"]["points"] / top)))
+
+
+def _g_tutorial_info(s: dict, t: dict, w: dict) -> dict | None:
+    """Only the practice Sprint tells the browser the answer, and only so Herb can coach: the line itself stays hidden until a few wrong clicks."""
+    if not (s.get("x") or {}).get("tutorial"):
+        return None
+    tut = t.get("tutorial") or {}
+    return {"line_notes": tut.get("line_notes", {}), "hints": tut.get("hints", []), "right_why": tut.get("right_why", ""),
+            "option_notes": tut.get("option_notes", {}), "answer_option": next((o["id"] for o in t["options"] if o["effect"] == "correct"), None),
+            "buggy_line": t.get("buggy_line") if w.get("misses", 0) >= 3 else None}
 
 
 def _speed_public(s: dict, content: Content, w: dict):
@@ -2505,7 +2643,7 @@ def _speed_public(s: dict, content: Content, w: dict):
 
 
 def _x_card_public(s: dict, c: dict) -> dict:
-    out = {"bounty": c.get("bounty", False), "spot": c.get("spot", False), "outage": c.get("outage", False), "urgent": c.get("urgent", False), "wave": c.get("wave", False),
+    out = {"failed_by": c.get("failed_by"), "bounty": c.get("bounty", False), "spot": c.get("spot", False), "outage": c.get("outage", False), "urgent": c.get("urgent", False), "wave": c.get("wave", False),
            "assignee": c.get("assignee")}
     if c["state"] in ("delegated", "returned") and c["ticket"] and _has(s, "tdd_pair"):
         out["bug_known"] = c["hidden_bug"]   # TDD Pair: you can tell whether returned work is bugged

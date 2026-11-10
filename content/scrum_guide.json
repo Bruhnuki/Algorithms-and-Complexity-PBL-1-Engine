@@ -8,6 +8,14 @@
    "You will play three short Sprints. In each one you go through the same five moments real Scrum teams do: Sprint Planning, the Daily Scrum, the work itself, the Sprint Review and the Retrospective. Nothing is timed. Take as long as you like."
   ]
  },
+ "tutorial_sprint": {
+  "theme": "Practice Sprint",
+  "goal": "Learn the screen by doing",
+  "tickets": ["practice_bag", "practice_late", "practice_wrap"],
+  "backlog_more": [],
+  "goal_ship_min": 1,
+  "help_calls": 0
+ },
  "sprints": {
   "1": {
    "theme": "Checkout shows the right price",
@@ -38,7 +46,6 @@
   "definition_of_done_p": ["Write down a clearer Definition of Done", "Everyone agrees what Done means, so your first test run on each ticket costs no time."],
   "pair_programming": ["Pair up on risky work", "Two people on one task: work you hand to the team comes back with fewer mistakes."],
   "wip_limit": ["Limit how much we start at once", "Finish before starting something new: opening a card is quicker while few cards are open."],
-  "sustainable_pace": ["Protect a sustainable pace", "No heroics: you get more energy back each morning and tire later."],
   "swarming": ["Swarm on blockers together", "When someone is stuck the whole team helps, so one coaching heads off the next call."],
   "psychological_safety": ["Make it safe to say \"I don't know\"", "People speak up sooner, so an honest standup answer is always open to you."]
  },
@@ -144,7 +151,7 @@
    "concept": "Choose one improvement",
    "scene": "{retro_facts} Pick ONE thing to try next Sprint. A small change the team will really do beats a long list nobody follows.",
    "question": "What will the team try next Sprint?",
-   "pool": ["definition_of_done_p", "pair_programming", "swarming", "wip_limit", "sustainable_pace"],
+   "pool": ["definition_of_done_p", "pair_programming", "swarming", "wip_limit"],
    "teach": "A Retrospective ends with a concrete improvement, then the next Sprint shows whether it helped."
   },
   {
@@ -199,7 +206,7 @@
    "concept": "Choose one improvement",
    "scene": "{retro_facts} Look at what the team did, then pick ONE improvement for Sprint 3.",
    "question": "What will the team try next Sprint?",
-   "pool": ["definition_of_done_p", "pair_programming", "swarming", "psychological_safety", "wip_limit", "sustainable_pace"],
+   "pool": ["definition_of_done_p", "pair_programming", "swarming", "psychological_safety", "wip_limit"],
    "teach": "Improvements should come from evidence, like the numbers above, not from guessing."
   },
   {
@@ -241,7 +248,7 @@
    "concept": "Choose one improvement",
    "scene": "{retro_facts} That was your last Sprint. Pick the one habit you would keep.",
    "question": "What would the team keep doing?",
-   "pool": ["definition_of_done_p", "pair_programming", "swarming", "psychological_safety", "wip_limit", "sustainable_pace"],
+   "pool": ["definition_of_done_p", "pair_programming", "swarming", "psychological_safety", "wip_limit"],
    "teach": "Every Sprint ends with learning. Scrum teams keep improving for as long as they work together."
   }
  ]

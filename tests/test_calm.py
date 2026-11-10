@@ -45,12 +45,13 @@ def start_sprint(s, content):
     s = clear_scenes(s, content)
     s, _ = run(s, content, "reply_standup", answer="accurate")
     s, _ = run(s, content, "advance_stage", to="BUILD")
+    reducer._g_reveal(s, [], 99)          # most tests want every item on the list (the live feed has its own tests)
     return s
 
 
 def touch(s, content):
     """Open an item and put it down again: enough to count as having started work today."""
-    cid = next(c["id"] for c in s["pile"] if c["ticket"] and c["state"] == "pile")
+    cid = next(c["id"] for c in s["pile"] if c["ticket"] and c["state"] == "pile" and not c.get("hidden"))
     s, _ = run(s, content, "open_card", card_id=cid)
     return run(s, content, "hold")[0]
 
@@ -99,9 +100,10 @@ def test_CALM3_arcade_mechanics_are_off(calm):
     pub = reducer.public_state(s, calm)
     assert pub["x"]["calm"] and not pub["x"]["boss_live"] and pub["x"]["standup_timer_s"] is None
     assert "hand" not in pub["x"] and "release" not in pub["x"] and pub["x"].get("wave") is None
-    assert [p["id"] for p in pub["x"]["perk_shop"]] == ["ai_assistant"]
+    assert pub["x"]["perk_shop"] == []                       # Points became the Grade: nothing is for sale
     with pytest.raises(GameError):
-        run(s, calm, "buy_perk", perk_id="keyboard_warrior")
+        run(s, calm, "buy_perk", perk_id="ai_assistant")
+    assert "focus" not in pub["meters"]                      # no Energy
 
 
 def test_CALM4_calls_never_expire(calm):
@@ -237,8 +239,9 @@ def test_GUIDE7_unfinished_items_return_to_the_product_backlog(calm):
     s = start_sprint(reducer.start_run(2, calm)[0], calm)
     s = finish_sprint(s, calm)
     assert s["sprint"] == 2
-    live = [c["ticket"] for c in reducer.public_state(s, calm)["pile"] if c["state"] != "backlog"]
-    assert "final_price" not in live and "loyalty_discount" in live
+    by_ticket = {c["ticket"]: c for c in s["pile"] if c["ticket"]}
+    assert by_ticket["final_price"]["state"] == "backlog"                      # unfinished: back to the Product Backlog
+    assert by_ticket["loyalty_discount"]["hidden"] and by_ticket["loyalty_discount"]["state"] == "pile"   # Sprint 2's items arrive with its Work
 
 
 def test_GUIDE8_first_sprint_is_safe(calm):
@@ -254,28 +257,26 @@ def test_GUIDE8_first_sprint_is_safe(calm):
 
 
 # ---------------------------------------------------------------- coaching and Definition of Done pay off
-def test_PAYOFF1_coaching_lowers_a_developers_mistake_chance(calm):
+def test_PAYOFF1_coaching_raises_a_teammates_trust(calm):
     s = start_sprint(reducer.start_run(1, calm)[0], calm)
     s["clock_s"] += 130 * 60
     reducer._fire_schedule(s, [], calm)
     help_card = next(c for c in s["pile"] if c["type"] == "help_call")
-    before = reducer.public_state(s, calm)["x"]["team"][help_card["sender"]]["bug_chance"]
+    before = s["x"]["team_trust"][help_card["sender"]]
     s, ev = run(s, calm, "coach", card_id=help_card["id"])
-    after = reducer.public_state(s, calm)["x"]["team"][help_card["sender"]]["bug_chance"]
-    assert any(e["type"] == "skill_grew" for e in ev)
-    assert round(before - after, 3) == calm.balance["calm"]["coach_skill_gain"]
+    assert s["x"]["team_trust"][help_card["sender"]] == before + calm.balance["calm"]["coach_trust"]
+    assert any(e["type"] == "trust_changed" and e["why"] == "coached" for e in ev)
 
 
-def test_PAYOFF2_skipping_the_checklist_adds_debt_and_honest_work_pays_it_back(calm):
+def test_PAYOFF2_skipping_the_checklist_costs_trust_and_honest_work_rebuilds_it(calm):
     s = start_sprint(reducer.start_run(1, calm)[0], calm)
     a, b, _c = [c["id"] for c in s["pile"] if c["ticket"]]
+    C = calm.balance["calm"]
+    base = dict(s["x"]["team_trust"])
     s, _ = ship(s, calm, a, dod=False)
-    debt = s["x"]["debt"]
-    assert debt == calm.balance["calm"]["debt_per_skipped_dod"]
-    base = calm.balance["originals"]["team_board"]["bug_chance"]["dev2"]
-    assert reducer.public_state(s, calm)["x"]["team"]["dev2"]["bug_chance"] == round(base + debt, 3)
+    assert all(s["x"]["team_trust"][d] == base[d] - C["dod_skip_trust"] for d in base)
     s, _ = ship(s, calm, b)
-    assert s["x"]["debt"] == 0.0
+    assert all(s["x"]["team_trust"][d] == base[d] - C["dod_skip_trust"] + C["honest_push_trust"] for d in base)
 
 
 def test_DEBRIEF1_story_names_what_the_player_did(calm):
@@ -351,10 +352,219 @@ def test_FEEDBACK4_no_completion_codes_in_self_study(calm):
     assert "codes" not in blob and "final_code" not in blob
 
 
-def test_FEEDBACK5_a_vague_daily_scrum_answer_hides_a_problem(calm):
+def _standup_with(calm, answer, seed=1):
+    s = start_sprint(reducer.start_run(seed, calm)[0], calm)
+    s = touch(s, calm)
+    s, _ = run(s, calm, "advance_stage", to="STANDUP")
+    s = clear_scenes(s, calm)
+    who = s["pending_standup"]["teammate"]
+    before = (s["meters"]["rating"], s["x"]["team_trust"][who])
+    s, ev = run(s, calm, "reply_standup", answer=answer)
+    return s, ev, who, before
+
+
+def test_FEEDBACK5_daily_scrum_answers_trade_rating_trust_and_a_hidden_problem(calm):
+    C = calm.balance["calm"]
+    out = {}
+    for ans in ("accurate", "vague", "wrong"):
+        s, ev, who, (r0, t0) = _standup_with(calm, ans)
+        eff = C["standup"][ans]
+        assert round(s["meters"]["rating"] - r0, 4) == round(eff["rating"] * C["rating_per_point"], 4)
+        assert s["x"]["team_trust"][who] == t0 + eff["trust"] and s["guide"]["hidden"] == eff["hidden"]
+        out[ans] = (eff["rating"], eff["trust"], eff["hidden"])
+    # the lie wins today (+10 rating) but loses over the Sprint: the hidden problem and the lost trust
+    assert out["wrong"][0] > out["accurate"][0] > out["vague"][0] and out["accurate"][1] > 0 > out["vague"][1] > out["wrong"][1]
+    assert out["wrong"][0] - out["wrong"][2] < out["accurate"][0] - out["accurate"][2]
+    pub = reducer.public_state(s, calm)["x"]["standup_outcomes"]
+    assert pub["wrong"]["rating"] == 10 and pub["accurate"]["trust"] > 0
+
+
+def test_FEEDBACK6_the_hidden_problem_surfaces_at_the_review(calm):
+    s, _, _, _ = _standup_with(calm, "wrong")
+    s, _ = run(s, calm, "advance_stage", to="BUILD")
+    r0 = s["meters"]["rating"]
+    s, ev = run(s, calm, "advance_stage", to="REVIEW")
+    found = next(e for e in ev if e["type"] == "hidden_problem")
+    assert found["points"] == calm.balance["calm"]["standup"]["wrong"]["hidden"] and s["guide"]["hidden"] == 0
+    assert s["meters"]["rating"] < r0
+
+
+# ---------------------------------------------------------------- instant offloading, trust = success rate
+def test_OFFLOAD1_giving_work_to_a_teammate_is_instant_and_lowers_their_trust(calm):
+    s = start_sprint(reducer.start_run(4, calm)[0], calm)
+    C = calm.balance["calm"]
+    base = s["x"]["team_trust"]["dev1"]
+    cid = next(c["id"] for c in s["pile"] if c["ticket"])
+    s, ev = run(s, calm, "delegate", card_id=cid, to="dev1")
+    res = next(e for e in ev if e["type"] == "offload_result")
+    card = next(c for c in s["pile"] if c["id"] == cid)
+    assert card["state"] == ("done" if res["ok"] else "pile") and not any(c["state"] == "delegated" for c in s["pile"])
+    assert s["x"]["team_trust"]["dev1"] == base - C["offload_cost"]
+    assert reducer.public_state(s, calm)["x"]["team"]["dev1"]["trust"] == base - C["offload_cost"]
+    assert reducer.public_state(s, calm)["x"]["team"]["dev1"]["last"]["ok"] is res["ok"]
+
+
+def test_OFFLOAD2_each_offload_drops_the_success_rate_by_two_points(calm):
+    s = start_sprint(reducer.start_run(4, calm)[0], calm)
+    start, other = s["x"]["team_trust"]["dev2"], s["x"]["team_trust"]["dev1"]
+    rates = []
+    for cid in [c["id"] for c in s["pile"] if c["ticket"]]:
+        s, _ = run(s, calm, "delegate", card_id=cid, to="dev2")
+        rates.append(s["x"]["team_trust"]["dev2"])
+    assert rates == [start - 2, start - 4, start - 6] and s["x"]["team_trust"]["dev1"] == other   # the other teammate is untouched
+
+
+def test_OFFLOAD3_the_rate_is_80_percent_normally_and_100_in_the_tutorial(calm):
+    wins, n = 0, 200
+    for seed in range(n):
+        s = start_sprint(reducer.start_run(seed, calm)[0], calm)
+        cid = next(c["id"] for c in s["pile"] if c["ticket"])
+        s, ev = run(s, calm, "delegate", card_id=cid, to="dev1")
+        wins += next(e for e in ev if e["type"] == "offload_result")["ok"]
+    assert 0.7 < wins / n < 0.9                                              # about 80%
+    for seed in range(40):
+        s = tutorial_run(calm, seed)
+        s, _ = run(s, calm, "advance_stage", to="STANDUP")
+        s, _ = run(s, calm, "reply_standup", answer="accurate")
+        s, _ = run(s, calm, "advance_stage", to="BUILD")
+        cid = next(c["id"] for c in s["pile"] if c["ticket"])
+        s, ev = run(s, calm, "delegate", card_id=cid, to="dev2")
+        assert next(e for e in ev if e["type"] == "offload_result")["ok"] is True
+
+
+def test_OFFLOAD4_a_failed_offload_comes_back_to_you(calm):
+    for seed in range(200):
+        s = start_sprint(reducer.start_run(seed, calm)[0], calm)
+        cid = next(c["id"] for c in s["pile"] if c["ticket"])
+        s2, ev = run(s, calm, "delegate", card_id=cid, to="dev1")
+        if not next(e for e in ev if e["type"] == "offload_result")["ok"]:
+            card = next(c for c in s2["pile"] if c["id"] == cid)
+            assert card["state"] == "pile" and card["failed_by"] == "dev1"
+            assert next(c for c in reducer.public_state(s2, calm)["pile"] if c["id"] == cid)["failed_by"] == "dev1"
+            s3, _ = run(s2, calm, "open_card", card_id=cid)                   # you can still do it yourself
+            return
+    raise AssertionError("no failure in 200 seeds")
+
+
+def test_TRUST1_no_trust_notices_when_a_run_starts(calm):
+    s, ev = reducer.start_run(1, calm)
+    assert not any(e["type"] == "trust_changed" for e in ev)
+    s = clear_scenes(s, calm)
+    s, ev = run(s, calm, "advance_stage", to="STANDUP")
+    assert not any(e["type"] == "trust_changed" for e in ev)
+
+
+# ---------------------------------------------------------------- live feed, grade, no energy
+def test_FEED1_nothing_in_github_before_work_then_one_item_per_minute(calm):
+    s, _ = reducer.start_run(1, calm)
+    assert reducer.public_state(s, calm)["pile"] == []                         # committed at Planning, not yet on the list
+    s = clear_scenes(s, calm)
+    s, _ = run(s, calm, "advance_stage", to="STANDUP")
+    s = clear_scenes(s, calm)
+    s, _ = run(s, calm, "reply_standup", answer="accurate")
+    assert [c for c in reducer.public_state(s, calm)["pile"]] == []
+    s, _ = run(s, calm, "advance_stage", to="BUILD")
+    assert len([c for c in reducer.public_state(s, calm)["pile"]]) == 1          # the first item arrives with Work
+    assert reducer.public_state(s, calm)["x"]["feed"]["left"] == 2
+    s, _ = run(s, calm, "tick", real_ms=5000)
+    assert reducer.public_state(s, calm)["x"]["feed"]["left"] == 2               # not yet a minute
+    for _ in range(12):
+        s, _ = run(s, calm, "tick", real_ms=5000)
+    assert len(reducer.public_state(s, calm)["pile"]) == 2
+    hidden = next(c for c in s["pile"] if c.get("hidden"))
+    with pytest.raises(GameError):
+        run(s, calm, "open_card", card_id=hidden["id"])                          # cannot be opened before it arrives
+    s = touch(s, calm)
+    s, _ = run(s, calm, "advance_stage", to="STANDUP")
+    s = clear_scenes(s, calm)
+    s, _ = run(s, calm, "reply_standup", answer="accurate")
+    s, _ = run(s, calm, "advance_stage", to="BUILD")
+    assert len([c for c in reducer.public_state(s, calm)["pile"] if c["ticket"]]) == 3        # day 2: everything has arrived
+
+
+def test_FEED2_the_tutorial_has_every_item_at_once(calm):
+    s = tutorial_run(calm)
+    assert len(reducer.public_state(s, calm)["pile"]) == 3 and reducer.public_state(s, calm)["x"]["feed"]["left"] == 0
+
+
+def test_GRADE1_grade_rises_with_done_work(calm):
     s = start_sprint(reducer.start_run(1, calm)[0], calm)
-    base = s["x"]["debt"]
-    s2, _ = run(touch(s, calm), calm, "advance_stage", to="STANDUP")
-    s2 = clear_scenes(s2, calm)
-    s2, _ = run(s2, calm, "reply_standup", answer="vague")
-    assert s2["x"]["debt"] == base + calm.balance["calm"]["debt_per_skipped_dod"]
+    assert reducer.public_state(s, calm)["x"]["grade"] == 0
+    s, _ = ship(s, calm, next(c["id"] for c in s["pile"] if c["ticket"]))
+    g1 = reducer.public_state(s, calm)["x"]["grade"]
+    s, _ = ship(s, calm, next(c["id"] for c in s["pile"] if c["ticket"] and c["state"] == "pile"))
+    assert 0 < g1 < reducer.public_state(s, calm)["x"]["grade"] <= 100
+
+
+def test_TUTORIALTICKET1_practice_problems_stay_out_of_real_sprints(calm):
+    practice = {t for t in calm.tickets if t.startswith("practice_")}
+    assert practice == {"practice_bag", "practice_late", "practice_wrap"} and not practice & set(calm.pool)
+    for sp in calm.guide["sprints"].values():
+        assert not practice & set(sp["tickets"] + sp["backlog_more"])
+    s = tutorial_run(calm)
+    assert {c["ticket"] for c in s["pile"]} == practice
+
+
+def test_TUTORIALTICKET2_the_line_and_fix_are_validated_by_the_item_not_by_position(calm):
+    s = tutorial_run(calm)
+    s, _ = run(s, calm, "advance_stage", to="STANDUP")
+    s, _ = run(s, calm, "reply_standup", answer="accurate")
+    s, _ = run(s, calm, "advance_stage", to="BUILD")
+    cid = next(c["id"] for c in s["pile"] if c["ticket"] == "practice_bag")
+    s, _ = run(s, calm, "open_card", card_id=cid)
+    for wrong in (1, 4, 7):
+        s, _ = run(s, calm, "flag_line", line_no=wrong)
+        w = reducer.public_state(s, calm)["work"]
+        assert w["flag_ok"] is False and w["tutorial"]["buggy_line"] is None or wrong == 7
+    w = reducer.public_state(s, calm)["work"]
+    assert w["flag_misses"] == 3 and w["tutorial"]["buggy_line"] == 5               # narrowed down after repeated misses
+    assert w["tutorial"]["line_notes"]["4"] and w["tutorial"]["hints"] and w["tutorial"]["answer_option"] == "a"
+    s, _ = run(s, calm, "flag_line", line_no=5)
+    assert reducer.public_state(s, calm)["work"]["flag_ok"] is True
+    # a normal run never sends any of that
+    n = start_sprint(reducer.start_run(1, calm)[0], calm)
+    n, _ = run(n, calm, "open_card", card_id=next(c["id"] for c in n["pile"] if c["ticket"]))
+    assert reducer.public_state(n, calm)["work"]["tutorial"] is None
+
+
+# ---------------------------------------------------------------- tutorial practice sprint
+def tutorial_run(calm, seed=3):
+    s, _ = reducer.start_run(seed, calm)
+    assert s["guide"]["pending"] == "s1_backlog_owner"      # a normal run starts with a scene...
+    s, _ = run(s, calm, "configure", unlocks=[], heat=[], tutorial=True)
+    return s
+
+
+def test_TUTORIAL1_practice_sprint_has_no_scenes_and_plays_normally(calm):
+    s = tutorial_run(calm)
+    assert s["guide"]["pending"] is None and s["guide"]["queue"] == []
+    assert reducer.public_state(s, calm)["x"]["tutorial"] is True
+    s, _ = run(s, calm, "advance_stage", to="STANDUP")      # ...a tutorial run does not: nothing blocks the stages
+    assert s["guide"]["pending"] is None and s["pending_standup"]
+    s, _ = run(s, calm, "reply_standup", answer="accurate")
+    s, _ = run(s, calm, "advance_stage", to="BUILD")
+    s, ev = ship(s, calm, next(c["id"] for c in s["pile"] if c["ticket"]))
+    assert any(e["type"] == "pushed" for e in ev)
+    cid = next(c["id"] for c in s["pile"] if c["state"] == "pile" and c["ticket"])
+    s, _ = run(s, calm, "delegate", card_id=cid, to="dev1")
+    s, _ = run(s, calm, "advance_stage", to="STANDUP")      # day 1 can end once work has started
+    assert s["guide"]["pending"] is None and s["day"] == 2
+
+
+def test_TUTORIAL2_a_normal_run_is_not_a_tutorial(calm):
+    s, _ = reducer.start_run(3, calm)
+    s, _ = run(s, calm, "configure", unlocks=[], heat=[])
+    assert reducer.public_state(s, calm)["x"]["tutorial"] is False and s["guide"]["pending"] == "s1_backlog_owner"
+
+
+def test_TUTORIAL3_api_creates_a_practice_run_and_hides_it_from_the_instructor(tmp_path, calm):
+    from api_helpers import Env
+    e = Env(tmp_path, calm)
+    i = e.signup("ti@x.io", role="instructor", name="ti")
+    c = e.signup("ts@x.io", cohort_code=i.info["join_code"], name="ts")
+    r = c.post("/api/v1/runs", json={"tutorial": True})
+    assert r.status_code == 201 and r.json()["state"]["x"]["tutorial"] is True and r.json()["state"]["guide"]["pending"] is None
+    r2 = c.post("/api/v1/runs", json={})
+    assert r2.json()["state"]["x"]["tutorial"] is False and r2.json()["state"]["guide"]["pending"]["id"] == "s1_backlog_owner"
+    rows = i.get(f"/api/v1/instructor/cohorts/{i.info['cohort_id']}/runs").json()["runs"]
+    assert [row["run_id"] for row in rows] == [r2.json()["id"]]       # the practice sprint is not listed

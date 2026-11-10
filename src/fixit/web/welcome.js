@@ -1,39 +1,40 @@
-// Welcome flow: a short, friendly intro shown right after sign-up, before consent and the quiz.
-// It only sets the scene: story, team, how a round works. Scoring is taught during play (see guide.js); no rules run here.
+// Welcome flow: a short, friendly intro shown right after sign-up, before consent.
+// It explains what the program is, who the team is and how a Sprint goes. The story lives in the first project scene. Scoring is taught during play (see guide.js); no rules run here.
 // app.js passes in its own h() (text nodes only), ic() and mount(), so this file never touches innerHTML.
 
 const card = (icon, title, text, chip, tone = "good") => ({ icon, title, text, chip, tone });
 
 const STEPS = [
   { kind: "hello", pose: "c-heron", say: "Hi! I'm Herb, your coach." },
-  { kind: "cards", pose: "c-heron", say: "Here's your story.", cards: [
-    card("alert", "The shop app is in trouble", "Customers leave at checkout because the prices come out wrong."),
-    card("star", "You are the Scrum Master", "You do not code and you do not set priorities. You help the team work the Scrum way."),
-    card("flag", "Three Sprints to learn it", "Each Sprint has the same five moments real teams use. Nothing is timed."),
-  ] },
-  { kind: "cards", pose: "c-heron", say: "Meet your team.", cards: [
+  { kind: "hello", pose: "c-heron", say: "This is a game where you learn Scrum by actually doing it, not by reading about it." },
+  { kind: "hello", pose: "c-heron", say: "You'll play the Scrum Master of a small team, helping them get work done one short round at a time. We call those rounds Sprints." },
+  { kind: "hello", pose: "c-heron", say: "Don't worry, I'll explain each idea as we go." },
+  { kind: "cards", pose: "c-heron", say: "Let me introduce your team.", cards: [
     card("c-marlo", "Marlo, Product Owner", "Decides what matters most. Sends you requests."),
     card("c-ines", "Ines, Developer", "Writes code. Tired, very good."),
     card("c-tobi", "Tobi, Developer", "Writes code. New, often stuck."),
   ] },
-  { kind: "cards", pose: "c-heron-cheer", say: "Here is how every Sprint goes.", cards: [
-    card("clipboard", "1. Sprint Planning", "Marlo shows the list of work. The team picks what fits and agrees on a goal."),
-    card("chat", "2. Daily Scrum", "A short daily check: how is the work going? Honest answers help the team most."),
-    card("hammer", "3. Work", "You help the team get the picked items done. Fix one yourself, or hand it to Ines or Tobi."),
-    card("flag", "4. Sprint Review", "The team looks at what it made and at what users say about it."),
-    card("bulb", "5. Retrospective", "The team picks one thing to do better next Sprint. Then the next Sprint begins."),
-  ], note: "Each moment starts with a short scene and one question. A wrong answer just explains why. Nothing is timed." },
-  { kind: "cards", pose: "c-heron", say: "And how I will help.", cards: [
-    card("check", "An 8-step tutorial in Sprint 1", "It explains each Scrum idea as you meet it and asks you to try it. Finish it once and you are free to play."),
-    card("star", "Only a few things on screen", "Your app rating and points, the Sprint Backlog and the team. More shows up in later Sprints."),
-    card("flag", "A look back after each Sprint", "The Retrospective shows what your choices did, so you can try something different next time."),
-  ] },
+  { kind: "flow", pose: "c-heron-cheer", say: "Here's how every Sprint goes." },
+  { kind: "hello", pose: "c-heron", say: "Before the real thing, we'll play a short practice Sprint together. I'll walk you through every part of the screen." },
+  { kind: "hello", pose: "c-heron", say: "After each Sprint, we'll look back at what your choices did, so you can try something different next time." },
   { kind: "pick", pose: "c-heron", say: "Pick a project.", cards: [
     { id: "easy", level: "Easy", name: "The Checkout Fix", live: true, text: "Learn what Scrum really is by running three Sprints.", meta: "3 Sprints · no timers" },
     { id: "medium", level: "Medium", live: false, text: "A bigger app and a bigger mess." },
     { id: "hard", level: "Hard", live: false, text: "Real users and real pressure." },
   ] },
 ];
+
+// The Sprint as a flowchart: a few words per node, an arrow back to the start for the next Sprint. Used by the intro and the "main Sprint" screen.
+export const SPRINT_NODES = [
+  { icon: "clipboard", label: "Sprint Planning" }, { icon: "chat", label: "Daily Scrum" }, { icon: "hammer", label: "Work" },
+  { icon: "flag", label: "Sprint Review" }, { icon: "bulb", label: "Retrospective" },
+];
+export function flowChart({ h, ic }, nodes, loopText, here = -1) {
+  return h("div", { class: "fc" + (here >= 0 ? " has-here" : "") },
+    h("ol", { class: "fc-row" }, nodes.map((n, i) => h("li", { class: "fc-node" + (i === here ? " here" : "") }, i === here ? h("span", { class: "fc-here" }, "YOU ARE HERE") : null,
+      h("span", { class: "fc-ic" }, ic(n.icon)), h("b", {}, n.label), n.sub ? h("small", {}, n.sub) : null))),
+    h("div", { class: "fc-loop", role: "img", "aria-label": loopText }, h("span", {}, loopText)));
+}
 
 export function runWelcome({ h, ic, mount, onDone }) {
   let at = 0, project = "easy";
@@ -50,6 +51,7 @@ export function runWelcome({ h, ic, mount, onDone }) {
   const ask = (s) => h("div", { class: "w-ask" }, mascot(s.pose), bubble(s.say, "w-side"));
   const head = (title, chip, tone) => h("div", { class: "w-head" }, h("b", {}, title), chip ? h("span", { class: "w-chip " + tone }, chip) : null);
 
+  const flow = (s) => h("section", { class: "w-lesson" }, ask(s), flowChart({ h, ic }, SPRINT_NODES, "Next Sprint"));
   const hello = (s) => h("section", { class: "w-hello" }, bubble(s.say, "w-above"), mascot(s.pose));
 
   const cards = (s) => h("section", { class: "w-lesson" }, ask(s),
@@ -70,7 +72,7 @@ export function runWelcome({ h, ic, mount, onDone }) {
 
   function show(first) {
     const s = STEPS[at], last = at === STEPS.length - 1;
-    stage.replaceChildren(s.kind === "hello" ? hello(s) : s.kind === "pick" ? pick(s) : cards(s));
+    stage.replaceChildren(s.kind === "hello" ? hello(s) : s.kind === "pick" ? pick(s) : s.kind === "flow" ? flow(s) : cards(s));
     stage.classList.toggle("is-hello", s.kind === "hello");
     const pct = s.kind === "hello" ? 0 : Math.round(100 * (at - 1) / (STEPS.length - 1));
     fill.style.width = pct + "%"; progress.setAttribute("aria-valuenow", String(pct)); progress.classList.toggle("quiet", s.kind === "hello");

@@ -1,16 +1,5 @@
 components:
   schemas:
-    AnswersIn:
-      properties:
-        answers:
-          additionalProperties:
-            type: integer
-          title: Answers
-          type: object
-      required:
-      - answers
-      title: AnswersIn
-      type: object
     CommandIn:
       properties:
         client_seq:
@@ -55,7 +44,8 @@ components:
       title: LoginIn
       type: object
     NewRunIn:
-      description: 'Experimental branch: Heat modifiers.'
+      description: 'Experimental branch: Heat modifiers, and the practice sprint used
+        by the tutorial.'
       properties:
         heat:
           items:
@@ -63,6 +53,10 @@ components:
           maxItems: 10
           title: Heat
           type: array
+        tutorial:
+          default: false
+          title: Tutorial
+          type: boolean
       title: NewRunIn
       type: object
     RegisterIn:
@@ -146,45 +140,6 @@ info:
   version: 1.0.0
 openapi: 3.1.0
 paths:
-  /api/v1/assessments/questions:
-    get:
-      operationId: questions_api_v1_assessments_questions_get
-      responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
-          description: Successful Response
-      summary: Questions
-  /api/v1/assessments/{kind}:
-    post:
-      operationId: submit_assessment_api_v1_assessments__kind__post
-      parameters:
-      - in: path
-        name: kind
-        required: true
-        schema:
-          title: Kind
-          type: string
-      requestBody:
-        content:
-          application/json:
-            schema:
-              $ref: '#/components/schemas/AnswersIn'
-        required: true
-      responses:
-        '200':
-          content:
-            application/json:
-              schema: {}
-          description: Successful Response
-        '422':
-          content:
-            application/json:
-              schema:
-                $ref: '#/components/schemas/HTTPValidationError'
-          description: Validation Error
-      summary: Submit Assessment
   /api/v1/auth/login:
     post:
       operationId: login_api_v1_auth_login_post

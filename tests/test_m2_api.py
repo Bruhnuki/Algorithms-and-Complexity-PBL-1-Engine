@@ -259,20 +259,7 @@ def test_instructor_cannot_play(env):
     assert i.post("/api/v1/runs").status_code == 403
 
 
-# ---------------------------------------------------------------- ASSESS-1 and INSTR-1
-def test_ASSESS1_pre_post_submit_and_gain(env, content):
-    c = env.signup("a@x.io")
-    qs = c.get("/api/v1/assessments/questions").json()["questions"]
-    assert len(qs) == 10 and all("answer" not in q for q in qs)
-    key = {q["id"]: q["answer"] for q in content.assessment["questions"]}
-    r = c.post("/api/v1/assessments/pre", json={"answers": {k: 0 for k in key}})
-    assert r.status_code == 200
-    r2 = c.post("/api/v1/assessments/post", json={"answers": key})
-    assert r2.json()["score"] == 10
-    assert c.post("/api/v1/assessments/pre", json={"answers": key}).status_code == 409
-    assert c.post("/api/v1/assessments/mid", json={"answers": key}).status_code == 404
-
-
+# ---------------------------------------------------------------- INSTR-1
 def _cohort(env, name_i, emails):
     i = env.signup(f"{name_i}@x.io", role="instructor", name=name_i)
     code, cid = i.info["join_code"], i.info["cohort_id"]
@@ -294,12 +281,8 @@ def test_INSTR1_transcript_list_and_open(env, content):
     i, cid, (s,) = _cohort(env, "inst1", ["s1@x.io"])
     rid = new_run(s)
     Driver(s, rid).replay_bot(bot.play(11, content, "coach_delegate"))
-    key = {q["id"]: q["answer"] for q in content.assessment["questions"]}
-    s.post("/api/v1/assessments/pre", json={"answers": {k: 0 for k in key}})
-    s.post("/api/v1/assessments/post", json={"answers": key})
     rows = i.get(f"/api/v1/instructor/cohorts/{cid}/runs").json()["runs"]
-    pre = sum(1 for v in key.values() if v == 0) / len(key)   # the pre-test answers 0 everywhere; the post-test has the key
-    assert len(rows) == 1 and rows[0]["process_score"] > 0 and abs(rows[0]["gain"] - (1.0 - pre)) < 1e-9
+    assert len(rows) == 1 and rows[0]["process_score"] > 0 and "gain" not in rows[0]
     t = i.get(f"/api/v1/instructor/runs/{rid}/transcript").json()
     assert any(e["type"] == "pushed" for e in t["events"])
     assert any(e["type"] == "pushed" and e["result"] in ("clean", "acceptable", "buggy", "security_hole") for e in t["events"])

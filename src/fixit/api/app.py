@@ -74,16 +74,13 @@ class CommandIn(BaseModel):
 
 
 class NewRunIn(BaseModel):
-    """Experimental branch: Heat modifiers."""
+    """Experimental branch: Heat modifiers, and the practice sprint used by the tutorial."""
+    tutorial: bool = False
     heat: list[str] = Field(default_factory=list, max_length=10)
 
 
 class TickIn(BaseModel):
     real_ms: int = Field(ge=0, le=10 ** 9)
-
-
-class AnswersIn(BaseModel):
-    answers: dict[str, int]
 
 
 def public_event(e: dict) -> dict:
@@ -357,7 +354,7 @@ def create_app(db_path: str, content=None, gateway: Gateway | None = None, setti
         s, events = reducer.start_run(run.seed, content)
         seq = append(db, run.id, 0, [(e["type"], e["t"], e, None) for e in events])
         if exp:   # stored as the run's first command, so replay rebuilds the same run
-            cfg = {"type": "configure", "payload": {"unlocks": meta_unlocks(db, user), "heat": body.heat}}
+            cfg = {"type": "configure", "payload": {"unlocks": meta_unlocks(db, user), "heat": body.heat, "tutorial": body.tutorial}}
             s, ev2 = reducer.apply(s, cfg, content)
             seq = append(db, run.id, seq, [("cmd", 0.0, {"command": cfg, "response": {"events": len(ev2)}}, None)]
                          + [(e["type"], e["t"], e, None) for e in ev2])
@@ -421,25 +418,6 @@ def create_app(db_path: str, content=None, gateway: Gateway | None = None, setti
             raise ApiError(409, "RUN_ACTIVE", "the run has not ended")
         return reducer.debrief(s, content)
 
-    # ------------------------------------------------------------ assessments
-    @app.get("/api/v1/assessments/questions")
-    def questions(user=Depends(current)):
-        return {"questions": [{"id": q["id"], "text": q["text"], "choices": q["choices"]} for q in content.assessment["questions"]]}
-
-    @app.post("/api/v1/assessments/{kind}")
-    def submit_assessment(kind: str, body: AnswersIn, user=Depends(current), db: DbSession = Depends(db_dep)):
-        if kind not in ("pre", "post"):
-            raise ApiError(404, "NOT_FOUND", "kind must be pre or post")
-        qs = content.assessment["questions"]
-        score = sum(1 for q in qs if body.answers.get(q["id"]) == q["answer"])
-        db.add(M.Assessment(user_id=user.id, kind=kind, score=score, max_score=len(qs)))
-        try:
-            db.commit()
-        except IntegrityError:
-            db.rollback()
-            raise ApiError(409, "ALREADY_SUBMITTED", f"{kind}-test already submitted") from None
-        return {"kind": kind, "score": score, "max_score": len(qs)}
-
     # ------------------------------------------------------------ instructor
     def cohort_students(db, cohort_id):
         return db.scalars(select(M.User).where(M.User.cohort_id == cohort_id, M.User.role == "student")).all()
@@ -451,14 +429,13 @@ def create_app(db_path: str, content=None, gateway: Gateway | None = None, setti
             raise ApiError(403, "FORBIDDEN", "not your cohort")
         out = []
         for stu in cohort_students(db, cohort_id):
-            asm = {a.kind: a.score / a.max_score for a in db.scalars(select(M.Assessment).where(M.Assessment.user_id == stu.id))}
             runs = db.scalars(select(M.Run).where(M.Run.user_id == stu.id).order_by(M.Run.id)).all()
             for r in runs:
                 s = get_cached(db, r)["state"]
+                if (s.get("x") or {}).get("tutorial"):
+                    continue   # the practice sprint is not a real run
                 out.append({"run_id": r.id, "student": stu.display_name, "status": r.status, "ending": r.ending,
-                            "process_score": reducer.process_score(s, content), "meters": s["meters"],
-                            "pre": asm.get("pre"), "post": asm.get("post"),
-                            "gain": (asm["post"] - asm["pre"]) if "pre" in asm and "post" in asm else None})
+                            "process_score": reducer.process_score(s, content), "meters": s["meters"]})
         return {"cohort_id": cohort_id, "runs": out}
 
     @app.get("/api/v1/instructor/runs/{run_id}/transcript")

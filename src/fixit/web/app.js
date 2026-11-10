@@ -1,4 +1,4 @@
-import { runWelcome } from "/welcome.js";
+import { runWelcome, flowChart, SPRINT_NODES } from "/welcome.js";
 import { TERMS, CONCEPTS, SCORING, CORE_TERMS } from "/guide.js";
 // Front end: draws server state, sends commands. No game rules live here (scores, costs, results all come from the server).
 const root = document.getElementById("root");
@@ -78,9 +78,9 @@ function ic(name, cls = "") {
   svg.append(use); return svg;
 }
 // Each teammate has their own look; the face changes with the tone of the message (calm, pushy, panicked).
-const CAST = { po: "marlo", dev1: "ines", dev2: "tobi" };
+const CAST = { po: "marlo", dev1: "ines", dev2: "tobi", you: "you" };
 function avatar(who, tone) {
-  const name = CAST[who] || "heron", svg = ic("c-" + name + (name === "heron" ? "" : tone === "panicked" ? "-panic" : tone === "pushy" ? "-mad" : ""));
+  const name = CAST[who] || "heron", svg = ic("c-" + name + (name === "heron" || name === "you" ? "" : tone === "panicked" ? "-panic" : tone === "pushy" ? "-mad" : ""));
   svg.setAttribute("class", "av av-" + name);
   return svg;
 }
@@ -131,7 +131,9 @@ async function start() {
   if (!welcomed()) return runWelcome({ h, ic, mount, onDone: () => { markWelcomed(); afterWelcome(); } });   // right after sign-up, once per player
   return afterWelcome();
 }
-const afterWelcome = () => (me.consented ? preTest() : consentScreen());
+const afterWelcome = () => (me.consented ? (mainSprintSeen() ? setupRun() : mainSprintScreen()) : consentScreen());
+const mainSprintKey = () => "mainSprintSeen:" + me.id;
+const mainSprintSeen = () => { try { return localStorage.getItem(mainSprintKey()) === "1"; } catch (_) { return false; } };
 const welcomeKey = () => "welcomed:" + me.id;
 const welcomed = () => { try { return localStorage.getItem(welcomeKey()) === "1"; } catch (_) { return false; } };   // storage can be blocked: then the intro just shows again
 const markWelcomed = () => { try { localStorage.setItem(welcomeKey(), "1"); } catch (_) { /* storage can be blocked */ } };
@@ -144,22 +146,17 @@ function consentScreen() {
     h("button", { class: "primary", onclick: async () => { await api("/api/v1/consent", "POST", {}); start(); } }, "I agree")));
 }
 
-async function questions(kind, next) {
-  const { questions: qs } = await api("/api/v1/assessments/questions");
-  const answers = {};
-  const err = h("div", { class: "err", role: "alert" });
-  const done = h("span", {}, "0 of " + qs.length + " answered"), fill = h("i", {});
-  fill.style.width = "0%";
-  const progress = () => { const n = Object.keys(answers).length; done.textContent = n + " of " + qs.length + " answered"; fill.style.width = (100 * n / qs.length) + "%"; };
-  mount(h("section", { class: "card narrow" }, h("h2", {}, kind === "pre" ? "Quick warm-up quiz" : "Quick final quiz"), h("p", { class: "lead" }, kind === "pre" ? "Ten short questions so we know where you start. No grades, and guessing is fine." : "The same kind of questions again, so we can see what you learned."),
-    h("div", { class: "bar quiz" }, fill), h("div", { class: "muted" }, done),
-    qs.map((q) => h("fieldset", {}, h("legend", {}, q.text), q.choices.map((c, i) => h("label", {}, h("input", { type: "radio", name: q.id, onchange: () => { answers[q.id] = i; progress(); } }), h("span", {}, c))))),
-    err, h("div", { class: "row" }, h("button", { class: "primary", onclick: async () => {
-      try { await api("/api/v1/assessments/" + kind, "POST", { answers }); next(); }
-      catch (e) { if (e.code === "ALREADY_SUBMITTED") next(); else err.textContent = e.message; }
-    } }, "Submit answers"), h("button", { onclick: next }, "Skip for now"))));
+// What is the main Sprint? A flowchart of the five events with one line each on what you do. Shown once, before the first run.
+function mainSprintScreen() {
+  const nodes = [
+    { icon: "clipboard", label: "Sprint Planning", sub: "Pick the work" }, { icon: "chat", label: "Daily Scrum", sub: "Say how it's going" },
+    { icon: "hammer", label: "Work", sub: "Fix it, help the team" }, { icon: "flag", label: "Sprint Review", sub: "See what users think" },
+    { icon: "bulb", label: "Retrospective", sub: "Choose one improvement" },
+  ];
+  mount(h("section", { class: "card wide mainsprint" }, h("h2", {}, ic("calendar"), " What is the main Sprint?"),
+    flowChart({ h, ic }, nodes, "Next Sprint", 0),
+    h("div", { class: "row" }, h("button", { class: "primary", onclick: () => { try { localStorage.setItem(mainSprintKey(), "1"); } catch (_) { /* storage can be blocked */ } setupRun(); } }, "Continue"))));
 }
-const preTest = () => questions("pre", setupRun);
 
 // Experimental: after a first win a run can take Heat modifiers.
 const HEAT_TEXT = { no_assistant: "No AI Assistant", one_warning: "One warning ends the run", short_days: "Shorter working days",
@@ -169,15 +166,20 @@ async function setupRun() {
   try { un = await api("/api/v1/me/unlocks"); } catch (_) { return newRun(); }
   const picked = new Set();
   const err = h("div", { class: "err", role: "alert" });
-  mount(h("section", { class: "card narrow" }, h("h2", {}, ic("flag"), " New run"),
-    h("p", { class: "lead" }, "Three Sprints with Marlo, Ines and Tobi. Each one has the five Scrum events: Planning, Daily Scrum, work, Review and Retrospective. Nothing is timed."),
+  mount(h("section", { class: "card wide newrun" }, h("h2", {}, ic("flag"), " New run"),
+    h("div", { class: "nr-team" }, [["po", "Marlo", "Product Owner"], ["dev1", "Ines", "Developer"], ["dev2", "Tobi", "Developer"]].map(([id, n, r]) =>
+      h("div", { class: "nr-mate" }, avatar(id, "calm"), h("b", {}, n), h("small", {}, r)))),
+    h("ol", { class: "nr-path", "aria-label": "Three Sprints" }, [["1", "Checkout"], ["2", "Rewards"], ["3", "Privacy"]].map(([n, l]) =>
+      h("li", { class: "nr-stop" }, h("span", { class: "nr-dot" }, n), h("b", {}, "Sprint " + n), h("small", {}, l))), h("li", { class: "nr-finish", "aria-label": "Finish" }, ic("flag"))),
     un.heat.length ? h("fieldset", {}, h("legend", {}, "Heat: make it harder for a bigger run score"),
       un.heat.map((k) => h("label", { class: "check" }, h("input", { type: "checkbox", onchange: (e) => { e.target.checked ? picked.add(k) : picked.delete(k); } }), h("span", {}, HEAT_TEXT[k] || k))))
-      : h("p", { class: "muted" }, ic("lock"), " Win a run to unlock Heat modifiers."),
+      : null,
     un.unlocks.length ? h("p", { class: "muted" }, "Unlocked from earlier runs: " + un.unlocks.filter((u) => u !== "heat").map(practiceName).join(", ")) : null,
     err, h("div", { class: "row" }, h("button", { class: "primary", onclick: () => {
-      newRun({ heat: [...picked] }).catch((e) => { err.textContent = e.message; });
-    } }, "Start the run"))));
+      const opts = { heat: [...picked] };
+      (tutorialDone() ? newRun(opts) : startTutorial(opts, false)).catch((e) => { err.textContent = e.message; });   // first time: the tutorial comes first
+    } }, "Start the run"),
+      tutorialDone() ? h("button", { onclick: () => startTutorial({ heat: [...picked] }, true).catch((e) => { err.textContent = e.message; }) }, "Replay the tutorial") : null)));
 }
 
 // ------------------------------------------------------------ game
@@ -261,6 +263,17 @@ async function newRun(opts = {}) {
   await poll();
 }
 
+// The tutorial is a practice Sprint (its own throwaway run on the server) that runs BEFORE the real Sprint 1, so no Scrum scene can interrupt it.
+async function startTutorial(after = {}, replay = false) {
+  const r = await api("/api/v1/runs", "POST", { tutorial: true });
+  run = { id: r.id, lastSeq: 0, lastLine: 0, state: r.state, lines: [], wall: [], lastTick: performance.now(), busy: false, notes: [], railOpen: true,
+    tut: { step: 0, bubble: 0, phase: "talk", clicks: 0, key: null, after, replay, finished: false } };
+  loadSeen();
+  timers.forEach(clearInterval);
+  timers = [setInterval(poll, 1000)];
+  await poll();
+}
+
 async function poll() {
   if (!run || run.busy) return;
   try {
@@ -273,7 +286,9 @@ async function poll() {
 }
 
 async function tick() {
-  if (!run || !run.state || run.state.status !== "active" || run.state.stage !== "BUILD" || run.modal || (run.state.x && run.state.x.calm)) { run && (run.lastTick = performance.now()); return; }   // learning mode: nothing runs on a clock
+  const st = run && run.state;
+  const feeding = !!(st && st.x && st.x.calm && !st.x.tutorial && st.x.feed && st.x.feed.left > 0);   // learning mode: the only thing on a clock is the live feed of new items
+  if (!st || st.status !== "active" || st.stage !== "BUILD" || run.modal || (st.x && st.x.calm && !feeding)) { run && (run.lastTick = performance.now()); return; }
   const now = performance.now(), ms = Math.round(now - run.lastTick);
   run.lastTick = now;
   try { await api(`/api/v1/runs/${run.id}/tick`, "POST", { real_ms: ms }); } catch (_) {}
@@ -298,7 +313,10 @@ const XTOAST = {
   sprint_goal: (e) => e.met ? ["good", `Sprint goal met: ${e.shipped} of ${e.target} sent (+${e.points} pts)`]
     : ["bad", `Sprint goal missed: ${e.shipped} of ${e.target} sent. A strike and Suspicion +${e.cover}`],
   release_shipped: (e) => e.failed ? ["bad", `Release shipped with a bug inside: bonus lost (${e.points} pts)`] : ["good", `Release shipped: ${e.base} × ${e.mult} = ${e.points} pts`],
-  trust_changed: (e) => ["warn", `${NAMES[e.dev] || e.dev} trust down to ${e.trust}`],
+  trust_changed: (e) => e.delta ? [e.delta > 0 ? "good" : "warn", `${who(e.dev)}'s trust ${e.delta > 0 ? "+" : "−"}${Math.abs(e.delta)}%`] : null,   // only when something you did changed it
+  offload_result: (e) => [e.ok ? "good" : "bad", e.ok ? `${who(e.dev)} finished “${e.title}”` : `${who(e.dev)} couldn't finish “${e.title}”. It's back with you`],
+  hidden_problem: () => ["bad", "A problem you hid in the Daily Scrum came out at the Review"],
+  standup_answered: (e) => e.rating ? ["good", `Rating +${e.rating}`] : null,
   card_sent_back: () => ["info", "Sent back to the team"],
   change_fixed: () => ["good", "Change fixed"],
   deck_changed: (e) => ["info", e.added ? `Added a ${CARD_KINDS[e.added][0]} card to your deck` : `Removed a ${CARD_KINDS[e.removed][0]} card`],
@@ -326,7 +344,7 @@ const XTOAST = {
 function collect(events) {
   for (const e of events) {
     const t = e.type;
-    if (XTOAST[t]) { const [k, m] = XTOAST[t](e); toast(k, m); if (["clutch", "practice_gained", "combo", "outage_fixed", "quick_save", "wave_clear"].includes(t) || (t === "speed_result" && e.tier === "perfect")) burst(); if (["last_stand", "outage", "dev_stuck", "combo_broken", "wave"].includes(t)) shakeScreen(); }
+    if (XTOAST[t]) { const r = XTOAST[t](e); if (r) toast(r[0], r[1]); if (["clutch", "practice_gained", "combo", "outage_fixed", "quick_save", "wave_clear"].includes(t) || (t === "speed_result" && e.tier === "perfect")) burst(); if (["last_stand", "outage", "dev_stuck", "combo_broken", "wave"].includes(t)) shakeScreen(); }
     if (t === "dev_started") markSeen("demo_give");
     if (["pushed", "push_blocked", "review_resolved", "rating_resolved", "attack_check_resolved", "warning_issued", "contradiction_detected", "card_escalated", "call_missed"].includes(t)) {
       run.wall.push(e); react(e);
@@ -372,11 +390,12 @@ function buildMeters() {
     h("div", { class: `meter t-${tone}`, "data-k": k }, h("span", { class: "lbl", "aria-hidden": "true" }, ic(icon)), h("span", { class: "mname" }, term(termKey)), h("b", {}),
       bar ? h("div", { class: "bar" }, h("i", {})) : null)));
 }
-const METER_FMT = { Points: (n) => String(Math.round(n)), Rating: (n) => n.toFixed(1), Cover: (n) => String(Math.round(n)), Focus: (n) => String(Math.round(n)) };
+const METER_FMT = { Points: (n) => String(Math.round(n)) + (run && run.state && run.state.x && run.state.x.calm ? "%" : ""), Rating: (n) => n.toFixed(1), Cover: (n) => String(Math.round(n)), Focus: (n) => String(Math.round(n)) };
 function syncMeters(s) {
   const root = document.getElementById("meters");
   if (!root) return;
-  const m = s.meters, now = { Points: m.points, Rating: Number(m.rating), Cover: m.cover, Focus: Math.round(m.focus) };
+  const calmMode = !!(s.x && s.x.calm);   // learning mode: Points are the Grade, and there is no Energy
+  const m = s.meters, now = { Points: calmMode ? s.x.grade : m.points, Rating: Number(m.rating), Cover: m.cover, Focus: Math.round(m.focus || 0) };
   const prev = run.lastM;
   run.lastM = now;
   const tile = (k) => root.querySelector(`[data-k="${k}"]`);
@@ -397,8 +416,10 @@ function syncMeters(s) {
   }
   tile("Rating").classList.toggle("low", m.rating < 3);
   tile("Cover").classList.toggle("low", m.cover >= 70); tile("Cover").querySelector(".bar i").style.width = Math.max(0, Math.min(100, m.cover)) + "%";
-  tile("Focus").classList.toggle("low", m.focus < 30); tile("Focus").querySelector(".bar i").style.width = Math.max(0, Math.min(100, m.focus)) + "%";
-  const calmMode = !!(s.x && s.x.calm);
+  tile("Focus").hidden = calmMode;
+  if (!calmMode) { tile("Focus").classList.toggle("low", m.focus < 30); tile("Focus").querySelector(".bar i").style.width = Math.max(0, Math.min(100, m.focus)) + "%"; }
+  const pn = tile("Points").querySelector(".mname");
+  if (calmMode && pn && !pn.dataset.grade) { pn.dataset.grade = "1"; pn.replaceChildren(term("grade")); }
   tile("Cover").hidden = calmMode;   // the fake-résumé idea is not part of learning mode
   const w = tile("Warnings"); w.hidden = calmMode || !s.warnings; w.classList.add("low"); w.querySelector("b").textContent = String(s.warnings);
   tile("Clock").hidden = calmMode;   // nothing is timed in learning mode, so no clock
@@ -469,7 +490,7 @@ function guide(s) {
   const urgentOne = live.find((c) => (c.outage || c.urgent) && c.state === "pile");
   const target = urgentOne || code;
   if (free && target && hasCard(s, "delegate") && f.has("delegate"))
-    return g(`Give "${target.title || typeLabel(target.type)}" to ${who(free)}`, `${who(free)} is free. Keep your team busy and check their work when it comes back. Or drag it onto "You" to fix it yourself.`, `give:${target.id}:${free}`, "github");
+    return g("Pick an item from your Sprint Backlog", "Fix one yourself, or hand one to Ines or Tobi. The more you lean on someone, the less likely their work is to succeed.", null, "github");
   if (!goalMet && code) {
     if (!hasCard(s, "work")) return g("Regroup to get a Work card", "Every move needs a matching card. Regroup draws a fresh hand.", "regroup", "github");
     return g(`Fix "${code.title}" yourself` + (x.team ? " while the team is busy" : ""), `Sprint goal: send ${x.goal.target} fix${x.goal.target > 1 ? "es" : ""} to users. ${x.goal.shipped} done so far.`, "work:" + code.id, "github");
@@ -547,10 +568,10 @@ function pilePanel(s) {
         h("span", { class: "pill kind-" + c.type }, TYPE_TERM[c.type] ? term(TYPE_TERM[c.type], typeLabel(c.type)) : typeLabel(c.type)),
         h("span", { class: "pwho" }, avatar(c.sender, "calm"), who(c.sender)),
         s.x && s.x.calm ? null : h("span", { class: "pdue" }, ic("clock"), liveDue(c.deadline_min, s.clock_min))),
-      c.state === "delegated" ? h("div", { class: "pstate" }, `${who(c.assignee || "dev1")} is on it`) : c.state === "returned" ? h("div", { class: "pstate back" }, `Back from ${who(c.assignee || "dev1")}: check it`) : null,
+      c.failed_by ? h("div", { class: "pstate back" }, `${who(c.failed_by)} couldn't finish this. It's back with you.`) : c.state === "delegated" ? h("div", { class: "pstate" }, `${who(c.assignee || "dev1")} is on it`) : c.state === "returned" ? h("div", { class: "pstate back" }, `Back from ${who(c.assignee || "dev1")}: check it`) : null,
       c.escalation ? h("div", { class: "tag louder" }, term("escalation", louder[c.escalation] || louder[2])) : null,
       s.x ? priceTag(s, c) : null,
-      actions(c))));
+      actions(c))), s.x && s.x.feed && s.x.feed.left > 0 ? h("p", { class: "muted small" }, "More items are on their way...") : null);
 }
 
 // What a move costs right now, and which other requests would slip while you do it
@@ -574,14 +595,16 @@ function codeDesk(s) {
     const calmMode = !!(s.x && s.x.calm);
     const label = calmMode ? { accurate: "Say honestly where it stands", vague: "Stay vague", wrong: "Say what sounds good (not true)" }
       : { accurate: "Explain honestly", vague: "Keep it vague", wrong: "Make something up" };
-    const say = calmMode ? { accurate: "The team sees the real picture and can help.", vague: "A hidden problem: the team will make more mistakes.", wrong: "A bigger hidden problem: more mistakes later." }
+    const sg = (n) => (n > 0 ? "+" : n < 0 ? "−" : "±") + Math.abs(n);
+    const eff = (c) => { const f = s.x.standup_outcomes && s.x.standup_outcomes[c]; return f ? `${sg(f.rating)} rating · ${sg(f.trust)} trust` + (f.hidden ? " · hidden problem" : "") : ""; };
+    const say = calmMode ? { accurate: eff("accurate"), vague: eff("vague"), wrong: eff("wrong") }
       : { accurate: pr && `${sus(pr.standup.accurate)} now. If that fix later turns out broken: ${sus(pr.contradiction_cover)}.`,
       vague: pr && `${sus(pr.standup.vague * pr.vague_multiplier)}. A small bluff.`, wrong: pr && `${sus(pr.standup.wrong)}. A big bluff.` };
     const timer = s.x && s.x.standup_timer_s ? standupTimer(q, s.x.standup_timer_s) : null;
-    return h("section", { class: "card", "aria-label": "Daily Scrum" }, h("h2", {}, "Daily ", term("standup"), " with " + who(q.teammate)),
+    return h("section", { class: "card", "aria-label": "Daily Scrum" }, h("h2", {}, term("standup"), " with " + who(q.teammate)),
       h("p", {}, `"How did your last fix go?"`),
-      calmMode ? h("p", { class: "muted small" }, "The Daily Scrum works only when what we say is true. A hidden problem makes the team's next mistakes more likely.") : null, timer,
-      h("div", { class: "row", "data-guide": "standup" }, q.choices.map((c) => h("button", { class: pr ? "deal" : "", onclick: () => cmd("reply_standup", { answer: c }) }, label[c] || c, pr ? h("small", {}, say[c]) : null))),
+      calmMode ? h("p", { class: "muted small" }, `The Daily Scrum works only when what we say is true. Trust changes are for ${who(q.teammate)}. A hidden problem comes out at the Sprint Review.`) : null, timer,
+      h("div", { class: "row", "data-guide": "standup" }, q.choices.map((c) => h("button", { class: pr ? "deal" : "", "data-answer": c, onclick: () => { replyInChat(c); cmd("reply_standup", { answer: c }); } }, label[c] || c, pr ? h("small", {}, say[c]) : null))),
       q.choices.includes("accurate") || calmMode ? null : h("p", { class: "muted small" }, "Watch a video in ToobYou to unlock the honest answer."));
   }
   if (s.stage === "REVIEW" && s.guide) return reviewStage(s);
@@ -661,12 +684,11 @@ function reviewStage(s) {
 }
 function retroStage(s) {
   const last = s.sprint >= s.x.sprints_total;
-  const skill = s.x.skill || {}, debt = s.x.debt || 0;
   const pct = (v) => Math.round(v * 100) + "%";
   return h("section", { class: "card stagecard", "aria-label": "Retrospective" }, h("h2", {}, ic("bulb"), ` Retrospective · Sprint ${s.sprint}`),
     h("p", {}, "The team looked at how it worked and chose one improvement."),
     s.x.practices.length ? h("p", { class: "pracs" }, s.x.practices.map((p) => h("span", { class: "pchip", title: (PRACTICES[p.id] || ["", ""])[1] }, practiceName(p.id)))) : null,
-    s.x.team ? riskBars(s) : null,
+    s.x.team ? successBars(s) : null,
     h("button", { class: "primary", "data-guide": "next-sprint", onclick: () => cmd("advance_stage", { to: "PLANNING" }) }, last ? "Finish the project" : `Start Sprint ${s.sprint + 1}`));
 }
 
@@ -733,133 +755,250 @@ function endStage(s, to) {
   confirmLayer.querySelector("button.primary").focus();
 }
 
-// A graphic, not a sentence: how likely each developer is to hand back work with a mistake (lower is better)
-function riskBars(s) {
+// A graphic, not a sentence: each teammate's success rate (their trust) as a bar. Higher is better.
+function successBars(s) {
   const x = s.x, rows = ["dev1", "dev2"].map((d) => {
-    const v = x.team ? x.team[d].bug_chance : 0, tone = v <= 0.2 ? "low" : v <= 0.4 ? "mid" : "high";
-    const coach = (x.skill && x.skill[d]) || 0, debt = x.debt || 0;
+    const v = x.team ? x.team[d].trust : 0, tone = v >= 70 ? "good" : v >= 40 ? "mid" : "bad";
+    const fill = h("i", { class: tone });
+    fill.style.width = Math.max(3, v) + "%";
     return h("div", { class: "riskrow" }, avatar(d, "calm"), h("b", {}, who(d)),
-      h("div", { class: "risktrack", role: "img", "aria-label": `${who(d)}: ${Math.round(v * 100)} percent chance of a mistake` }, h("i", { class: tone })),
-      h("span", { class: "riskpct" }, Math.round(v * 100) + "%"),
-      coach > 0 ? h("span", { class: "chip good" }, "−" + Math.round(coach * 100) + "% coaching") : null,
-      debt > 0 ? h("span", { class: "chip danger" }, "+" + Math.round(debt * 100) + "% skipped checks") : null);
+      h("div", { class: "risktrack", role: "img", "aria-label": `${who(d)}: ${v} percent success rate` }, fill), h("span", { class: "riskpct" }, v + "%"));
   });
-  const el = h("div", { class: "riskbars" }, h("h3", {}, "Chance of a mistake in work you hand over"), rows, h("small", { class: "muted" }, "Lower is better. Coaching lowers it. Skipped checks and untrue Daily Scrum answers raise it."));
-  el.querySelectorAll(".risktrack i").forEach((bar, i) => { bar.style.width = Math.max(3, Math.round(100 * (x.team ? x.team[["dev1", "dev2"][i]].bug_chance : 0))) + "%"; });
-  return el;
+  return h("div", { class: "riskbars" }, h("h3", {}, "Success rate of work you give them"), rows,
+    h("small", { class: "muted" }, "Higher is better. Coaching, honest Daily Scrum answers and honest checks raise it. Giving them work and skipped checks lower it."));
 }
 
-// ---- The guided first sprint: eight mandatory steps. Each teaches one Scrum idea (what it is, why it matters, how it works here,
-// what to do). A step is shown until you have read it (Got it) AND done what it asks; until then the rest of the screen is locked.
-const TOUR = [
-  { id: "flow", title: "Sprint Planning", when: (s) => s.stage === "PLANNING" && !s.guide.pending, at: ".stagecard", allow: ["[data-guide=start-sprint]"],
-    done: (s) => s.stage !== "PLANNING",
-    def: "Sprint Planning is the Scrum event where the team decides what it can finish in the Sprint and agrees on a Sprint Goal.",
-    why: "It gives the Sprint a clear purpose and a realistic plan before work starts.",
-    app: "Marlo's list and the goal are on this screen. The map on the left shows all five Scrum moments.",
-    todo: "Press “Begin the Sprint: Daily Scrum”." },
-  { id: "daily", title: "Daily Scrum", when: (s) => s.stage === "STANDUP", at: "[data-guide=standup],[data-guide=start-build]", allow: ["[data-guide=standup]", "[data-guide=start-build]"],
-    done: (s) => s.stage !== "STANDUP" && s.stage !== "PLANNING",
-    def: "The Daily Scrum is a short daily meeting where the Developers check progress toward the Sprint Goal and adjust the plan.",
-    why: "It brings problems to light early, but only when people are honest.",
-    app: "A teammate asks how your last fix went. An honest answer helps. A vague or untrue one hides a problem and makes later mistakes more likely.",
-    todo: "Pick an answer, then press “Start the work day”." },
-  { id: "tabs", title: "Transparency", when: (s) => s.stage === "BUILD" && !s.work && !s.guide.worked, at: ".tabstrip", allow: [".tabstrip"],
-    done: (s) => !!run.tabsVisitedPlay && run.app === "github",
-    def: "Transparency means everyone involved can see the work and how it is going.",
-    why: "Good decisions need an honest, shared picture.",
-    app: "GitHab holds the work and code. Slackish is the team chat. Play Storey shows what users say about your app.",
-    todo: "Open the Play Storey tab to see user feedback, then come back to GitHab." },
-  { id: "pick", title: "Sprint Backlog", when: (s) => s.stage === "BUILD" && !s.work && !s.guide.worked, at: "#pile", allow: ["#pile", ".board"],
-    done: (s) => s.guide.worked,
-    def: "In Scrum, the Sprint Backlog is the work the team selected for a Sprint, together with a plan for finishing it.",
-    why: "It makes the team's commitment visible, so everyone knows what this Sprint is for.",
-    app: "Here you manage the tasks the team committed to for this Sprint.",
-    todo: "Select a task and press “Fix it myself”, or give it to Ines or Tobi." },
-  { id: "code", title: "Definition of Done", when: (s) => s.stage === "BUILD" && s.guide.worked && s.day === 1, at: "section[aria-label='Code desk']", allow: ["section[aria-label='Code desk']"],
-    gate: { ready: (s) => !!s.work, text: "Open an item yourself to continue: press “Fix it myself” on any item in your Sprint Backlog.", at: "#pile", allow: ["#pile", ".board"] },
-    done: (s) => !!run.codeOpened && !s.work,
-    def: "The Definition of Done is the team's shared checklist for when work is truly finished.",
-    why: "Without it, “done” means different things to different people and mistakes slip through.",
-    app: "Find the wrong line, pick a fix, press Test, and tick the Done boxes only when they are true.",
-    todo: "Work on the item, then press “Send to users”, or “Put it down” if you want to stop." },
-  { id: "endday", title: "Timeboxing", when: (s) => s.stage === "BUILD" && !s.work && s.guide.worked && s.day === 1, at: "[data-guide=end-day]", allow: ["[data-guide=end-day]"],
-    done: (s) => s.day >= 2 || s.stage !== "BUILD",
-    def: "A Sprint is a timebox: a fixed length of time, here two days, after which it ends.",
-    why: "A fixed length forces focus and gives regular chances to get feedback and change course.",
-    app: "Day 1 is nearly over. Tomorrow starts with another Daily Scrum, and after day 2 the Sprint ends.",
-    todo: "Press “End the day”." },
-  { id: "review", title: "Sprint Review", when: (s) => s.stage === "REVIEW" && !s.guide.pending, at: "[data-guide=to-retro]", allow: ["[data-guide=to-retro]"],
-    done: (s) => s.stage === "RETRO",
-    def: "The Sprint Review is where the team and stakeholders inspect what was made and what users think of it.",
-    why: "Real feedback lets the Product Owner reorder the Product Backlog, so the product keeps improving.",
-    app: "Marlo has read the reviews in Play Storey. Unfinished items return to the Product Backlog.",
-    todo: "Press “On to the Retrospective”." },
-  { id: "retro", title: "Sprint Retrospective", when: (s) => s.stage === "RETRO" && !s.guide.pending, at: "[data-guide=next-sprint]", allow: ["[data-guide=next-sprint]"],
-    done: (s) => s.sprint >= 2,
-    def: "The Retrospective is where the team looks at how it worked together and chooses what to improve.",
-    why: "Small, regular improvements make a team better Sprint after Sprint.",
-    app: "The bars show each developer's chance of a mistake. Coaching and honest checks lower it.",
-    todo: "Look at the bars, then press “Start Sprint 2”." },
+// ---- The tutorial: a practice Sprint that runs BEFORE the real Sprint 1 (so no Scrum scene can interrupt it).
+// Every step: Herb talks (short bubbles, the last one ends with "Got it"), then you do the real action on the one highlighted
+// control. Everything else is dimmed and cannot be clicked. A step with no action is just Herb talking. Tab switches go
+// action first (you click the highlighted tab), explanation second. Dots show progress inside the current section only.
+const tinfo = (s) => (s.work && s.work.tutorial) || {};
+const lineSel = (n) => `pre.code .line:nth-child(${n})`;
+const wrongOpt = (s) => !!(s.work && s.work.selected && tinfo(s).answer_option && s.work.selected !== tinfo(s).answer_option);
+const answerOptSel = (s) => { const i = s.work ? s.work.options.findIndex((o) => o.id === tinfo(s).answer_option) : -1; return i >= 0 ? `.opts .opt:nth-child(${i + 1})` : ".opts .opt"; };
+const TUT = [
+  { id: "flow", sec: "map", at: () => ".rail", act: () => ".rail .rdot[aria-current=step]", click: true,
+    say: ["Hi, I'm Herb! Let's walk through your first Sprint together, nice and slow.",
+      "A Sprint is a short, fixed stretch of work, the heartbeat of Scrum. Here, one Sprint lasts just two days.",
+      "Every Sprint has the same five moments, and this map shows where you are. Let's click the glowing one."],
+    todo: () => "Click the glowing dot on the map." },
+  { id: "planning", sec: "plan", at: () => ".stagecard", act: () => "[data-guide=start-sprint]", spot: () => "[data-guide=start-sprint]", done: (s) => s.stage !== "PLANNING",
+    say: ["This is Sprint Planning. It's where the team decides why this Sprint matters, what to work on, and how to start.",
+      "Marlo is the Product Owner, so she lined up the list. The Sprint Goal is the one thing we're all aiming for.",
+      "Everything looks good to me. Let's begin the Sprint with the green button."],
+    todo: () => "Press “Begin the Sprint: Daily Scrum”." },
+  { id: "slackGo", sec: "daily", at: () => "[data-guide='tab:slack']", act: () => "[data-guide='tab:slack']", click: true,
+    say: ["Next comes the Daily Scrum, and that happens in Slackish, your team chat. Click the Slackish tab and let's go there."],
+    todo: () => "Click the Slackish tab." },
+  { id: "slackSee", sec: "daily", at: () => "section[aria-label='Team chat']", act: null,
+    say: ["Here we are! This is where you chat with Marlo, Ines and Tobi.",
+      "Everyone sees the same messages, so nothing is hidden. Scrum calls that transparency, and it keeps a team honest.",
+      "Now let's hold the Daily Scrum."] },
+  { id: "daily", sec: "daily", at: (s) => s.standup ? "[data-guide=standup]" : "[data-guide=start-build]", act: (s) => s.standup ? "[data-answer=accurate]" : "[data-guide=start-build]",
+    spot: (s) => s.standup ? "[data-answer=accurate]" : "[data-guide=start-build]", done: (s) => s.stage === "BUILD",
+    say: (s) => ["This is the Daily Scrum, a quick check, fifteen minutes at most, on how we're doing toward the Sprint Goal.",
+      `${s.standup ? who(s.standup.teammate) : "Your teammate"} is asking how your last fix went. Look at what each answer does: a change to your rating, a change to their trust, and sometimes a hidden problem for later.`,
+      "A lie looks great today, but it costs you trust and bites back at the Review. Let's be honest, then start the work day."],
+    todo: (s) => s.standup ? "Pick “Say honestly where it stands”." : "Now press “Start the work day”." },
+  { id: "githabGo", sec: "tabs", at: () => "[data-guide='tab:github']", act: () => "[data-guide='tab:github']", click: true,
+    say: ["Time to work! That happens in GitHab. Click the GitHab tab."], todo: () => "Click the GitHab tab." },
+  { id: "githabSee", sec: "tabs", at: () => "#pile", act: null,
+    say: ["This is GitHab, where your team's tasks and the code live. You'll spend most of your time right here."] },
+  { id: "playGo", sec: "tabs", at: () => "[data-guide='tab:play']", act: () => "[data-guide='tab:play']", click: true,
+    say: ["Quick detour. Play Storey is where real users review your app. Click its tab."], todo: () => "Click the Play Storey tab." },
+  { id: "playSee", sec: "tabs", at: () => ".play .store-head", act: null,
+    say: ["This is what users think of your app. The rating up here is the average of these reviews.",
+      "Scrum teams look at what really happened, then adjust. That's called inspection and adaptation, and it's the heart of Scrum.",
+      "No reviews of ours yet. We'll be back after some work."] },
+  { id: "backGo", sec: "tabs", at: () => "[data-guide='tab:github']", act: () => "[data-guide='tab:github']", click: true,
+    say: ["Let's head back to GitHab and start on some work. Click its tab."], todo: () => "Click the GitHab tab." },
+  { id: "backlog", sec: "work", at: () => "#pile", act: () => "#pile .pile-item [data-guide^='work:']", done: (s) => !!s.work,
+    say: ["This is your Sprint Backlog. In Scrum, it's the work the team picked for the Sprint, together with a plan for getting it done.",
+      "Here, you manage the tasks the team committed to. You can fix one yourself or give it to Ines or Tobi, and we'll try both.",
+      "Let's fix the first one ourselves. Press “Fix it myself”."],
+    todo: () => "Press “Fix it myself” on the first item." },
+  { id: "findbug", sec: "work", at: () => "pre.code", act: () => "pre.code .line", spot: (s) => (tinfo(s).buggy_line ? lineSel(tinfo(s).buggy_line) : "pre.code"),
+    done: (s) => !!(s.work && s.work.flag_ok === true),
+    say: ["This is the code desk. The box at the top says what the code should do, and exactly one line doesn't match it.",
+      "Checking work carefully is how a team keeps its quality up.",
+      "Read the description, then click the line you think is wrong."],
+    todo: (s) => {
+      const w = s.work, ti = tinfo(s);
+      if (!w || w.flag_ok !== false) return "Click the line you think doesn't match the description.";
+      const note = (ti.line_notes && ti.line_notes[w.flagged]) || `Line ${w.flagged} looks fine to me.`;
+      if (w.flag_misses >= 3) return `${note} Let's narrow it down. ${ti.hints[1] || ""} I've lit up where to look.`.trim();
+      if (w.flag_misses === 2) return `${note} ${ti.hints[0] || ""}`.trim();
+      return `${note} Try another line.`;
+    } },
+  { id: "fixPick", sec: "work", at: () => ".opts", act: (s) => wrongOpt(s) ? answerOptSel(s) : ".opts .opt", spot: (s) => wrongOpt(s) ? answerOptSel(s) : ".opts",
+    done: (s) => !!(s.work && s.work.selected && s.work.selected === tinfo(s).answer_option),
+    say: ["Nice spotting! Now pick the replacement that makes the code do what the description says."],
+    todo: (s) => wrongOpt(s) ? `${(tinfo(s).option_notes || {})[s.work.selected] || "That one isn't it."} Let's pick the highlighted one instead.` : "Pick the fix you think is right." },
+  { id: "fixWhy", sec: "work", at: () => ".opts", act: null,
+    say: (s) => [tinfo(s).right_why || "That one does exactly what the description says.", "A test will show us the truth before users ever see it."] },
+  { id: "fixTest", sec: "work", at: () => "[data-guide=test]", act: () => "[data-guide=test]", done: (s) => !!(s.work && s.work.last_run && s.work.last_run.all_pass),
+    say: ["Let's test it. A test runs the examples from the description and checks the answers.", "Press “Test my fix”."],
+    todo: () => "Press “Test my fix”." },
+  { id: "done", sec: "work", at: () => "[data-guide=dod]", act: () => "[data-guide=dod] label", spot: () => "[data-guide=dod]", done: (s) => !!(s.work && Object.values(s.work.dod).every(Boolean)),
+    say: ["Passing the test is great, but is it really finished? Scrum uses a Definition of Done for that: a shared checklist of what “finished” means.",
+      "It keeps quality up and keeps us honest, so we only tick what's true.", "The test passed, so go ahead and tick all three boxes."],
+    todo: () => "Tick all three boxes." },
+  { id: "send", sec: "work", at: () => "[data-guide=push]", act: () => "[data-guide=push]", done: (s) => !s.work && s.pile.some((c) => c.state === "done"),
+    say: ["Only work that meets the Definition of Done counts as part of the Increment, the usable result of the Sprint.", "Yours does, so let's send it to users."],
+    todo: () => "Press “Send to users”." },
+  { id: "delegate", sec: "team", at: () => "#pile", act: () => "[data-guide^='give:'][data-guide$=':dev1']", spot: () => "[data-guide^='give:'][data-guide$=':dev1']",
+    done: (s) => !!(s.x.team && s.x.team.dev1 && s.x.team.dev1.last),
+    say: ["You're not on your own. Ines and Tobi are the Developers, and the Developers are the ones who decide how the work gets done.",
+      "As Scrum Master you help them and clear their way. You can also hand them an item, and the result comes back right away. Let's give this one to Ines.",
+      "Press “Ines” under “Give to”."],
+    todo: () => "Press “Ines” under “Give to”." },
+  { id: "trust", sec: "team", at: () => "[data-trust=dev1]", act: () => "[data-trust]", click: true,
+    say: (s) => ["Look at the number on each teammate. That's their success rate: the chance their work succeeds when you give it to them. It starts at 80% and moves with what you do.",
+      `Giving Ines that item just lowered hers by 2, to ${s.x.team.dev1.trust}%. Every offload does that, so you can't lean on the team for everything.`,
+      "Trust and success rate are one thing. Honest answers, coaching and honest checks raise it. In this practice Sprint it always works, so your result stays. Click her success rate to see."],
+    todo: () => "Click Ines's success rate." },
+  { id: "endday", sec: "wrap", at: () => "[data-guide=end-day]", act: () => "[data-guide=end-day]", done: (s) => s.stage !== "BUILD" || s.day >= 2,
+    say: ["Nice work today! A Sprint is timeboxed, which means it has a fixed length, so we wrap up the day and move on.",
+      "Tomorrow starts with another Daily Scrum. After day two come the Sprint Review and the Retrospective, and you'll meet those for real in a moment.",
+      "Press “End the day”."],
+    todo: () => "Press “End the day”." },
 ];
-const tourLayer = h("div", { id: "tour", hidden: true, role: "note" });
+const sayOf = (step, s) => (typeof step.say === "function" ? step.say(s) : step.say);
+
+const tourLayer = h("div", { id: "tour", hidden: true });
+const tdim = ["main", "hole"].map((k) => h("div", { class: "tdim " + k }));   // one dimmer with a cut-out (no seams), plus a blocker over the cut-out
+const tring = h("div", { class: "tring" });
+const tbox = h("div", { class: "tbox", role: "dialog", "aria-live": "polite" });
+tourLayer.append(...tdim, tring, tbox);
 document.body.append(tourLayer);
-const ALWAYS_OK = "#tour, #scene, #confirm, #nav, #toasts, .tabstrip";
-const tourDone = () => TOUR.every((t) => seen.has("tour:" + t.id));
-// While a step is open, only what that step asks for (and the card itself) can be used.
+
+const tutorialDone = () => { try { return localStorage.getItem("tutorialDone:" + me.id) === "1"; } catch (_) { return false; } };
+const markTutorialDone = () => { try { localStorage.setItem("tutorialDone:" + me.id, "1"); } catch (_) { /* storage can be blocked */ } };
+const tutStep = () => (run && run.tut ? TUT[run.tut.step] : null);
+const firstVisible = (sel) => (sel ? [...document.querySelectorAll(sel)].find((e) => e.offsetParent !== null) : null);
+
+// Only the one required control works, and only once Herb has finished talking. The dimmed area blocks the rest.
 function lockGuard(e) {
-  const lock = run && run.lock;
-  if (!lock) return;
+  if (!run || !run.tut || run.tut.finished) return;
+  if (e.type === "wheel" || e.type === "touchmove") { if (!(e.target instanceof Element && e.target.closest(".tbox"))) e.preventDefault(); return; }
   if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
-  const t = e.target;
-  if (!(t instanceof Element) || t.closest(ALWAYS_OK) || lock.some((sel) => t.closest(sel))) return;
+  const t = e.target, step = tutStep();
+  if (t instanceof Element && t.closest(".tbox")) return;
+  const sel = run.tut.phase === "do" && step && step.act ? step.act(run.state) : null;
+  if (sel && t instanceof Element && t.closest(sel)) {
+    if (step.click && e.type === "click") { run.tut.clicks++; setTimeout(() => { if (run && run.state) syncTour(run.state); }, 0); }
+    return;
+  }
   e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-  const card = tourLayer.firstChild;
-  if (card && e.type !== "pointerdown") { card.classList.remove("nudge"); void card.offsetWidth; card.classList.add("nudge"); }
 }
-["click", "pointerdown", "mousedown", "dblclick", "dragstart", "keydown"].forEach((t) => document.addEventListener(t, lockGuard, true));
+["click", "pointerdown", "mousedown", "dblclick", "dragstart", "keydown", "contextmenu"].forEach((t) => document.addEventListener(t, lockGuard, true));
+["wheel", "touchmove"].forEach((t) => document.addEventListener(t, lockGuard, { capture: true, passive: false }));
+
+function tutGo(i) {
+  run.tut.step = i; run.tut.bubble = 0; run.tut.phase = "talk"; run.tut.clicks = 0; run.tut.key = null;
+  if (i >= TUT.length) finishTutorial();
+}
+
+function finishTutorial() {
+  if (!run || !run.tut || run.tut.finished) return;
+  run.tut.finished = true;
+  timers.forEach(clearInterval);
+  if (!run.tut.replay) markTutorialDone();
+  const after = run.tut.after, replay = run.tut.replay;
+  tourLayer.hidden = true;
+  document.documentElement.classList.remove("tour-lock");
+  document.body.classList.remove("tutorial-on");
+  run = null;
+  mount(h("section", { class: "card narrow herbsays" }, h("div", { class: "hero", "aria-hidden": "true" }, ic("c-heron-cheer")),
+    h("div", { class: "w-bubble" }, replay ? "That's the tutorial again. Nice!" : "You did it! That was a practice Sprint. Now for the real one: Sprint 1 starts with Marlo's list."),
+    h("div", { class: "row" }, h("button", { class: "primary", onclick: () => newRun(after).catch((e) => { toast("bad", e.message); }) }, "Start Sprint 1"))));
+}
+
+function tutBox(step, s) {
+  const t = run.tut, say = sayOf(step, s);
+  const talking = t.phase === "talk", last = t.bubble >= say.length - 1;
+  const text = talking ? say[Math.min(t.bubble, say.length - 1)] : (step.todo(s) || "");
+  const sec = TUT.filter((x) => x.sec === step.sec), at = sec.indexOf(step);   // dots count only this section
+  const dots = h("div", { class: "tdots", role: "img", "aria-label": `Step ${at + 1} of ${sec.length} in this part` }, sec.map((_, i) => h("i", { class: i < at ? "done" : i === at ? "now" : "" })));
+  const buttons = [];
+  if (talking) buttons.push(h("button", { class: "primary", onclick: () => {
+    if (!last) { t.bubble++; t.key = null; syncTour(run.state); }
+    else if (!step.act) { tutGo(t.step + 1); if (run && run.tut && !run.tut.finished) syncTour(run.state); }
+    else { t.phase = "do"; t.key = null; run.sig = null; render(); }
+  } }, last ? "Got it" : "Next"));
+  if (t.replay) buttons.push(h("button", { class: "quiet", onclick: finishTutorial }, "Skip tutorial"));   // returning players only: the first run cannot be skipped
+  return [dots, h("div", { class: "tspeak" }, h("span", { class: "heron", "aria-hidden": "true" }, ic("c-heron")), h("p", { class: "tsay" }, text)), buttons.length ? h("div", { class: "row" }, buttons) : null];
+}
 
 function syncTour(s) {
-  const unlock = () => { if (run) run.lock = null; if (!tourLayer.hidden) { tourLayer.hidden = true; tourLayer.replaceChildren(); } document.querySelectorAll(".tour-ring").forEach((e) => e.classList.remove("tour-ring")); run && (run.tourId = null); };
-  if (!(s.x && s.x.calm && s.guide) || run.modal || tourDone()) return unlock();
-  run.tourAck = run.tourAck || {};
-  const sprint1 = s.sprint === 1;
-  if (run.tourAck.tabs && run.app === "play") run.tabsVisitedPlay = true;
-  // finish the steps whose work is done
-  for (const t of TOUR) if (!seen.has("tour:" + t.id) && run.tourAck[t.id] && (!sprint1 || t.done(s)) && !(t.gate && !run.codeOpened && t.id === "code")) markSeen("tour:" + t.id);
-  if (tourDone()) return unlock();
-  const step = sprint1 ? TOUR.find((t) => !seen.has("tour:" + t.id) && (run.tourAck[t.id] || t.when(s))) : null;
-  if (!step) return unlock();
-  if (step.id === "code" && s.work) run.codeOpened = true;
-  const gated = step.gate && !step.gate.ready(s) && !run.tourAck[step.id];
-  const acked = !!run.tourAck[step.id];
-  const at = gated ? step.gate.at : step.at;
-  run.lock = gated ? step.gate.allow : acked ? step.allow : [];
-  const target = [...document.querySelectorAll(at)].find((e) => e.offsetParent !== null);
-  document.querySelectorAll(".tour-ring").forEach((e) => { if (e !== target) e.classList.remove("tour-ring"); });
-  if (target) target.classList.add("tour-ring");
-  const key = step.id + (gated ? ":gate" : acked ? ":do" : ":read");
-  if (run.tourId !== key) {
-    run.tourId = key;
-    const n = TOUR.indexOf(step) + 1, part = (label, text) => h("p", {}, h("b", { class: "lbl" }, label), text);
-    const head = h("small", {}, `Tutorial · step ${n} of ${TOUR.length}`);
-    tourLayer.replaceChildren(h("div", { class: "tourcard" }, head, h("b", { class: "ttitle" }, step.title),
-      gated ? [h("p", {}, step.gate.text)]
-        : acked ? [part("Your turn", step.todo)]
-        : [part("Definition", step.def), part("Purpose", step.why), part("In this game", step.app), part("Your turn", step.todo),
-          h("div", { class: "row" }, h("button", { class: "primary", onclick: () => { run.tourAck[step.id] = true; run.tourId = null; syncTour(run.state); } }, "Got it"))]));
+  const on = !!(run && run.tut && !run.tut.finished && s.x && s.x.tutorial);
+  document.documentElement.classList.toggle("tour-lock", on);
+  document.body.classList.toggle("tutorial-on", on);
+  if (!on) { tourLayer.hidden = true; return; }
+  const t = run.tut;
+  let step = TUT[t.step];
+  if (step && t.phase === "do") {
+    const complete = step.click ? t.clicks >= 1 : step.done(s);
+    if (complete) { tutGo(t.step + 1); if (!run || !run.tut || run.tut.finished) return; step = TUT[run.tut.step]; }
   }
+  if (!step) return;
+  const key = `${t.step}|${t.phase}|${t.bubble}|${t.phase === "do" ? step.todo(s) : ""}`;
   tourLayer.hidden = false;
-  const card = tourLayer.firstChild, cw = Math.min(380, innerWidth - 16);
-  card.style.width = cw + "px";
-  const ch = card.offsetHeight;
-  if (target) {
-    const r = target.getBoundingClientRect(), below = r.bottom + 12;
-    card.style.top = Math.max(8, Math.min(innerHeight - ch - 8, below + ch > innerHeight - 8 ? r.top - ch - 12 : below)) + "px";
-    card.style.left = Math.max(8, Math.min(innerWidth - cw - 8, r.left)) + "px";
-  } else { card.style.top = "76px"; card.style.left = Math.max(8, (innerWidth - cw) / 2) + "px"; }
+  if (t.key !== key) { t.key = key; tbox.replaceChildren(...tutBox(step, s).filter(Boolean)); }
+  t.needScroll = true;
+  tourGeometry();
 }
-addEventListener("resize", () => run && run.state && syncTour(run.state));
+
+// Spotlight, dimming and box placement. Runs on every state change, resize and a short timer (layouts move).
+function tourGeometry() {
+  if (!run || !run.tut || run.tut.finished || tourLayer.hidden) return;
+  const s = run.state, step = TUT[run.tut.step];
+  if (!step || !s) return;
+  const talking = run.tut.phase === "talk";
+  const sel = talking ? step.at(s) : ((step.spot ? step.spot(s) : null) || (step.act ? step.act(s) : null) || step.at(s));
+  const el = firstVisible(sel);
+  const vw = innerWidth, vh = innerHeight, pad = 6;
+  const cls = (e, x, y, w, h_) => { e.style.left = x + "px"; e.style.top = y + "px"; e.style.width = Math.max(0, w) + "px"; e.style.height = Math.max(0, h_) + "px"; };
+  const [dim, hole] = tdim;
+  if (!el) { dim.style.clipPath = "none"; cls(hole, 0, 0, 0, 0); tring.style.display = "none"; placeBox(null); return; }
+  if (run.tut.needScroll || run.tut.scrolledFor !== sel) { try { el.scrollIntoView({ block: "center", inline: "nearest" }); } catch (_) { /* old browser */ } run.tut.needScroll = false; run.tut.scrolledFor = sel; }
+  const b = el.getBoundingClientRect();
+  const x1 = Math.max(0, Math.floor(b.left - pad)), y1 = Math.max(0, Math.floor(b.top - pad)), x2 = Math.min(vw, Math.ceil(b.right + pad)), y2 = Math.min(vh, Math.ceil(b.bottom + pad));
+  dim.style.clipPath = `polygon(evenodd, 0 0, ${vw}px 0, ${vw}px ${vh}px, 0 ${vh}px, 0 0, ${x1}px ${y1}px, ${x2}px ${y1}px, ${x2}px ${y2}px, ${x1}px ${y2}px, ${x1}px ${y1}px)`;
+  cls(hole, x1, y1, x2 - x1, y2 - y1);
+  hole.style.pointerEvents = talking ? "auto" : "none";     // while Herb talks the spotlight is for looking only
+  cls(tring, x1, y1, x2 - x1, y2 - y1); tring.style.display = "block";
+  placeBox({ x1, y1, x2, y2 });
+}
+
+// The box stays fully inside the window and never covers the highlighted control. If no side has room at the normal width,
+// the box narrows (down to 240px) before it is allowed to overlap anything.
+function placeBox(r) {
+  const vw = innerWidth, vh = innerHeight, m = 12, full = Math.min(Math.max(380, vw * 0.34), 640, vw - 2 * m);
+  tbox.style.maxHeight = (vh - 2 * m) + "px";
+  const layout = (width) => {
+    tbox.style.width = width + "px";
+    const w = tbox.offsetWidth, h_ = tbox.offsetHeight;
+    const clampX = (x) => Math.max(m, Math.min(vw - w - m, x)), clampY = (y) => Math.max(m, Math.min(vh - h_ - m, y));
+    if (!r) return { pos: [clampX((vw - w) / 2), clampY((vh - h_) / 2)], clear: true, w, h_ };
+    const gap = 16, cx = (r.x1 + r.x2) / 2, cy = (r.y1 + r.y2) / 2;
+    const options = [[clampX(cx - w / 2), r.y2 + gap], [clampX(cx - w / 2), r.y1 - gap - h_], [r.x2 + gap, clampY(cy - h_ / 2)], [r.x1 - gap - w, clampY(cy - h_ / 2)]];
+    const fits = ([x, y]) => x >= m && y >= m && x + w <= vw - m && y + h_ <= vh - m;
+    const pos = options.find(fits);
+    return { pos, clear: !!pos, w, h_ };
+  };
+  let res = null;
+  for (const width of [full, full * 0.8, full * 0.64, 240]) { if (width < 240 || width > full + 1) continue; res = layout(width); if (res.clear) break; }
+  if (!res || !res.pos) {   // still no clear spot: the corner that overlaps the control the least
+    res = layout(Math.max(240, Math.min(full, 300)));
+    const { w, h_ } = res, corners = [[m, m], [vw - w - m, m], [m, vh - h_ - m], [vw - w - m, vh - h_ - m]];
+    const overlap = ([x, y]) => Math.max(0, Math.min(x + w, r.x2) - Math.max(x, r.x1)) * Math.max(0, Math.min(y + h_, r.y2) - Math.max(y, r.y1));
+    res.pos = corners.map((c) => [c, overlap(c)]).sort((a, b) => a[1] - b[1])[0][0];
+  }
+  tbox.style.left = Math.round(res.pos[0]) + "px"; tbox.style.top = Math.round(res.pos[1]) + "px";
+}
+addEventListener("resize", () => tourGeometry());
+setInterval(() => { if (run && run.tut && !run.tut.finished) tourGeometry(); }, 150);
 
 function pushDeal(s, w) {
   const x = s.x, unticked = Object.values(w.dod).filter((v) => !v).length;
@@ -909,13 +1048,17 @@ function callCard(s) {
     h("button", { class: "primary", "data-guide": "answer-call", disabled: !hasCard(s, "call"), title: "Answer" + needs(s, "call"), onclick: () => cmd("answer_call") }, hasCard(s, "call") ? "Answer" : "No Call card")) : null;
 }
 
+// Your Daily Scrum answer shows up in the team chat as your own message (a blank profile picture, your name, blue like a sent message)
+const CHAT_LINE = { accurate: "Honestly, here's where it stands.", vague: "Um... it's going fine, I think.", wrong: "All good, no problems at all!" };
+function replyInChat(ans) { if (run) run.lines.push({ id: -(run.lines.length + 1), speaker: "you", tone: "mine", name: me.display_name, text: CHAT_LINE[ans] || ans }); }
+
 function slackApp(s) {
   const msgs = run.lines.slice(-12);
   return h("div", { class: "slack" },
     h("aside", { class: "side" }, h("h3", {}, "# team-chat"), ["po", "dev1", "dev2"].map((id) => h("div", { class: "member" }, avatar(id), h("span", {}, NAMES[id])))),
     h("div", { class: "main" }, s.stage === "STANDUP" ? codeDesk(s) : null,
       h("section", { class: "card", "aria-label": "Team chat" }, h("h2", {}, "# team-chat"), h("p", { class: "sub" }, "What your team is saying."),
-        msgs.length ? h("div", { class: "chat" }, msgs.map((l) => h("div", { class: "msg " + l.tone + (l.id > run.freshAfter ? " new" : "") }, avatar(l.speaker, l.tone), h("div", { class: "bub" }, h("b", {}, NAMES[l.speaker] || l.speaker), h("div", {}, l.text)))))
+        msgs.length ? h("div", { class: "chat" }, msgs.map((l) => h("div", { class: "msg " + l.tone + (l.id > run.freshAfter ? " new" : "") }, avatar(l.speaker, l.tone), h("div", { class: "bub" }, h("b", {}, l.name || NAMES[l.speaker] || l.speaker), h("div", {}, l.text)))))
           : h("p", { class: "muted" }, "No messages yet. Enjoy the quiet while it lasts."))));
 }
 
@@ -927,12 +1070,23 @@ function dropZone(el, onDrop) {
   el.addEventListener("drop", (e) => { e.preventDefault(); el.classList.remove("over"); const id = run.dragCard; run.dragCard = null; if (id) onDrop(id); });
   return el;
 }
+// Learning mode: giving work to a teammate is instant. Each lane shows their success rate (their trust) and what happened last time.
+function calmLane(d, nm, m) {
+  const v = m.trust, tone = v >= 70 ? "good" : v >= 40 ? "mid" : "bad";
+  const fill = h("i", { class: tone });
+  fill.style.width = Math.max(3, v) + "%";
+  return [h("button", { class: "trustbtn", "data-trust": d, "aria-label": `${nm}'s success rate ${v} percent. What is this?`,
+    onclick: (e) => { e.stopPropagation(); showTip(e.currentTarget, ["Success rate", `${nm}'s success rate is the chance that work you give them succeeds. Giving them work lowers it by 2 each time. Coaching, honest Daily Scrum answers and honest checks raise it.`]); } },
+    h("span", { class: "tlabel" }, "Success rate"), h("span", { class: "ttrack" }, fill), h("b", {}, v + "%")),
+  m.last ? h("p", { class: "lastres " + (m.last.ok ? "ok" : "no") }, m.last.ok ? `Done: ${m.last.title}` : `Couldn't finish “${m.last.title}”. It's back with you.`)
+    : h("p", { class: "lane-free" }, "Give an item to " + nm + " and the result comes back right away.")];
+}
 function teamBoard(s) {
   const x = s.x, cb = x.combo;
   const next = s.day >= 2 ? ["REVIEW", "Finish the sprint", "end-sprint"] : ["STANDUP", "End the day", "end-day"];
   const short = s.day >= 2 && !x.goal.met;
   const me = dropZone(h("div", { class: "lane-card me" },
-    h("div", { class: "lane-head" }, ic("c-heron", "lane-av"), h("div", {}, h("b", {}, "You"), h("small", {}, "Drop a request here to fix it yourself"))),
+    h("div", { class: "lane-head" }, ic("c-you", "lane-av"), h("div", {}, h("b", {}, "You"), h("small", {}, "Drop a request here to fix it yourself"))),
     x.calm ? (s.guide && !s.guide.worked && s.day < 2 ? h("p", { class: "muted small" }, "Start on an item first: fix it yourself, or give it to Ines or Tobi.") : null)
       : short ? h("p", { class: "cost risk" }, `Sprint goal not met yet (${x.goal.shipped} of ${x.goal.target}). Finishing now means a strike.`) : null,
     releaseEl(s),
@@ -940,7 +1094,7 @@ function teamBoard(s) {
     (id) => cmd("open_card", { card_id: id }));
   const mates = ["dev1", "dev2"].map((d) => {
     const m = x.team[d], [nm, trait] = TEAM_INFO[d];
-    const body = !m.task ? h("p", { class: "lane-free" }, "Free. Drag a request here.")
+    const body = x.calm ? calmLane(d, nm, m) : !m.task ? h("p", { class: "lane-free" }, "Free. Drag a request here.")
       : [h("div", { class: "lane-task" }, ic("hammer"), " " + (m.title || "Working")),
         h("div", { class: "bar mprog" + (m.stuck ? " stuck" : ""), "data-dev": d }, h("i", {})),
         m.stuck ? h("div", { class: "stuckbox" }, h("b", {}, `${nm} is stuck!`),
@@ -1320,7 +1474,7 @@ function roadmap(s) {
 const PAGES = { slack: slackApp, github: githubApp, play: playApp, youtube: youtubeApp, shop: shopApp };
 
 // ---- tabs and sticky notes: pull a tab down out of the browser and it becomes a floating note
-const laterApp = (id) => !!(run && run.state && run.state.x && run.state.x.calm && run.state.sprint === 1 && (id === "youtube" || id === "shop"));
+const laterApp = (id) => !!(run && run.state && run.state.x && run.state.x.calm && (id === "shop" || (run.state.sprint === 1 && id === "youtube")));   // nothing is for sale: Points became the Grade
 const attached = () => APPS.filter((a) => !run.notes.some((n) => n.id === a.id) && !laterApp(a.id));   // apps still in the browser
 const isNote = (id) => run.notes.some((n) => n.id === id);
 const visible = (id) => run.app === id || isNote(id);                               // on screen, so not "unread"
@@ -1334,7 +1488,7 @@ function badgeFor(id, s) {
 }
 const badgeLabel = (id, n) => n + (id === "github" ? " open issues" : " new");
 
-function openApp(id) { if (!run || isNote(id)) return; run.app = id; if (id === "play" && run.tourAck && run.tourAck.tabs) run.tabsVisitedPlay = true; run.sig = null; render(); applyGuide(run.state); }
+function openApp(id) { if (!run || isNote(id)) return; run.app = id; run.sig = null; render(); applyGuide(run.state); }
 const clampPos = (n) => { n.x = Math.max(-n.w + 90, Math.min(innerWidth - 90, n.x)); n.y = Math.max(0, Math.min(innerHeight - 44, n.y)); };
 const over = (ev, r) => ev.clientX >= r.left && ev.clientX <= r.right && ev.clientY >= r.top && ev.clientY <= r.bottom;
 
@@ -1480,14 +1634,7 @@ function startDemo(from, to, key) {
   demoAnim = demo.animate([{ ...at(x1, y1, 0), offset: 0 }, { ...at(x1, y1, 1), offset: .12 }, { ...at(x1, y1, 1), offset: .3 }, { ...at(x2, y2, 1), offset: .75 }, { ...at(x2, y2, 1), offset: .88 }, { ...at(x2, y2, 0), offset: 1 }],
     { duration: 2800, iterations: Infinity, easing: "ease-in-out" });
 }
-function syncDemo(g) {
-  const m = g.target && g.target.match(/^give:([^:]+):(dev\d)$/);
-  if (!m || seen.has("demo_give") || run.modal) return stopDemo();
-  const btn = document.querySelector(`[data-guide="${g.target}"]`), lane = document.querySelector(`[data-lane="${m[2]}"]`);
-  const card = btn && btn.closest(".pile-item");
-  if (!card || !lane) return stopDemo();
-  startDemo(card, lane, g.target);
-}
+function syncDemo() { stopDemo(); }   // no drag animation unless a tutorial step asks for it (none does)
 
 // The glow moves only when the target changes. It is never removed and re-added on every update (that restarted the animation).
 function revealInPage(el) {
@@ -1496,9 +1643,10 @@ function revealInPage(el) {
   const r = el.getBoundingClientRect(), p = sc.getBoundingClientRect();
   if (r.top < p.top + 8 || r.bottom > p.bottom - 8) sc.scrollTo({ top: sc.scrollTop + (r.top - p.top) - p.height / 3, behavior: REDUCED ? "auto" : "smooth" });   // scroll the page only, never the whole window
 }
+const GLOW_OK = new Set(["start-sprint", "start-build", "end-day", "end-sprint", "to-retro", "next-sprint", "scene-next"]);   // only the big stage buttons ever glow
 function applyGuide(s) {
   const g = shownGuide(s);
-  const el = g.target ? [...document.querySelectorAll(`[data-guide="${g.target}"]`)].find((e) => e.offsetParent !== null) : null;
+  const el = g.target && GLOW_OK.has(g.target) ? [...document.querySelectorAll(`[data-guide="${g.target}"]`)].find((e) => e.offsetParent !== null) : null;
   document.querySelectorAll(".guide-on").forEach((e) => { if (e !== el) e.classList.remove("guide-on"); });
   syncDemo(g);
   if (!el) return;
@@ -1616,7 +1764,7 @@ function render() {
   run.sig = sig;
   // a new stage opens the app where that stage happens (or nudges its note if you pulled it out)
   if (!run.app) run.app = s.stage === "STANDUP" ? "slack" : "github";
-  else if (run.lastStage && run.lastStage !== s.stage && ["PLANNING", "STANDUP", "BUILD"].includes(s.stage)) {
+  else if (run.lastStage && run.lastStage !== s.stage && ["PLANNING", "STANDUP", "BUILD"].includes(s.stage) && !run.tut) {
     const to = s.stage === "STANDUP" ? "slack" : "github";
     if (isNote(to)) pingNote(to);
     else if (to !== run.app) run.app = to;
@@ -1645,7 +1793,7 @@ async function debrief() {
       : [["Rating", Number(d.rating).toFixed(2)], ["Cover", d.cover], ["Points", d.points], ["Process score", d.process_score], ["Gap (rating % minus process)", d.gap]]).map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, v)))),
     d.x && d.x.scrum ? null : h("p", { class: "muted" }, "Points never count toward your process score: honest process does."),
     d.x ? xDebrief(d.x) : null,
-    h("div", { class: "row" }, h("button", { class: "primary", onclick: () => questions("post", () => mount(h("section", { class: "card narrow" }, h("h2", {}, "Thanks for playing")))) }, "Take the post-test"), h("button", { onclick: setupRun }, "Play again"))));
+    h("div", { class: "row" }, h("button", { class: "primary", onclick: setupRun }, "Play again"))));
   if (d.ending === "win") { lastPt = null; burst(40); setTimeout(() => burst(30), 350); }
 }
 

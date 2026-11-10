@@ -139,6 +139,7 @@
   <g id="heron-eye0"><circle cx="53.500" cy="26.500" r="2.800" fill="#3C3C3C"/><circle cx="54.500" cy="25.500" r="1" fill="#fff"/></g>
   <g id="heron-eye1" fill="none" stroke="#3C3C3C" stroke-width="3.200" stroke-linecap="round"><path d="M47.500 28Q53 20 58.500 28"/></g>
   <g id="heron-eye2" fill="none" stroke="#3C3C3C" stroke-width="2.200" stroke-linecap="round"><path d="M53 26m0-1.200q3-1 2.600 2q-2.600 3.200-5.200 0q-2-4.400 2.600-5.200q5.400-.6 6.200 4.600"/></g>
+  <symbol id="c-you" viewBox="0 0 96 96"><g><circle cx="48" cy="48" r="46" fill="#D5DDE5"/><circle cx="48" cy="38" r="15" fill="#fff"/><path d="M19 86Q23 60 48 60Q73 60 77 86Q64 95 48 95Q32 95 19 86Z" fill="#fff"/></g></symbol>
   <symbol id="c-heron" viewBox="0 0 96 96"><g><use href="#heron-base"/><use href="#heron-beak"/><use href="#heron-specs"/><use href="#heron-eye0"/></g></symbol>
   <symbol id="c-heron-cheer" viewBox="0 0 96 96"><g><use href="#heron-wings-up"/><use href="#heron-base"/><use href="#heron-beak-open"/><use href="#heron-specs"/><use href="#heron-eye1"/></g></symbol>
   <symbol id="c-heron-oops" viewBox="0 0 96 96"><g><use href="#heron-base"/><use href="#heron-beak"/><use href="#heron-specs"/><use href="#heron-eye2"/><path d="M70 6l2 5 5 1-4 3 1 5-4-3-4 3 1-5-4-3 5-1z" fill="#FFC800" stroke="#3C3C3C" stroke-width="1.600" stroke-linejoin="round"/></g></symbol>

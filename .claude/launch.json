@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "fixit-dev", "runtimeExecutable": "python", "runtimeArgs": ["run_dev.py"], "port": 8000 }
+  ]
+}

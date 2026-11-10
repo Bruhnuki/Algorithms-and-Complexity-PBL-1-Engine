@@ -369,11 +369,20 @@ onboarding:
 # =====================================================================================
 calm:
   enabled: true
-  safe_sprints: 1              # no strikes, no firing and no rating game-over in the first (learning) sprint
-  coach_skill_gain: 0.1        # each help call you coach lowers that developer's mistake chance by this much...
-  coach_skill_cap: 0.3         # ...up to this total
-  debt_per_skipped_dod: 0.05   # each send with an unticked Done box adds this to every developer's mistake chance...
-  debt_cap: 0.2
-  debt_paid_per_honest_push: 0.05   # ...and each send with a fully honest checklist pays it back
+  safe_sprints: 1              # no firing for a low rating in the first (learning) sprint
+  # Trust IS each teammate's work success rate (percent). It is the chance work you give them succeeds.
+  trust_start: 80
+  trust_min: 10
+  trust_max: 100
+  offload_cost: 2              # each time you give a teammate work, their trust drops by this many points
+  coach_trust: 5               # coaching a help request
+  dod_skip_trust: 4            # sending work with an unticked Done box costs both teammates this much trust...
+  honest_push_trust: 2         # ...and a fully honest send rebuilds it
+  rating_per_point: 0.05       # the Daily Scrum effects are on a 0-100 scale; 1 point = 0.05 stars
+  standup:                     # what each Daily Scrum answer does: rating points now, trust (asking teammate), and a hidden problem that surfaces at the Review
+    accurate: {rating: 3,  trust: 3,   hidden: 0}
+    vague:    {rating: 0,  trust: -5,  hidden: 3}
+    wrong:    {rating: 10, trust: -15, hidden: 12}
+  feed_interval_s: 60          # real seconds between new items in GitHab once Work starts (not in the tutorial)
   help_call_at_min: 120        # minute of the sprint when a teammate asks for help
-  perks: [ai_assistant]        # the only skill still sold; speed and energy skills have nothing to speed up
+  perks: []                    # nothing is sold: Points became the Grade

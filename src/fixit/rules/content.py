@@ -20,9 +20,13 @@ class Content:
     tickets: dict
     tutorials: dict
     teammates: dict
-    assessment: dict
     version: str = "content-1"
     guide: dict = field(default_factory=dict)   # guided Scrum scenes (content/scrum_guide.json)
+
+    @property
+    def pool(self) -> list[str]:
+        """Ticket ids the arcade deals draw from: practice tickets belong to the tutorial only."""
+        return sorted(t for t in self.tickets if not t.startswith("practice_"))
 
     @property
     def allowed(self) -> set[str]:
@@ -63,7 +67,7 @@ def load(root: Path = ROOT) -> Content:
     return Content(
         balance=yaml.safe_load((root / "balance.yaml").read_text(encoding="utf-8")),
         tickets=many("tickets", "ticket"), tutorials=many("tutorials", "tutorial"),
-        teammates=many("teammates", "teammate"), assessment=_json(root / "assessment.json"), guide=guide)
+        teammates=many("teammates", "teammate"), guide=guide)
 
 
 _cache: Content | None = None

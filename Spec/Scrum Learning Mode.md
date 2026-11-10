@@ -38,3 +38,17 @@ All numbers are in `content/balance.yaml` under `calm:`. Beats, answers and feed
 - **Tutorial:** 8 mandatory steps (Sprint Planning, Daily Scrum, Transparency, Sprint Backlog, Definition of Done, Timeboxing, Sprint Review, Retrospective), each with Definition / Purpose / In this game / Your turn.
 - **Fonts:** in the game, regular text is DM Sans 400 (self-hosted in `web/fonts`, loaded by `game-font.css`); bold text and the landing page keep the original font.
 - **Challenge codes and the leaderboard are removed** (API field, route, screens and tests). Runs always get a random seed.
+
+## Onboarding rework
+- **Order:** intro (what the program is, the team, a Sprint flowchart) → consent → "What is the main Sprint?" flowchart (shown once) → New run → tutorial (first time only) → real Sprint 1 with its scenes.
+- **Tutorial = a practice Sprint.** It is its own throwaway run (`tutorial: true` on `POST /runs`, hidden from the instructor list) with no Scrum scenes, so nothing can interrupt it. 13 steps, each: Herb talks in short bubbles ("Next", then "Got it"), then you do the real action on the one highlighted control. A single dimmer with a spotlight cut-out covers everything else and blocks clicks; page scroll is locked; the box always stays inside the window and narrows before it would cover the control; text is 18px or larger.
+- **First run cannot be skipped.** Returning players can use "Replay the tutorial" on the New run screen, which adds a "Skip tutorial" button.
+- **The 10-question quiz is gone** (client, API routes, table model, content file, instructor "gain" column).
+
+## Tester round 2 (Game Tester Remarks-2)
+- **Trust = success rate.** Each teammate has one number (percent, starts at 80). It is the chance work you give them succeeds. Giving a teammate work is instant: it either finishes the item (counts toward the Grade and Sprint Goal) or sends it straight back to you. Every offload costs that teammate 2 points. Coaching a help request +5, a fully honest send +2 for both, a send with an unticked Done box -4 for both. In the practice Sprint the roll is forced to 100%.
+- **Daily Scrum answers** show their numbers: honest +3 rating, +3 trust; vague 0 rating, -5 trust, small hidden problem; lie +10 rating, -15 trust, big hidden problem. Rating points are on a 0-100 scale (1 point = 0.05 stars). Trust changes go to the teammate who asks. A hidden problem costs rating at the Sprint Review (vague -3, lie -12), so the lie only wins in the short term. Your reply appears in #team-chat.
+- **Grade replaces Points** (0-100%: Done work as a share of everything the project can earn). **Energy is gone** from learning mode, and so is anything for sale (Amazin' tab, AI Assistant, the Sustainable Pace practice).
+- **Live feed.** Nothing is in GitHab before Work. The first item arrives when Work starts and then one new item every 60 real seconds (all at once on day 2 and in the practice Sprint). This is the one real-time element; items have no deadline or penalty.
+- **Practice Sprint uses its own problems** (`practice_*` tickets, never dealt in real Sprints), so nothing stale carries into Sprint 1. It validates the clicked line and the chosen fix against the item, and Herb coaches wrong answers.
+- **Hints:** only the big stage buttons (Begin the Sprint, Start the work day, End the day, ...) ever glow. The drag-and-drop hint animation is removed.

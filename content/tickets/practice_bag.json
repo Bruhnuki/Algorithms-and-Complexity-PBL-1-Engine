@@ -1,0 +1,110 @@
+{
+ "id": "practice_bag",
+ "kind": "fix",
+ "difficulty": 1,
+ "concept": "conditions",
+ "title": "Bag fee is missing",
+ "doc": "bag_fee(bags) must return 0 when the customer brought their own bag (bags is 0) and 1 when they need a bag (bags is 1). Right now customers who need a bag are not charged.",
+ "params": [
+  "bags"
+ ],
+ "examples": [
+  {
+   "input": [
+    0
+   ],
+   "expected": 0
+  },
+  {
+   "input": [
+    1
+   ],
+   "expected": 1
+  },
+  {
+   "input": [
+    0
+   ],
+   "expected": 0
+  },
+  {
+   "input": [
+    1
+   ],
+   "expected": 1
+  },
+  {
+   "input": [
+    1
+   ],
+   "expected": 1
+  }
+ ],
+ "source": [
+  "function bag_fee(bags) {",
+  "  if bags == 0 {",
+  "    return 0",
+  "  } else {",
+  "    return 0",
+  "  }",
+  "}"
+ ],
+ "buggy_line": 5,
+ "blank_line": null,
+ "run_shows_failure": true,
+ "options": [
+  {
+   "id": "a",
+   "text": "    return 1",
+   "effect": "correct",
+   "bug_type": null,
+   "run_outcome": "pass"
+  },
+  {
+   "id": "b",
+   "text": "    return 2",
+   "effect": "wrong_hidden",
+   "bug_type": "wrong_result",
+   "run_outcome": "fail"
+  },
+  {
+   "id": "c",
+   "text": "    return charge",
+   "effect": "crashes",
+   "bug_type": "runtime_error",
+   "run_outcome": "error"
+  },
+  {
+   "id": "d",
+   "text": "    return 0 + 1",
+   "effect": "correct_small_flaw",
+   "bug_type": "sloppy_fix",
+   "run_outcome": "pass"
+  }
+ ],
+ "glossary": {
+  "==": "Checks whether two things are equal.",
+  "if": "Runs the next block only when the condition is true."
+ },
+ "original_outcome": "fail",
+ "tutorial": {
+  "line_notes": {
+   "1": "That line just names the function, so it can't be the problem.",
+   "2": "That line checks whether the customer brought a bag. The check itself is fine.",
+   "3": "That's the answer for customers with their own bag, who pay nothing. That part is right.",
+   "4": "That line only starts the “otherwise” branch.",
+   "6": "That bracket just closes the branch.",
+   "7": "That bracket just closes the function."
+  },
+  "hints": [
+   "Think about who should pay for a bag, then look at what each branch of the code gives back.",
+   "Look at the “otherwise” branch. That's the customer who needs a bag. Does it return what the description says?"
+  ],
+  "right_why": "A customer who needs a bag should pay 1, so the “otherwise” branch has to return 1 instead of 0.",
+  "option_notes": {
+   "b": "That charges 2, but the description says 1.",
+   "c": "“charge” isn't defined anywhere, so the app would crash.",
+   "d": "That gives 1 too, but it's a clumsy way to write it."
+  }
+ }
+}

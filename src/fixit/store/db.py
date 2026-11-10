@@ -74,16 +74,6 @@ class TranscriptLine(Base):
     prompt_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
-class Assessment(Base):
-    __tablename__ = "assessments"
-    id: Mapped[int] = mapped_column(primary_key=True)
-    user_id: Mapped[int] = mapped_column(ForeignKey("users.id"))
-    kind: Mapped[str] = mapped_column(String(4))
-    score: Mapped[int] = mapped_column(Integer)
-    max_score: Mapped[int] = mapped_column(Integer)
-    __table_args__ = (UniqueConstraint("user_id", "kind", name="uq_user_kind"),)
-
-
 class AuthEvent(Base):
     __tablename__ = "auth_events"
     id: Mapped[int] = mapped_column(primary_key=True)

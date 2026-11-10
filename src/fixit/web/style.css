@@ -411,3 +411,47 @@ body.in-game main#root { flex:1; min-height:0; width:100%; max-width:1440px; pad
 .wordbook dt { font:800 15px var(--font-head); } .wordbook dd { margin:0; color:var(--muted); font-size:14px; line-height:1.4; }
 .welcome-like .w-cards { margin-bottom:10px; } .welcome-like .w-cardic { width:34px; height:34px; } .welcome-like .ic { width:1.2em; height:1.2em; }
 @media (max-width:600px) { .wordbook dl { grid-template-columns:1fr; } .wordbook dd { margin-bottom:6px; } }
+
+/* ===== Compact game screen: the interface gets out of the way of the game ===== */
+body.in-game header.topbar { padding:4px 14px; gap:10px; border-bottom-width:2px; }
+body.in-game header.topbar h1 { font-size:17px; } body.in-game header.topbar h1 .ic { width:24px; height:24px; vertical-align:-7px; }
+body.in-game #nav { gap:8px; font-size:13px; } body.in-game #nav button { padding:4px 12px; font-size:12px; border-bottom-width:3px; }
+body.in-game main#root { padding:8px 10px; }
+.gamelayout { gap:10px; }
+.gamelayout > .win { border-radius:14px; border-bottom-width:4px; }
+.gamelayout .tabstrip { padding:5px 8px 0; } .gamelayout .btab { padding:5px 12px; font-size:14px; gap:6px; }
+.gamelayout .addr { padding:4px 10px; gap:6px; }
+.gamelayout .url { flex:0 1 220px; padding:3px 10px; font-size:12px; } .gamelayout .navg { display:none; }
+.gamelayout #meters { gap:4px; } .gamelayout .meter { padding:1px 8px; gap:4px; font-size:13px; border-width:2px; }
+.gamelayout .meter b { font-size:14px; } .gamelayout .meter .bar { width:44px; height:6px; } .gamelayout .meter .lbl .ic { width:15px; height:15px; }
+.gamelayout .meter[data-k="Stage"] { display:none; }
+.gamelayout .coach { padding:5px 12px; gap:10px; min-height:0; }
+.gamelayout .coach .heron .ic { width:30px; height:30px; }
+.gamelayout .coach .gstep { font-size:15px; } .gamelayout .coach .nextlbl { font:800 12px var(--font-head); text-transform:uppercase; letter-spacing:.6px; color:var(--blue-d); }
+.gamelayout .coach .gwhy { font-size:12.5px; line-height:1.3; }
+.gamelayout .hud { padding:3px 12px; gap:3px; } .gamelayout .hud .chip { padding:1px 8px; font-size:12px; border-width:2px; } .gamelayout .hud .chip .ic { width:14px; height:14px; }
+.gamelayout .apphead { display:none; }
+.gamelayout .page { padding:10px; }
+.gamelayout .card { padding:12px 14px; margin-bottom:10px; } .gamelayout .card h2 { font-size:18px; margin-bottom:4px; }
+.gamelayout .pile-item { padding:8px 10px; margin-top:6px; } .gamelayout .pile-item .row { gap:4px; margin-top:6px; } .gamelayout .pile-item button { padding:5px 9px; font-size:12px; }
+.gamelayout .gh { grid-template-columns:270px minmax(0,1fr); gap:10px; }
+@media (max-width:900px) { .gamelayout .gh { grid-template-columns:minmax(0,1fr); } }
+
+/* ===== Live team board ===== */
+.pile-item[draggable="true"] { cursor:grab; } .pile-item[draggable="true"]:active { cursor:grabbing; }
+.pile-item.outage { border-color:var(--red); background:var(--red-soft); animation:shake .5s 1; } .pile-item.urgent { border-color:var(--orange); }
+.board { display:flex; flex-direction:column; gap:10px; }
+.combo { display:flex; align-items:baseline; flex-wrap:wrap; gap:6px; padding:6px 12px; border:2px solid var(--line); border-radius:12px; background:#fff; }
+.combo b { font:800 16px var(--font-head); } .combo.hot { border-color:var(--orange); background:#FFF3E0; } .combo.hot b { color:var(--orange-d); font-size:20px; }
+.lanes3 { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px; }
+@media (max-width:1100px) { .lanes3 { grid-template-columns:minmax(0,1fr); } }
+.lane-card { display:flex; flex-direction:column; gap:8px; min-height:170px; padding:12px; border:var(--bw) solid var(--line); border-bottom-width:5px; border-radius:16px; background:#fff; transition:background .15s, border-color .15s; }
+.lane-card.free { border-style:dashed; } .lane-card.over { border-color:var(--blue); background:var(--blue-soft); border-style:solid; }
+.lane-card.me { background:#FBFDFF; }
+.lane-card.is-stuck { border-color:var(--red); background:var(--red-soft); }
+.lane-head { display:flex; align-items:center; gap:10px; } .lane-head small { display:block; color:var(--muted); font-size:12px; line-height:1.3; }
+.lane-head .av, .lane-head .lane-av { width:44px; height:44px; flex:none; }
+.lane-free { margin:auto 0; text-align:center; color:var(--muted); font-weight:800; }
+.lane-task { font:800 14px var(--font-head); }
+.bar.mprog { height:14px; border-radius:7px; } .bar.mprog i { background:var(--green); transition:width .9s linear; } .bar.mprog.stuck i { background:var(--red); }
+.stuckbox { display:flex; flex-direction:column; gap:6px; } .stuckbox b { color:var(--red-d); }

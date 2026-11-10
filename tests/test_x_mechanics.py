@@ -110,10 +110,12 @@ def test_M5_seeds_deal_different_sprints_without_repeating_tickets(xcontent):
 
 
 def test_M8_intents_never_reveal_ping_kind(xcontent):
-    s = to_build(xcontent)
-    x = reducer.public_state(s, xcontent)["x"]
-    assert x["intents"], "something should be coming up"
-    for i in x["intents"]:
+    seen = []
+    for seed in range(8):
+        s = to_build(xcontent, seed)
+        seen += reducer.public_state(s, xcontent)["x"]["intents"]
+    assert seen, "something should be coming up in at least one of these runs"
+    for i in seen:
         assert "trap" not in i["text"] and "clue" not in i["text"]
 
 

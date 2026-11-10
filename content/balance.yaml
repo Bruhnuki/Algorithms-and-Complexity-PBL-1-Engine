@@ -113,12 +113,13 @@ experimental:
 
   # M5 seeded runs: what each sprint deals. Index 0 = sprint 1.
   sprint_deal:
-    code_cards: [2, 3, 4]
+    code_cards: [3, 4, 4]           # enough work to keep you and the team busy
     help_calls: [1, 1, 2]
     status_demands: [1, 1, 1]
     calls: [3, 3, 4]
     pings: [4, 4, 5]
-    spread_min: [0, 620]             # cards arrive between these minutes of the sprint (day 2 starts at 480)
+    spread_min: [30, 620]            # cards arrive between these minutes of the sprint (day 2 starts at 480)
+    start_cards: 3                   # waiting at the start: one each for Ines, Tobi and you
     call_spread_min: [30, 900]
     ping_spread_min: [20, 900]
     deadline_min: [240, 420]         # each card's first deadline after it arrives

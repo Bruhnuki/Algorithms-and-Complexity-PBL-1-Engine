@@ -229,7 +229,10 @@ function conceptFor(s) {
     ["suspicion", s.meters.cover >= 20],
     ["review_end", s.sprint === 2 && s.stage === "PLANNING"],
     ["practices", !!(x.shop && f.has("practices"))],
-    ["delegate", f.has("delegate") && build],
+    ["team", !!x.team && build && !s.work],
+    ["stuck", !!x.team && Object.values(x.team).some((m) => m.stuck)],
+    ["outage", s.pile.some((c) => c.outage && c.state !== "done")],
+    ["combo", !!(x.combo && x.combo.count >= 1)],
     ["review_changes", s.pile.some((c) => c.review)],
     ["coming_up", f.has("intents") && build],
     ["hand", f.has("hand") && !!x.hand && build],
@@ -311,13 +314,24 @@ const XTOAST = {
   change_fixed: () => ["good", "Change fixed"],
   deck_changed: (e) => ["info", e.added ? `Added a ${CARD_KINDS[e.added][0]} card to your deck` : `Removed a ${CARD_KINDS[e.removed][0]} card`],
   hand_drawn: (e) => ["info", `New hand: ${e.cards.map((k) => CARD_KINDS[k][0]).join(", ")}`],
+  dev_started: (e) => ["info", `${who(e.dev)} started working on it`],
+  dev_done: (e) => ["good", `${who(e.dev)} finished! Check the work before it goes to users`],
+  dev_stuck: (e) => ["bad", `${who(e.dev)} is stuck and has stopped working`],
+  dev_unblocked: (e) => ["good", `${who(e.dev)} is back to work`],
+  dev_still_stuck: (e) => ["bad", `${who(e.dev)} was stuck too long: the request got louder`],
+  combo: (e) => ["good", `Combo ${e.count}! +${e.points} bonus points`],
+  combo_broken: (e) => ["bad", `Combo broken: ${e.why}`],
+  outage: (e) => ["bad", `Production outage! Users can't use the app. Fix it within ${e.minutes} min`],
+  outage_fixed: (e) => ["good", `Outage fixed! +${e.points} pts, rating +${e.rating}`],
+  outage_missed: (e) => ["bad", `The outage dragged on: rating ${e.rating}, Suspicion +${e.cover}`],
+  urgent: (e) => ["warn", `Marlo: "This one is urgent!" Done within ${e.minutes} min pays +${e.points}`],
   sprint_dealt: (e) => ["info", e.boss ? "Boss sprint: " + (BOSSES[e.boss] || {}).name : "Sprint " + e.sprint + " dealt"],
 };
 
 function collect(events) {
   for (const e of events) {
     const t = e.type;
-    if (XTOAST[t]) { const [k, m] = XTOAST[t](e); toast(k, m); if (t === "clutch" || t === "practice_gained") burst(); if (t === "last_stand") shakeScreen(); }
+    if (XTOAST[t]) { const [k, m] = XTOAST[t](e); toast(k, m); if (["clutch", "practice_gained", "combo", "outage_fixed"].includes(t)) burst(); if (["last_stand", "outage", "dev_stuck", "combo_broken"].includes(t)) shakeScreen(); }
     if (["pushed", "push_blocked", "review_resolved", "rating_resolved", "attack_check_resolved", "warning_issued", "contradiction_detected", "card_escalated", "call_missed"].includes(t)) {
       run.wall.push(e); react(e);
     }
@@ -432,20 +446,40 @@ function guide(s) {
   }
   if (s.open_card) return g("Send your reply", "This request only needs an answer, no code.", "push", "github");
   const live = s.pile.filter((c) => c.state !== "done");
+  const open = run.reviewing && live.find((c) => c.id === run.reviewing && c.review);
+  if (open) {
+    const r = open.review, found = r.changes.filter((ch) => ch.shown === "faulty" && ch.sure).length;
+    const toFix = r.changes.find((ch) => ch.shown === "faulty" && !ch.fixed);
+    if (toFix) return g("Fix the faulty change you found", "Fixing it now means users never see that mistake.", "fixchange", "github");
+    if (found < r.faulty_count) return g(`Find the faulty change: ${r.faulty_count - found} still hidden`, "Test a change (needs a Test card later on) or ask the author (costs a little trust). You know how many are faulty, not which.", "inspect", "github");
+    return g("Send it to users", r.faulty_count ? "You found and fixed every faulty change. This counts toward your sprint goal." : "Nothing is faulty. Shipping it counts toward your sprint goal.", "review-ship", "github");
+  }
   const rev = live.find((c) => c.review);
   if (rev) return g(`Check the work ${who(rev.review.assignee || "dev1")} sent back`, "Work from the team can contain mistakes. Check it before users see it.", "review:" + rev.id, "github");
+  const stuck = x.team && ["dev1", "dev2"].find((d) => x.team[d].stuck);
+  if (stuck) return g(`${who(stuck)} is stuck: unblock them`, "A stuck teammate makes no progress. Clearing blockers is the Scrum Master's main job.", "unblock:" + stuck, "github");
   const help = live.find((c) => c.type === "help_call" && c.state === "pile");
   if (help && hasCard(s, "coach")) return g(`Help ${who(help.sender)}`, "Coaching costs a little time now, and next time they solve it alone. It raises your teamwork score.", "coach:" + help.id, "github");
   const goalMet = !x.goal || x.goal.met;
   const code = live.find((c) => (c.type === "fix" || c.type === "build") && c.state === "pile");
+  const free = x.team && ["dev1", "dev2"].find((d) => !x.team[d].task);
+  const urgentOne = live.find((c) => (c.outage || c.urgent) && c.state === "pile");
+  const target = urgentOne || code;
+  if (free && target && hasCard(s, "delegate") && f.has("delegate"))
+    return g(`Give "${target.title || typeLabel(target.type)}" to ${who(free)}`, `${who(free)} is free. Keep your team busy and check their work when it comes back. Or drag it onto "You" to fix it yourself.`, `give:${target.id}:${free}`, "github");
   if (!goalMet && code) {
     if (!hasCard(s, "work")) return g("Regroup to get a Work card", "Every move needs a matching card. Regroup draws a fresh hand.", "regroup", "github");
-    return g(`Fix "${code.title}" yourself` + (f.has("delegate") ? ", or ask the team" : ""), `Sprint goal: send ${x.goal.target} fix${x.goal.target > 1 ? "es" : ""} to users. ${x.goal.shipped} done so far.`, "work:" + code.id, "github");
+    return g(`Fix "${code.title}" yourself` + (x.team ? " while the team is busy" : ""), `Sprint goal: send ${x.goal.target} fix${x.goal.target > 1 ? "es" : ""} to users. ${x.goal.shipped} done so far.`, "work:" + code.id, "github");
   }
   if (x.release && x.release.items.length) return g("Send your release to users", "Finished fixes wait in the release until you send it. That's when the points arrive.", "ship-release", "github");
   const other = live.find((c) => c.state === "pile" && (c.type === "status_demand" || c.type === "problem_report"));
   if (other && hasCard(s, "work")) return g(`Answer "${typeLabel(other.type)}" from ${who(other.sender)}`, "Requests you ignore get louder and raise Suspicion.", "work:" + other.id, "github");
   if (code && hasCard(s, "work")) return g(`Goal done! Fix "${code.title}" too, or end the ${s.day >= 2 ? "sprint" : "day"}`, "Extra fixes earn points. Unfinished requests keep getting louder.", "work:" + code.id, "github");
+  const busy = x.team && ["dev1", "dev2"].find((d) => x.team[d].task);
+  if (busy && (!goalMet || s.day < 2)) {
+    const m = x.team[busy];
+    return g(`${who(busy)} is working on it: about ${m.eta_min} min left`, `When ${who(busy)} finishes, the work comes back for you to check. Ending the ${s.day >= 2 ? "sprint" : "day"} now would leave it unfinished.`, null, "github");
+  }
   return s.day >= 2 ? g("Finish the sprint", "Users see the result and you get your sprint review.", "end-sprint", "github")
     : g("End the day", "Tomorrow starts with another standup.", "end-day", "github");
 }
@@ -464,12 +498,16 @@ const dur = (mins) => { mins = Math.max(0, Math.round(mins)); const hh = Math.fl
 function pilePanel(s) {
   const f = new Set((s.x && s.x.features) || []), canDelegate = !s.x || f.has("delegate");
   const isCode = (c) => c.type === "fix" || c.type === "build";
+  const team = s.x && s.x.team;
+  const give = (c, d) => h("button", { "data-guide": `give:${c.id}:${d}`, title: `Hand it to ${who(d)}` + needs(s, "delegate"), disabled: !hasCard(s, "delegate") || !!team[d].task,
+    onclick: () => cmd("delegate", { card_id: c.id, to: d }) }, team[d].task ? `${who(d)} is busy` : `Give to ${who(d)}`);
   const moves = (c) => s.stage !== "BUILD" || c.state === "delegated" ? [] : c.review ? [
     h("button", { class: "primary", "data-guide": "review:" + c.id, title: "Check their work change by change", onclick: () => { run.reviewing = c.id; run.sig = null; render(); } }, "Check their work")] : [
     c.state !== "open" ? h("button", { "data-guide": "work:" + c.id, title: (isCode(c) ? "Read the code and fix it yourself" : "Open it and reply") + needs(s, "work"), onclick: () => cmd("open_card", { card_id: c.id }), disabled: !!s.open_card || !hasCard(s, "work") },
       c.state === "returned" ? "Check their work" : isCode(c) ? "Fix it myself" : "Open")
       : h("button", { title: "Put it back on the list for now", onclick: () => cmd("hold") }, "Put it down"),
-    canDelegate ? h("button", { title: "Hand it to a developer. You check their work when it comes back." + needs(s, "delegate"), disabled: !hasCard(s, "delegate"), onclick: () => cmd("delegate", { card_id: c.id }) }, "Ask the team") : null,
+    canDelegate && team && c.state === "pile" ? [give(c, "dev1"), give(c, "dev2")]
+      : canDelegate && !team ? h("button", { title: "Hand it to a developer. You check their work when it comes back." + needs(s, "delegate"), disabled: !hasCard(s, "delegate"), onclick: () => cmd("delegate", { card_id: c.id }) }, "Ask the team") : null,
     c.type === "help_call" ? h("button", { "data-guide": "coach:" + c.id, title: "Teach them how to solve it" + needs(s, "coach"), disabled: !hasCard(s, "coach"), onclick: () => cmd("coach", { card_id: c.id }) }, "Help them") : null,
     h("button", { title: "Move it down the list. It gets a little louder." + needs(s, "defer"), disabled: !hasCard(s, "defer"), onclick: () => cmd("defer", { card_id: c.id }) }, "Later")];
   const live = s.pile.filter((c) => c.state !== "done");
@@ -477,16 +515,21 @@ function pilePanel(s) {
   return h("section", { class: "card", id: "pile", "aria-label": "To-do list" }, h("h2", {}, ic("clipboard"), " ", term("todo"), ` (${live.length})`),
     h("p", { class: "sub" }, "Everything your team is asking you for."),
     live.length ? null : h("p", { class: "muted" }, "Nothing here right now. New requests arrive during the day."),
-    live.map((c) => h("div", { class: `pile-item esc${c.escalation}` + (c.state === "open" ? " open" : "") + (c.bounty ? " bounty" : "") + (c.spot ? " spot" : "") },
+    live.map((c) => h("div", { class: `pile-item esc${c.escalation}` + (c.state === "open" ? " open" : "") + (c.bounty ? " bounty" : "") + (c.spot ? " spot" : "") + (c.outage ? " outage" : "") + (c.urgent ? " urgent" : ""),
+      draggable: team && s.stage === "BUILD" && c.state === "pile" ? "true" : null,
+      ondragstart: (e) => { run.dragCard = c.id; run.dragging = true; e.dataTransfer.setData("text/plain", c.id); },
+      ondragend: () => { run.dragging = false; run.dragCard = null; setTimeout(() => { run.sig = null; render(); }, 0); } },
+      c.outage ? h("span", { class: "chip danger" }, ic("alert"), " Outage! Users can't use the app") : null,
+      c.urgent ? h("span", { class: "chip goal" }, ic("bolt"), " Urgent: bonus if done on time") : null,
       h("b", {}, ic(typeIcon(c.type)), " " + (c.spot ? "Spot check: " : "") + (c.title || typeLabel(c.type))),
       c.bounty ? h("span", { class: "chip good" }, "Bounty: extra points for a clean fix") : null,
-      h("div", { class: "tag" }, TYPE_TERM[c.type] ? term(TYPE_TERM[c.type], typeLabel(c.type)) : typeLabel(c.type), ` from ${NAMES[c.sender] || c.sender}`,
-        c.state === "delegated" ? " · with the team" : c.state === "returned" ? " · back from the team" : ""),
+      h("div", { class: "tag" }, TYPE_TERM[c.type] ? term(TYPE_TERM[c.type], typeLabel(c.type)) : typeLabel(c.type), ` from ${who(c.sender)}`,
+        c.state === "delegated" ? ` · ${who(c.assignee || "dev1")} is on it` : c.state === "returned" ? ` · back from ${who(c.assignee || "dev1")}` : ""),
       h("div", { class: "tag" }, c.deadline_min == null ? "Overdue" : c.deadline_min <= s.clock_min ? "Due now" : `Due in ${dur(c.deadline_min - s.clock_min)}`,
         c.payoff.points ? ` · reward +${c.payoff.points} points` : "", c.penalty.cover ? ` · ignore it and Suspicion +${c.penalty.cover}` : ""),
       c.escalation ? h("div", { class: "tag louder" }, term("escalation", louder[c.escalation] || louder[2])) : null,
       s.x ? priceTag(s, c) : null,
-      h("div", { class: "row" }, moves(c),
+      h("div", { class: "row" }, moves(c).flat(),
         s.x && s.x.retro_left > 0 && c.escalation > 0 && s.stage === "BUILD" ? h("button", { title: "Retrospective: calm this card back down", onclick: () => cmd("retro", { card_id: c.id }) }, "Calm it down") : null))));
 }
 
@@ -622,7 +665,53 @@ function slackApp(s) {
           : h("p", { class: "muted" }, "No messages yet. Enjoy the quiet while it lasts."))));
 }
 
+// ---- The live team board: drag a request onto a person (or use the buttons). Teammates work in real time.
+const TEAM_INFO = { dev1: ["Ines", "Fast and careful"], dev2: ["Tobi", "Slow, makes more mistakes"] };
+function dropZone(el, onDrop) {
+  el.addEventListener("dragover", (e) => { if (run.dragCard) { e.preventDefault(); el.classList.add("over"); } });
+  el.addEventListener("dragleave", () => el.classList.remove("over"));
+  el.addEventListener("drop", (e) => { e.preventDefault(); el.classList.remove("over"); const id = run.dragCard; run.dragCard = null; if (id) onDrop(id); });
+  return el;
+}
+function teamBoard(s) {
+  const x = s.x, cb = x.combo;
+  const next = s.day >= 2 ? ["REVIEW", "Finish the sprint", "end-sprint"] : ["STANDUP", "End the day", "end-day"];
+  const short = s.day >= 2 && !x.goal.met;
+  const me = dropZone(h("div", { class: "lane-card me" },
+    h("div", { class: "lane-head" }, ic("c-heron", "lane-av"), h("div", {}, h("b", {}, "You"), h("small", {}, "Scrum Master · drop a request here to fix it yourself"))),
+    h("p", { class: "muted small" }, "Fixing it yourself is slower for you, but you control the quality."),
+    short ? h("p", { class: "cost risk" }, `Sprint goal not met yet (${x.goal.shipped} of ${x.goal.target}). Finishing now means a strike.`) : null,
+    releaseEl(s),
+    h("div", { class: "row" }, h("button", { "data-guide": next[2], onclick: () => cmd("advance_stage", { to: next[0] }), disabled: !!s.open_card }, next[1]))),
+    (id) => cmd("open_card", { card_id: id }));
+  const mates = ["dev1", "dev2"].map((d) => {
+    const m = x.team[d], [nm, trait] = TEAM_INFO[d];
+    const body = !m.task ? h("p", { class: "lane-free" }, "Free. Drag a request here.")
+      : [h("div", { class: "lane-task" }, ic("hammer"), " " + (m.title || "Working")),
+        h("div", { class: "bar mprog" + (m.stuck ? " stuck" : ""), "data-dev": d }, h("i", {})),
+        m.stuck ? h("div", { class: "stuckbox" }, h("b", {}, `${nm} is stuck!`), h("span", { class: "small" }, ` No progress until you help (${m.stuck_min} min so far).`),
+          h("button", { class: "primary", "data-guide": "unblock:" + d, onclick: () => cmd("unblock", { dev: d }) }, `Unblock (${x.unblock_min} min)`))
+          : h("small", { class: "muted eta", "data-dev": d }, `About ${m.eta_min} min left`)];
+    const el = h("div", { class: "lane-card" + (m.stuck ? " is-stuck" : m.task ? " busy" : " free"), "data-lane": d },
+      h("div", { class: "lane-head" }, avatar(d, m.stuck ? "panicked" : "calm"), h("div", {}, h("b", {}, nm), h("small", {}, trait + ` · ${Math.round(100 * m.bug_chance)}% chance of mistakes`))), body);
+    return m.task ? el : dropZone(el, (id) => cmd("delegate", { card_id: id, to: d }));
+  });
+  return h("section", { class: "board" },
+    h("div", { class: "combo" + (cb && cb.count ? " hot" : "") }, h("b", {}, cb && cb.count ? `Combo ${cb.count}` : "No combo yet"),
+      h("span", { class: "small" }, cb ? ` · next on-time finish pays ×${cb.next_mult}. Anything that gets louder breaks it.` : "")),
+    h("div", { class: "lanes3" }, me, mates));
+}
+// progress bars move every second without rebuilding the page
+function syncTeam(s) {
+  const team = s.x && s.x.team;
+  if (!team) return;
+  document.querySelectorAll(".mprog[data-dev]").forEach((b) => { const m = team[b.dataset.dev]; if (m) b.firstChild.style.width = Math.round(100 * m.progress) + "%"; });
+  document.querySelectorAll(".eta[data-dev]").forEach((e) => { const m = team[e.dataset.dev]; if (m && m.eta_min != null) e.textContent = `About ${m.eta_min} min left`; });
+}
+
 function githubApp(s) {
+  const board = s.x && s.x.team && s.stage === "BUILD" && !s.work && !(run.reviewing && s.pile.some((c) => c.id === run.reviewing && c.review));
+  if (board) return h("div", { class: "gh board-mode" }, h("aside", {}, pilePanel(s), intentsEl(s)), h("div", { class: "main" }, teamBoard(s)));
   return h("div", { class: "gh" }, h("aside", {}, lanesEl(s), pilePanel(s), intentsEl(s)),
     h("div", { class: "main" }, s.stage === "STANDUP"
       ? h("section", { class: "card" }, h("h2", {}, "Standup is happening in " + appName("slack")), h("p", {}, "Your teammate is waiting for your answer."), h("button", { class: "primary", onclick: () => openApp("slack") }, "Open " + appName("slack")))
@@ -768,19 +857,19 @@ function reviewDesk(s, c) {
   const trust = R.trust ? R.trust[r.assignee || "dev1"] : null;
   const fixed = r.changes.filter((ch) => ch.fixed).length, found = r.changes.filter((ch) => ch.shown === "faulty").length;
   return h("section", { class: "card", "aria-label": "Review submission" },
-    h("h2", {}, ic("search"), " Review: " + (c.title || c.ticket)),
-    h("p", { class: "bossnote" }, `${r.faulty_count} of ${r.changes.length} changes are faulty. Find them before you ship.`),
+    h("h2", {}, ic("search"), ` Check ${who(r.assignee || "dev1")}'s work: ` + (c.title || c.ticket)),
+    h("p", { class: "bossnote" }, r.faulty_count ? `${r.faulty_count} of ${r.changes.length} changes have a mistake. Find and fix them before users see it.` : `None of the ${r.changes.length} changes has a mistake. You can send it straight to users.`),
     h("div", { class: "changes" }, r.changes.map((ch, i) => h("div", { class: "change " + (ch.fixed ? "fixed" : ch.shown || "unknown") },
       h("b", {}, `Change ${i + 1}`), h("span", { class: "small" }, ch.fixed ? "Fixed" : ch.shown === "faulty" ? "Faulty" + (ch.sure ? "" : " (AI says)") : ch.shown === "ok" ? (ch.sure ? "Fine" : "Fine (AI says)") : "Not checked"),
       ch.fixed || (ch.sure && ch.shown === "ok") ? null : ch.shown === "faulty"
-        ? h("button", { class: "primary", disabled: !hasCard(s, "work"), title: "Fix this change" + needs(s, "work"), onclick: () => cmd("review_fix", { card_id: c.id, index: i }) }, `Fix (${R.fix_min} min)`)
+        ? h("button", { class: "primary", "data-guide": "fixchange", disabled: !hasCard(s, "work"), title: "Fix this change" + needs(s, "work"), onclick: () => cmd("review_fix", { card_id: c.id, index: i }) }, `Fix (${R.fix_min} min)`)
         : h("div", { class: "row" },
-          h("button", { disabled: !hasCard(s, "test"), title: "Run the tests on this change" + needs(s, "test"), onclick: () => cmd("review_inspect", { card_id: c.id, index: i, tool: "test" }) }, `Test ${R.inspect_min}m`),
+          h("button", { "data-guide": "inspect", disabled: !hasCard(s, "test"), title: "Run the tests on this change" + needs(s, "test"), onclick: () => cmd("review_inspect", { card_id: c.id, index: i, tool: "test" }) }, `Test ${R.inspect_min}m`),
           h("button", { disabled: trust === 0, title: "Ask the author. Costs their trust.", onclick: () => cmd("review_inspect", { card_id: c.id, index: i, tool: "ask" }) }, "Ask"),
           perks ? h("button", { disabled: !hasCard(s, "assist"), title: "AI Assistant: wrong 1 time in 5" + needs(s, "assist"), onclick: () => cmd("review_inspect", { card_id: c.id, index: i, tool: "assistant" }) }, "AI") : null)))),
     h("p", { class: "muted small" }, `Found ${found}, fixed ${fixed}.` + (trust != null ? ` ${NAMES[r.assignee || "dev1"]} trust: ${trust} of ${R.trust_max}. Low trust means more bugs from them.` : "")),
     h("div", { class: "row" },
-      h("button", { class: "primary", onclick: () => { run.reviewing = null; cmd("review_ship", { card_id: c.id }); } }, ic("rocket"), " Ship it"),
+      h("button", { class: "primary", "data-guide": "review-ship", onclick: () => { run.reviewing = null; cmd("review_ship", { card_id: c.id }); } }, ic("rocket"), " Send to users"),
       h("button", { onclick: () => { run.reviewing = null; cmd("review_send_back", { card_id: c.id }); } }, "Send it back"),
       h("button", { onclick: () => { run.reviewing = null; run.sig = null; render(); } }, "Close")));
 }
@@ -1012,7 +1101,7 @@ function tabsEl(s) {
   return h("div", { class: "tabstrip", role: "tablist", "aria-label": "Open apps", "data-region": "tabs" }, left.map((a) => h("button", { class: `btab app-${a.id}` + (a.id === run.app ? " active" : ""), role: "tab", "aria-selected": String(a.id === run.app), "data-app": a.id, "data-guide": "tab:" + a.id,
     onpointerdown: (e) => startTabDrag(e, a.id), onclick: () => { if (!swallow) openApp(a.id); } },
     h("span", { class: "fav", "aria-hidden": "true" }, ic(a.icon)), h("span", {}, a.name), badgeEl(a.id, s))),
-    left.length > 1 ? h("span", { class: "tabhint" }, "Tip: pull a tab down to make a sticky note") : null);
+    null);
 }
 // unread counts change often: update them in place instead of rebuilding the tabs
 function syncBadges(s) {
@@ -1032,7 +1121,7 @@ function shownGuide(s) {
   return g;
 }
 const coachEl = (s) => { const g = shownGuide(s); return h("div", { class: "coach", "data-region": "coach" }, h("span", { class: "heron", "aria-hidden": "true" }, ic("c-heron")),
-  h("div", { class: "say" }, h("small", { class: "nextlbl" }, "Next step"), h("b", { class: "gstep" }, g.step), g.why ? h("div", { class: "gwhy" }, "Why: " + g.why) : null), steps(s)); };
+  h("div", { class: "say" }, h("b", { class: "gstep" }, h("span", { class: "nextlbl" }, "Next: "), g.step), g.why ? h("div", { class: "gwhy" }, g.why) : null)); };
 function applyGuide(s) {
   document.querySelectorAll(".guide-on").forEach((e) => e.classList.remove("guide-on"));
   const g = shownGuide(s);
@@ -1083,7 +1172,8 @@ const PAGE_DEPS = {
   slack: (s) => [run.lines.slice(-12).map((l) => l.id), s.stage, s.standup, s.x ? [s.x.standup_timer_s, s.x.prices] : null],
   github: (s) => [s.pile, s.stage, s.work, s.open_card, s.day, s.perks, run.runs, s.standup,
     s.x ? [s.x.shop, s.x.intents, s.x.move_costs, s.x.retro_left, s.x.next_clean_factor, s.x.practices, s.meters.points, s.x.goal,
-      s.x.hand, s.x.release, s.x.mult, s.x.review, run.reviewing] : null],
+      s.x.hand, s.x.release, s.x.mult, s.x.review, run.reviewing,
+      s.x.team && Object.values(s.x.team).map((m) => [m.task, m.stuck, m.stuck && m.stuck_min, !m.task && 0]), s.x.combo] : null],
   play: (s) => [Number(s.meters.rating), reviewList().length],
   youtube: (s) => [s.unlocked],
   shop: (s) => [s.perks, s.x ? [s.x.shop, s.meters.points, s.x.heat, s.x.hand] : null],
@@ -1108,6 +1198,7 @@ function updateScreen(s) {
     run.regs = Object.fromEntries(Object.entries(REGIONS).map(([k, r]) => [k, r.sig(s)])); run.notesSig = notesSig(s);
     run.pageSigs = {};
     syncPages(s);
+    syncTeam(s);
     return;
   }
   const keep = scrollables().map((e) => e.scrollTop);   // a rebuilt list must not jump back to the top
@@ -1118,6 +1209,7 @@ function updateScreen(s) {
     document.querySelector(`#root [data-region="${name}"]`).replaceWith(r.build(s));
   }
   syncPages(s);
+  syncTeam(s);
   syncBadges(s);
   const ns = notesSig(s);
   if (ns !== run.notesSig) { run.notesSig = ns; document.querySelector(".notes").replaceWith(notesLayer(s)); }

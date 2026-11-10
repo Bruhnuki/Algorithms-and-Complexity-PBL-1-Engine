@@ -912,13 +912,13 @@ def _x_deal_sprint(s: dict, ev: list, content: Content) -> None:
     dlo, dhi = d["deadline_min"]
 
     def card(spec_type, sender, ticket, payoff, penalty, first=False):
-        at = lo if first else _rand_between(s, pur, lo, hi)   # the first ticket is waiting when the sprint starts
+        at = 0 if first else _rand_between(s, pur, lo, hi)   # the first tickets are waiting when the sprint starts
         return {"at_s": t0 + at * 60, "kind": "card", "spec": {"type": spec_type, "sender": sender, "ticket": ticket,
                 "deadline": (t0 / 60) + at + _rand_between(s, pur, dlo, dhi), "payoff": payoff, "penalty": penalty}}
     for n, t in enumerate(picks):
         kind = content.tickets[t]["kind"]
         items.append(card("build" if kind == "build" else "fix", "po" if kind == "build" else ("dev1", "dev2")[n % 2],
-                          t, dict(d["code_payoff"]), dict(d["code_penalty"]), first=(n == 0)))
+                          t, dict(d["code_payoff"]), dict(d["code_penalty"]), first=(n < d.get("start_cards", 1))))
     for n in range(d["help_calls"][i]):
         items.append(card("help_call", ("dev2", "dev1")[n % 2], None, {}, dict(d["other_penalty"])))
     for _ in range(d["status_demands"][i]):

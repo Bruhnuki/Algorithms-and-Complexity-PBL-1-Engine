@@ -65,3 +65,43 @@ The welcome is now: hello, the story, the team, how a round works, pick a projec
 - Sprint 3 (action cards, releases, the boss) was not played through in the browser.
 - The main game (`main`) and the first experimental branch do not have these changes.
 - The landing page still uses some of the old words.
+
+## Round 2: real gameplay and a compact screen
+
+Feedback: half the screen was interface, and the game was still "click a button, wait, click another button".
+
+### The new core loop: run a live team
+
+During work time, GitHab shows a **team board**: your to-do list on the left and three lanes on the right, **You**, **Ines** and **Tobi**.
+
+- **Drag a request onto a person** (or press "Give to Ines" or "Give to Tobi"). Drop it on **You** to fix it yourself in the code.
+- **Teammates work in real time.** Their progress bar fills as the clock runs. Ines is fast and careful (30% mistakes); Tobi is slow and makes more mistakes (60%). Each can hold one task, so who gets what is a real decision.
+- **They get stuck.** A stuck teammate stops working until you press **Unblock** (8 min of your time). Left stuck for 45 min, the request gets louder. This is the Scrum Master's real job: clearing blockers.
+- **Their work comes back to check.** You know how many of the 5 changes have a mistake, not which. Find them, fix them, send it to users, or rush it out unchecked.
+- **Combo.** Finishing requests on time, one after another, builds a combo that pays a growing bonus (+25% per step, up to +150%). Anything getting louder, or anything broken reaching users, breaks it.
+- **Surprises.** A **production outage** (the app is broken for everyone: fix it within 70 minutes for +150 points and +0.1 rating, or lose 0.3 rating) and **urgent requests** from Marlo (less time, bonus if on time) arrive at random times. They are never shown in "Coming up".
+- **Enough to do.** Three requests wait at the start of each sprint (one for each of you), and more arrive through the day, so the player is rarely waiting.
+
+All numbers are in `content/balance.yaml` under `originals.team_board`, `originals.combo` and `originals.events`. Asking the team is now available from sprint 1 (`onboarding.unlock_sprint.delegate: 1`), because the team board is the core of the game.
+
+### Compact screen
+
+On a 1366 × 768 screen the game area now starts about 210 px from the top (about 70% of the height was gameplay, up from about half):
+
+- Top bar: smaller title, smaller Log out button.
+- Address bar: shorter URL, compact meters, the Stage meter removed (the roadmap shows it).
+- Guide: one line for the next step and one short line for why; the step pills are gone (the roadmap shows them).
+- Status chips: one slim row.
+- The "GitHab · Your to-do list and the code" title bar and the "pull a tab down" tip are gone. Tabs can still be pulled out into sticky notes.
+
+### Checked
+
+- Scripted browser runs that only followed the glowing guide: gave work to Ines and Tobi, fixed one request themselves while the team worked, checked returned work (found and fixed a hidden mistake), and shipped. Waiting dropped to a few seconds.
+- Bots over 40 seeds: the coaching-and-delegating bot wins 35, the do-it-all-yourself bot 31.
+- 182 tests pass, including `test_TEAM_*`, `test_COMBO_*` and `test_EVENTS_*`.
+
+### Not checked
+
+- No real player has tried this version. Whether it *feels* exciting needs a playtest.
+- Drag and drop was tested through its button equivalent in scripts, not with a mouse drag.
+- Sprint 3 and the boss were not played in the browser.

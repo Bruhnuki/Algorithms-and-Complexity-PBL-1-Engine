@@ -107,6 +107,18 @@ class Bot:
     def play(self) -> "Bot":
         if self.policy == "coach_delegate":
             self.do("watch_tutorial", tutorial_id="conditions")
+        if self.s.get("x"):   # experimental branch: several sprints with a shop between them
+            for _ in range(self.c.balance["experimental"]["sprints_total"]):
+                if self.s["status"] != "active":
+                    break
+                shop = self.s["x"]["shop"]
+                if shop and shop["offers"] and self.policy != "reckless":
+                    self.do("buy_practice", practice_id=shop["offers"][0]["id"])
+                self.sprint()
+            return self
+        return self.sprint()
+
+    def sprint(self) -> "Bot":
         self.do("advance_stage", to="STANDUP")
         self.standup()
         self.do("advance_stage", to="BUILD")

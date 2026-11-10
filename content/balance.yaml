@@ -89,3 +89,145 @@ schedule:
     - {at: 330, sender: dev1}
     - {at: 500, sender: dev2}
   ping_weights: {ping_clue: 0.4, ping_noise: 0.4, ping_trap: 0.2}
+
+# =====================================================================================
+# EXPERIMENTAL engagement mechanics (branch experimental/engagement-mechanics).
+# enabled: false gives the original MVP game exactly (the MVP tests run with it off).
+# Every value below is a starting guess for playtesting. See Spec/Engagement Research.md.
+# =====================================================================================
+experimental:
+  enabled: true
+  sprints_total: 3            # ~7-9 real minutes per sprint => 20-30 minute run
+  boss_sprint: 3              # the last sprint is a boss sprint
+
+  # Q4: hybrid clock. Time runs in real time only while you stand at the Pile.
+  clock:
+    pause_while_card_open: true      # reading code never costs real seconds
+    pause_while_standup: true
+
+  # Q2: Focus is a per-day budget, refilled at each standup, spent by context switching.
+  focus:
+    day_refill: 35                   # added at each standup (replaces focus_day_recovery 10)
+    switch_cost: 6                   # opening a different card than the one you last worked
+    start: 100
+
+  # M5 seeded runs: what each sprint deals. Index 0 = sprint 1.
+  sprint_deal:
+    code_cards: [2, 3, 4]
+    help_calls: [1, 1, 2]
+    status_demands: [1, 1, 1]
+    calls: [3, 3, 4]
+    pings: [4, 4, 5]
+    spread_min: [0, 620]             # cards arrive between these minutes of the sprint (day 2 starts at 480)
+    call_spread_min: [30, 900]
+    ping_spread_min: [20, 900]
+    deadline_min: [240, 420]         # each card's first deadline after it arrives
+    max_difficulty: [1, 2, 2]        # hardest ticket allowed per sprint
+    code_payoff: {points: 100}
+    code_penalty: {cover: 3}
+    other_penalty: {cover: 2}
+
+  # M6 boss sprints: one is drawn from the seed for the boss sprint.
+  bosses:
+    auditor:        {attack_cover: 20}                 # a shipped security hole is attacked at once
+    scope_creep:    {every_min: 90}                    # an extra card every 90 minutes
+    friday_deploy:  {day2_minutes: 360}                # no unticked Definition of Done; short day 2
+    demo_day:       {standup_timer_s: 20, vague_multiplier: 2}
+
+  # M3 practices: rule changes, never Points-table or process-score changes.
+  practices:
+    slots: 5
+    price: [80, 120]                 # seeded price range in the shop
+    base_pool: [definition_of_done_p, pair_programming, timeboxing, wip_limit, swarming, sustainable_pace, backlog_refinement]
+    unlocked_by_tutorial: {definition_of_done: definition_of_done_p, conditions: spike}
+    evolve_at: 4                     # uses before a practice levels up
+    effects:
+      definition_of_done_p: {free_runs: 1, free_runs_lv2: 2}
+      pair_programming:     {bug_chance_mult: 0.5, bug_chance_mult_lv2: 0.25}
+      timeboxing:           {deadline_bonus_min: 60, deadline_bonus_min_lv2: 120}
+      wip_limit:            {open_cost_mult: 0.5, open_cost_mult_lv2: 0.25, max_live: 3}
+      swarming:             {extra_skips: 1, extra_skips_lv2: 2}
+      retrospective:        {uses_per_sprint: 1, uses_per_sprint_lv2: 2}
+      psychological_safety: {}
+      sustainable_pace:     {extra_refill: 20, low_threshold: 20}
+      backlog_refinement:   {}
+      spike:                {tutorial_cost_mult: 0.5}
+    duos:
+      tdd_pair:    {needs: [definition_of_done_p, pair_programming]}   # Run Script always free; you know if a returned card is bugged
+      sprint_goal: {needs: [timeboxing, backlog_refinement]}           # no card escalates past level 1
+
+  # M12 shop between sprints (opens after Review).
+  shop:
+    offers: 3
+    reroll_price: [20, 40, 80, 160]
+    interest_rate: 0.1
+    interest_cap: 25
+    free_pick_at_start: true         # pick 1 of 3 practices for free before sprint 1
+
+  # M4 / M10 style rank (display only; never changes Points).
+  style:
+    good: [standup_held, blocker_cleared, coach, dod_honest, review_before_push, accurate_standup, clean_push]
+    bad: [dod_skipped, dod_dishonest, bluff]
+    ranks: [[0, D], [3, C], [5, B], [7, A], [9, S]]
+
+  # M11 suspicion and last stand.
+  suspicion:
+    spot_check_from: 70
+    spot_check_every_min: 120
+    spot_check_deadline_min: 60
+    spot_check_penalty: {cover: 4}
+    spot_check_payoff: {cover: -3}
+    last_stand_from: 90
+    clutch_cover_drop: 25
+
+  # M13 director.
+  director:
+    every_min: 60
+    quiet_live_max: 1                # at most this many live cards and...
+    quiet_cover_below: 50            # ...Cover below this: add a card
+    busy_live_min: 4                 # this many live cards: extend every deadline once
+    relief_min: 30
+
+  # M14 comeback.
+  comeback:
+    behind_rating_below: 3.0
+    bounty_bonus: 150
+    loss_bonus_focus: 30
+
+  # M21 ultimate (momentum).
+  momentum:
+    gain: {coach: 20, review_before_push: 15, dod_honest: 15, accurate_standup: 20, blocker_cleared: 5}
+    full: 100
+    protect_min: 120
+    retro_deadline_min: 60
+
+  # M17 voluntary difficulty (unlocked after a first win).
+  heat:
+    bonus_per_level: 0.2
+    modifiers:
+      no_assistant: {}
+      one_warning: {warnings_lose_at: 1}
+      short_days: {day_minutes: 420}
+      po_pressure: {extra_status_per_day: 1}
+      harsh_reviews: {viral_chance: 0.5}
+
+  # M8 intents.
+  intents_window_min: 120
+
+  # M18 failure advances the story: authored lines shown on the debrief.
+  story:
+    win: "Marlo: Three sprints and the app is still standing. I don't know how you did it, but keep doing it."
+    lose_rating: "Marlo: The store rating hit the floor. The board wants to talk to you."
+    lose_cover: "Marlo: I looked at your commits. There aren't any. We need to talk about your résumé."
+    lose_warnings: "Marlo: Two warnings. Management is not giving out a third."
+    coached: "Tobi: You took the time to show me. I fixed the next one myself."
+    bluffed: "Ines: You said it was fine in standup. It wasn't. I noticed."
+    shipped_hole: "Ines: Someone got into the database through that query. That one is on all of us."
+    skipped_dod: "Tobi: We keep shipping with boxes unticked. That's how the bugs get out."
+    clutch: "Marlo: You were one mistake from being found out, and you pulled it back. Impressive."
+    honest: "Ines: Thanks for saying 'I don't know' when you didn't. It made it easier to ask for help."
+
+  # M16 meta-progression: achievements in earlier runs unlock things for later runs.
+  meta_unlocks:
+    won: [retrospective, heat]
+    no_bluff_sprint: [psychological_safety]

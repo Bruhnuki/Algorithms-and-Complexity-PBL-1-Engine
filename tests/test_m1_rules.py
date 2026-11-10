@@ -16,7 +16,7 @@ from fixit.rules.reducer import GameError
 
 # ---------------------------------------------------------------- content / CODE-1, CODE-2
 def test_CODE1_all_tickets_validate_schema(content):
-    assert len(content.tickets) == 4
+    assert {"final_price", "average_rating", "find_user", "total_with_tax"} <= set(content.tickets)
     for t in content.tickets.values():
         assert 5 <= len(t["source"]) <= 15
         assert 3 <= len(t["options"]) <= 4
@@ -42,7 +42,10 @@ def test_CODE2_wrong_options_have_bug_type(content):
 
 
 def test_CODE2_mvp_ticket_set(content):
-    assert set(content.tickets) == {"final_price", "average_rating", "find_user", "total_with_tax"}
+    # experimental branch adds 6 tickets for seeded sprints; the MVP schedule still uses exactly these 4
+    assert {"final_price", "average_rating", "find_user", "total_with_tax"} <= set(content.tickets)
+    assert {c["ticket"] for c in content.balance["schedule"]["cards"] if c["ticket"]} == {
+        "final_price", "average_rating", "find_user", "total_with_tax"}
     assert content.tickets["total_with_tax"]["kind"] == "build"
 
 

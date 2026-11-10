@@ -73,6 +73,12 @@ class CommandIn(BaseModel):
     payload: dict = Field(default_factory=dict)
 
 
+class NewRunIn(BaseModel):
+    """Experimental branch: optional class challenge code (a shared seed) and Heat modifiers."""
+    challenge: int | None = Field(default=None, ge=1, le=999_999)
+    heat: list[str] = Field(default_factory=list, max_length=10)
+
+
 class TickIn(BaseModel):
     real_ms: int = Field(ge=0, le=10 ** 9)
 
@@ -327,22 +333,47 @@ def create_app(db_path: str, content=None, gateway: Gateway | None = None, setti
         return {"seq": seq, "events": [public_event(e) for e in events], "state": reducer.public_state(state2, content)}
 
     # ------------------------------------------------------------ run routes
+    def meta_unlocks(db, user) -> list[str]:
+        """M16: practices and Heat unlocked by achievements in the student's earlier runs."""
+        got: set[str] = set()
+        for r in db.scalars(select(M.Run).where(M.Run.user_id == user.id, M.Run.status == "ended")).all():
+            x = get_cached(db, r)["state"].get("x") or {}
+            got.update(x.get("achievements", []))
+        rules = content.balance["experimental"].get("meta_unlocks", {})
+        return sorted({u for a in got for u in rules.get(a, [])})
+
     @app.post("/api/v1/runs", status_code=201)
-    def create_run(user=Depends(current), db: DbSession = Depends(db_dep)):
+    def create_run(body: NewRunIn | None = Body(default=None), user=Depends(current), db: DbSession = Depends(db_dep)):
         if user.role != "student":
             raise ApiError(403, "FORBIDDEN", "only students play")
         if user.consent_at is None:
             raise ApiError(403, "CONSENT_REQUIRED", "accept the consent screen before playing")
-        run = M.Run(user_id=user.id, seed=seed_fn(), content_version=content.version,
+        body = body or NewRunIn()
+        exp = reducer._exp(content)
+        seed = body.challenge if (exp and body.challenge) else seed_fn()
+        run = M.Run(user_id=user.id, seed=seed, content_version=content.version,
                     balance_version=content.balance["version"])
         db.add(run)
         db.flush()
         s, events = reducer.start_run(run.seed, content)
         seq = append(db, run.id, 0, [(e["type"], e["t"], e, None) for e in events])
+        if exp:   # stored as the run's first command, so replay rebuilds the same run
+            cfg = {"type": "configure", "payload": {"unlocks": meta_unlocks(db, user), "heat": body.heat}}
+            s, ev2 = reducer.apply(s, cfg, content)
+            seq = append(db, run.id, seq, [("cmd", 0.0, {"command": cfg, "response": {"events": len(ev2)}}, None)]
+                         + [(e["type"], e["t"], e, None) for e in ev2])
+            events += ev2
         db.commit()
         cache[run.id] = {"state": s, "seq": seq}
         dialogue(run.id, user.id, seq, s, events)
         return {"id": run.id, "seq": seq, "state": reducer.public_state(s, content)}
+
+    @app.get("/api/v1/me/unlocks")
+    def my_unlocks(user=Depends(current), db: DbSession = Depends(db_dep)):
+        if not reducer._exp(content):
+            return {"unlocks": [], "heat": []}
+        u = meta_unlocks(db, user)
+        return {"unlocks": u, "heat": sorted(content.balance["experimental"]["heat"]["modifiers"]) if "heat" in u else []}
 
     @app.get("/api/v1/runs/{run_id}/state")
     def get_state(run_id: int, since: int = 0, since_line: int = 0, user=Depends(current), db: DbSession = Depends(db_dep)):
@@ -359,6 +390,8 @@ def create_app(db_path: str, content=None, gateway: Gateway | None = None, setti
     @app.post("/api/v1/runs/{run_id}/commands")
     def post_command(run_id: int, body: CommandIn, user=Depends(current), db: DbSession = Depends(db_dep)):
         run = load_run(db, run_id, user)
+        if body.type in reducer.SERVER_ONLY:
+            raise ApiError(403, "FORBIDDEN", "this command is issued by the server")
         command = {"type": body.type, "payload": body.payload}
         prior = db.scalar(select(M.RunEvent).where(M.RunEvent.run_id == run.id, M.RunEvent.client_seq == body.client_seq))
         if prior is not None:
@@ -423,7 +456,7 @@ def create_app(db_path: str, content=None, gateway: Gateway | None = None, setti
             runs = db.scalars(select(M.Run).where(M.Run.user_id == stu.id).order_by(M.Run.id)).all()
             for r in runs:
                 s = get_cached(db, r)["state"]
-                out.append({"run_id": r.id, "student": stu.display_name, "status": r.status, "ending": r.ending,
+                out.append({"run_id": r.id, "seed": r.seed, "student": stu.display_name, "status": r.status, "ending": r.ending,
                             "process_score": reducer.process_score(s, content), "meters": s["meters"],
                             "pre": asm.get("pre"), "post": asm.get("post"),
                             "gain": (asm["post"] - asm["pre"]) if "pre" in asm and "post" in asm else None})

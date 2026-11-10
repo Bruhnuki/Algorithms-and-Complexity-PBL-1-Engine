@@ -1,10 +1,27 @@
+import copy
+import dataclasses
+
 import pytest
 
 from fixit.rules import content as content_mod, reducer
 
 
+def mvp_content():
+    """The original MVP game: experimental mechanics switched off. The M1-M5 tests check it is unchanged."""
+    c = content_mod.get()
+    bal = copy.deepcopy(c.balance)
+    bal["experimental"]["enabled"] = False
+    return dataclasses.replace(c, balance=bal)
+
+
 @pytest.fixture(scope="session")
 def content():
+    return mvp_content()
+
+
+@pytest.fixture(scope="session")
+def xcontent():
+    """Experimental branch content: every engagement mechanic on."""
     return content_mod.get()
 
 

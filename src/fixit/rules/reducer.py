@@ -14,7 +14,10 @@ from .content import Content, run_ticket
 
 COMMANDS = ("open_card", "flag_line", "select_patch", "run_script", "toggle_dod", "push", "hold", "triage_reorder",
             "delegate", "coach", "defer", "reply_standup", "answer_call", "watch_tutorial", "buy_perk",
-            "use_assistant", "advance_stage", "tick")
+            "use_assistant", "advance_stage", "tick",
+            # experimental branch only (rejected when balance.experimental.enabled is false)
+            "configure", "buy_practice", "reroll_shop", "lock_offer", "retro", "use_ultimate")
+SERVER_ONLY = ("configure",)   # issued by the API at run creation; never accepted from a browser
 RESULT_OF = {"correct": "clean", "correct_small_flaw": "acceptable", "wrong_hidden": "buggy", "security_hole": "security_hole"}
 RESULT_LABEL = {"clean": "Clean", "acceptable": "Acceptable", "runtime_error": "Runtime error",
                 "buggy": "Functional but buggy", "security_hole": "Security hole"}
@@ -58,6 +61,8 @@ def start_run(seed: int, content: Content) -> tuple[dict, list[dict]]:
          "content_version": content.version, "balance_version": b["version"]}
     ev: list[dict] = []
     _emit(s, ev, "run_started", seed=seed, content_version=content.version, balance_version=b["version"])
+    if _exp(content):
+        _x_start(s, ev, content)
     _fire_schedule(s, ev, content)
     return s, ev
 
@@ -81,7 +86,18 @@ def _live(s: dict) -> list[dict]:
 def _cost(s: dict, content: Content, key: str) -> float:
     t = content.balance["time"]
     m = content.balance["costs_min"][key]
-    return m * (t["focus_low_cost_multiplier"] if s["meters"]["focus"] < t["focus_low_threshold"] else 1)
+    low = t["focus_low_threshold"]
+    if _exp(content):
+        m *= _x_cost_mult(s, content, key)
+        if _has(s, "sustainable_pace"):
+            low = _fx(s, content, "sustainable_pace", "low_threshold")
+    return m * (t["focus_low_cost_multiplier"] if s["meters"]["focus"] < low else 1)
+
+
+def _day_minutes(s: dict, content: Content) -> float:
+    if not _exp(content):
+        return content.balance["time"]["day_minutes"]
+    return _x_day_minutes(s, content)
 
 
 def _day_used_min(s: dict) -> float:
@@ -98,10 +114,14 @@ def _meter(s: dict, key: str, delta: float, content: Content) -> None:
     elif key == "cover":
         v = max(0, v)
     s["meters"][key] = v
+    if key == "cover" and s.get("x"):
+        s["x"]["max_cover"] = max(s["x"]["max_cover"], v)
 
 
 def _log(s: dict, what: str) -> None:
     s["process_log"].append(what)
+    if s.get("x"):
+        _xlog(s, what)
 
 
 def _ticket(content: Content, tid: str) -> dict:
@@ -125,7 +145,7 @@ def _bad_option(ticket: dict) -> dict:
 
 def _spend(s: dict, ev: list, content: Content, key: str) -> None:
     mins = _cost(s, content, key)
-    if mins and _day_used_min(s) + mins > content.balance["time"]["day_minutes"] + 1e-9:
+    if mins and _day_used_min(s) + mins > _day_minutes(s, content) + 1e-9:
         raise GameError("DAY_FULL", "Not enough working hours left today; move on")
     _advance(s, ev, content, mins * 60, day_capped=False)
 
@@ -134,7 +154,7 @@ def _spend(s: dict, ev: list, content: Content, key: str) -> None:
 def _advance(s: dict, ev: list, content: Content, seconds: float, day_capped: bool = True) -> None:
     if seconds <= 0:
         return
-    limit = s["day_start_s"] + content.balance["time"]["day_minutes"] * 60
+    limit = s["day_start_s"] + _day_minutes(s, content) * 60
     new = s["clock_s"] + seconds
     if day_capped:
         new = min(new, limit)
@@ -150,11 +170,15 @@ def _spawn_card(s: dict, ev: list, content: Content, spec: dict) -> None:
             "deadline_s": spec["deadline"] * 60.0, "escalation": 0, "state": "pile",
             "payoff": spec.get("payoff", {}), "penalty": spec.get("penalty", {}), "work": None,
             "hidden_bug": False, "returns_s": None}
+    if s.get("x"):
+        _x_card_spawned(s, content, card, spec)
     s["pile"].append(card)
     _emit(s, ev, "card_spawned", card_id=cid, card_type=card["type"], sender=card["sender"], ticket=card["ticket"])
 
 
 def _fire_schedule(s: dict, ev: list, content: Content) -> None:
+    if s.get("x"):
+        return _x_fire_schedule(s, ev, content)
     sch, b = _schedule(content), content.balance
     spec = b["schedule"]
     while s["sched_pos"] < len(sch) and sch[s["sched_pos"]][0] * 60 <= s["clock_s"]:
@@ -172,14 +196,27 @@ def _fire_schedule(s: dict, ev: list, content: Content) -> None:
                     break
             _emit(s, ev, "ping_sent", kind=pick, sender=spec["pings"][idx]["sender"])
         else:
-            if s["call"] is not None:
-                _miss_call(s, ev, content)
-            if s["coach_credit"] > 0:
-                s["coach_credit"] -= 1
-                _emit(s, ev, "call_skipped", sender=spec["calls"][idx]["sender"])
-            else:
-                s["call"] = {"sender": spec["calls"][idx]["sender"], "expires_s": s["clock_s"] + b["calls"]["window_min"] * 60}
-                _emit(s, ev, "call_rang", sender=s["call"]["sender"], expires_s=s["call"]["expires_s"])
+            _ring(s, ev, content, spec["calls"][idx]["sender"])
+
+
+def _pick_ping(s: dict, content: Content) -> str:
+    r, acc = draw(s, "ping_type"), 0.0
+    for name, p in content.balance["schedule"]["ping_weights"].items():
+        acc += p
+        if r < acc:
+            return name
+    return "ping_noise"
+
+
+def _ring(s: dict, ev: list, content: Content, sender: str) -> None:
+    if s["call"] is not None:
+        _miss_call(s, ev, content)
+    if s["coach_credit"] > 0:
+        s["coach_credit"] -= 1
+        _emit(s, ev, "call_skipped", sender=sender)
+    else:
+        s["call"] = {"sender": sender, "expires_s": s["clock_s"] + content.balance["calls"]["window_min"] * 60}
+        _emit(s, ev, "call_rang", sender=sender, expires_s=s["call"]["expires_s"])
 
 
 def _miss_call(s: dict, ev: list, content: Content) -> None:
@@ -207,9 +244,13 @@ def _tick_world(s: dict, ev: list, content: Content) -> None:
                     c["deadline_s"] += esc["interval_min"] * 60
         if c["state"] == "delegated" and c["returns_s"] is not None and c["returns_s"] <= s["clock_s"]:
             _return_delegation(s, ev, content, c)
+    if s.get("x"):
+        _x_tick_world(s, ev, content)
 
 
 def _escalate(s: dict, ev: list, content: Content, c: dict) -> None:
+    if s.get("x") and not _x_may_escalate(s, c):
+        return
     c["escalation"] = min(content.balance["escalation"]["max_level"], c["escalation"] + 1)
     for k, v in c["penalty"].items():
         _meter(s, k, v, content)
@@ -242,7 +283,7 @@ def _check_end(s: dict, ev: list, content: Content) -> None:
         ending = "lose_cover"
     elif s["meters"]["rating"] < lim["rating_lose_below"]:
         ending = "lose_rating"
-    elif s["warnings"] >= lim["warnings_lose_at"]:
+    elif s["warnings"] >= (_x_warnings_lose_at(s, content) if s.get("x") else lim["warnings_lose_at"]):
         ending = "lose_warnings"
     if ending:
         s["status"], s["ending"] = "ended", ending
@@ -270,13 +311,21 @@ def _begin_standup(s: dict, ev: list, content: Content) -> None:
         last = cands[0] if cands else next(iter(content.tickets))
     s["pending_standup"] = {"n": n, "ticket": last, "concept": content.tickets[last]["concept"],
                             "teammate": "dev1" if n % 2 else "dev2"}
-    _meter(s, "focus", content.balance["focus_day_recovery"], content)
+    if s.get("x"):
+        f = content.balance["experimental"]["focus"]["day_refill"]
+        if _has(s, "sustainable_pace"):
+            f += _fx(s, content, "sustainable_pace", "extra_refill")
+        _meter(s, "focus", f, content)
+    else:
+        _meter(s, "focus", content.balance["focus_day_recovery"], content)
     _emit(s, ev, "standup_asked", n=n, ticket=last, concept=s["pending_standup"]["concept"], teammate=s["pending_standup"]["teammate"])
 
 
 # ---------------------------------------------------------------- review
 def _resolve_review(s: dict, ev: list, content: Content) -> None:
     b = content.balance
+    if s.get("x"):
+        _x_auto_ship(s, ev, content)
     _check_contradictions(s, ev, content)
     reviews, rating = [], 0.0
     for sh in s["shipped"][s["resolved_ships"]:]:
@@ -290,7 +339,7 @@ def _resolve_review(s: dict, ev: list, content: Content) -> None:
     _emit(s, ev, "review_resolved", reviews=reviews)
     posts = []
     for sh in s["shipped"][s["resolved_ships"]:]:
-        if sh["result"] == "buggy" and draw(s, "viral") < b["push"]["viral_chance"]:
+        if sh["result"] == "buggy" and draw(s, "viral") < (_x_viral_chance(s, content) if s.get("x") else b["push"]["viral_chance"]):
             lo, hi = b["push"]["viral_range"]
             d = -(lo + draw(s, "viral") * (hi - lo))
             rating += d
@@ -310,13 +359,18 @@ def _resolve_review(s: dict, ev: list, content: Content) -> None:
         s["warnings"] += 1
         _emit(s, ev, "warning_issued", warnings=s["warnings"])
     _check_end(s, ev, content)
-    if s["status"] == "active" and s["sprint"] >= b["sprints_total"]:
+    total = b["experimental"]["sprints_total"] if s.get("x") else b["sprints_total"]
+    if s.get("x"):
+        _x_end_sprint(s, ev, content)
+    if s["status"] == "active" and s["sprint"] >= total:
         s["status"], s["ending"] = "ended", "win"
         _emit(s, ev, "run_ended", ending="win")
     elif s["status"] == "active":
         s.update(sprint=s["sprint"] + 1, stage="PLANNING", day=1, standups=[], pending_standup=None,
                  repeat_counts={}, day_start_s=s["clock_s"])
         _emit(s, ev, "stage_advanced", stage="PLANNING", sprint=s["sprint"])
+        if s.get("x"):
+            _x_begin_sprint(s, ev, content)
 
 
 # ---------------------------------------------------------------- handlers
@@ -350,6 +404,8 @@ def _h_open_card(s, ev, content, p):
         c["work"] = c["work"] or work
     c["state"] = "open"
     s["open_card"] = c["id"]
+    if s.get("x"):
+        _x_context_switch(s, ev, content, c)
     _spend(s, ev, content, "read" if c["ticket"] else "open_other")
     _emit(s, ev, "card_opened", card_id=c["id"])
 
@@ -405,7 +461,10 @@ def _h_run_script(s, ev, content, p):
     w["last_run"] = {"all_pass": all(r["pass"] for r in runs), "errors": any(r["error"] for r in runs)}
     if w["from_delegate"]:
         w["reviewed"] = True
-    _spend(s, ev, content, "test")
+    if s.get("x") and _x_free_run(s, ev, content, w):
+        pass
+    else:
+        _spend(s, ev, content, "test")
     _emit(s, ev, "script_run", card_id=c["id"], runs=runs, all_pass=w["last_run"]["all_pass"])
 
 
@@ -434,6 +493,8 @@ def _h_push(s, ev, content, p):
     t = _ticket(content, w["ticket"])
     if not w["selected"]:
         _illegal("choose a patch before pushing")
+    if s.get("x") and _x_boss_now(s) == "friday_deploy" and not all(w["dod"].values()):
+        _illegal("Friday Deploy: every Definition of Done box must be ticked before a push")
     o = _option(t, w["selected"])
     if o["effect"] == "crashes":
         _meter(s, "points", b["push"]["points"]["runtime_error"], content)
@@ -466,6 +527,8 @@ def _h_push(s, ev, content, p):
     s["open_card"] = None
     _spend(s, ev, content, "push")
     _emit(s, ev, "pushed", card_id=c["id"], ticket=t["id"], result=result, label=RESULT_LABEL[result], points=pts, cover=cover)
+    if s.get("x"):
+        _x_after_push(s, ev, content, c, w, result)
 
 
 def _h_delegate(s, ev, content, p):
@@ -476,7 +539,9 @@ def _h_delegate(s, ev, content, p):
     if s["open_card"] == c["id"]:
         s["open_card"] = None
     c["state"], c["work"] = "delegated", None
-    c["hidden_bug"] = bool(c["ticket"]) and draw(s, "delegation_bug") < content.balance["delegation"]["hidden_bug_chance"]
+    c["hidden_bug"] = bool(c["ticket"]) and draw(s, "delegation_bug") < _bug_chance(s, content)
+    if s.get("x") and _has(s, "pair_programming") and c["ticket"]:
+        _use_practice(s, ev, content, "pair_programming")
     c["returns_s"] = s["clock_s"] + content.balance["delegation"]["return_after_min"] * 60
     _log(s, "delegated")
     _spend(s, ev, content, "delegate")
@@ -492,6 +557,9 @@ def _h_coach(s, ev, content, p):
         s["open_card"] = None
     c["state"] = "done"
     s["coach_credit"] += 1
+    if s.get("x") and _has(s, "swarming"):
+        s["coach_credit"] += _fx(s, content, "swarming", "extra_skips")
+        _use_practice(s, ev, content, "swarming")
     _log(s, "coach")
     _log(s, "blocker_cleared")
     _spend(s, ev, content, "coach")
@@ -506,7 +574,10 @@ def _h_defer(s, ev, content, p):
     if s["open_card"] == c["id"]:
         s["open_card"] = None
     c["state"] = "pile"
-    _escalate(s, ev, content, c)
+    if s.get("x") and _has(s, "backlog_refinement"):
+        _use_practice(s, ev, content, "backlog_refinement")
+    else:
+        _escalate(s, ev, content, c)
     c["deadline_s"] = s["clock_s"] + content.balance["escalation"]["interval_min"] * 60
     _spend(s, ev, content, "defer")
     _emit(s, ev, "card_deferred", card_id=c["id"])
@@ -531,9 +602,11 @@ def _h_reply_standup(s, ev, content, p):
     ans = p["answer"]
     if ans not in content.balance["standup_cover"]:
         _illegal("unknown answer")
-    if ans == "accurate" and st["concept"] not in s["unlocked"]:
+    if ans == "accurate" and not _accurate_ok(s, st):
         _illegal("accurate answer is not available until the concept is unlocked")
     delta = content.balance["standup_cover"][ans]
+    if s.get("x"):
+        delta = _x_standup_delta(s, ev, content, ans, delta)
     _meter(s, "cover", delta, content)
     s["standups"].append({"n": st["n"], "ticket": st["ticket"], "answer": ans, "contradicted": False})
     s["pending_standup"] = None
@@ -564,6 +637,8 @@ def _h_watch_tutorial(s, ev, content, p):
     _spend(s, ev, content, "tutorial")
     _emit(s, ev, "tutorial_watched", tutorial_id=tut["id"])
     _emit(s, ev, "concept_unlocked", concept=tut["concept"])
+    if s.get("x"):
+        _x_tutorial_unlock(s, ev, content, tut["id"])
 
 
 def _h_buy_perk(s, ev, content, p):
@@ -572,6 +647,8 @@ def _h_buy_perk(s, ev, content, p):
         _illegal("no such perk")
     if p["perk_id"] in s["perks"]:
         _illegal("already owned")
+    if s.get("x") and "no_assistant" in s["x"]["heat"] and p["perk_id"] == "ai_assistant":
+        _illegal("Heat: the AI Assistant is switched off in this run")
     if s["meters"]["points"] < perk["price"]:
         _illegal("not enough points")
     _meter(s, "points", -perk["price"], content)
@@ -608,12 +685,14 @@ def _h_advance_stage(s, ev, content, p):
     if s["stage"] == "BUILD" and to == "REVIEW" and s["day"] < two:
         _illegal("finish day 2 before the review")
     if s["stage"] == "BUILD" and to == "STANDUP":
-        s["clock_s"] = s["day_start_s"] + content.balance["time"]["day_minutes"] * 60
+        s["clock_s"] = s["day_start_s"] + _day_minutes(s, content) * 60
         s["day"] += 1
         s["day_start_s"] = s["clock_s"]
         _fire_schedule(s, ev, content)
         _tick_world(s, ev, content)
     s["stage"] = to
+    if s.get("x") and s["x"]["shop"] and to != "PLANNING":
+        s["x"]["shop"] = None   # the shop closes when planning ends
     _emit(s, ev, "stage_advanced", stage=to, sprint=s["sprint"], day=s["day"])
     if to == "STANDUP":
         _begin_standup(s, ev, content)
@@ -624,10 +703,597 @@ def _h_advance_stage(s, ev, content, p):
 def _h_tick(s, ev, content, p):
     if s["stage"] != "BUILD":
         return
+    if s.get("x") and not _x_clock_running(s, content):
+        return   # hybrid clock: paused while you read a card or answer a standup
     t = content.balance["time"]
     ms = max(0, min(int(p["real_ms"]), t["tick_max_real_ms"]))
     _advance(s, ev, content, ms / 1000 * t["real_to_game"])
     _emit(s, ev, "tick_applied", real_ms=ms)
+
+
+# ================================================================ EXPERIMENTAL engagement mechanics
+# Everything below runs only when balance.experimental.enabled is true. State lives in s["x"]
+# (None in the original game), all numbers come from balance.yaml, and every random draw uses its own
+# named purpose so the run stays deterministic for a seed + command list.
+
+def _exp(content: Content) -> bool:
+    return bool(content.balance.get("experimental", {}).get("enabled"))
+
+
+def _X(content: Content) -> dict:
+    return content.balance["experimental"]
+
+
+def _has(s: dict, pid: str) -> bool:
+    return bool(s.get("x")) and pid in s["x"]["practices"]
+
+
+def _fx(s: dict, content: Content, pid: str, key: str):
+    """A practice's effect value, using the `_lv2` variant once the practice has evolved."""
+    eff = _X(content)["practices"]["effects"][pid]
+    if s["x"]["practices"].get(pid, {}).get("level", 1) >= 2 and f"{key}_lv2" in eff:
+        return eff[f"{key}_lv2"]
+    return eff[key]
+
+
+def _use_practice(s: dict, ev: list, content: Content, pid: str) -> None:
+    p = s["x"]["practices"].get(pid)
+    if not p:
+        return
+    p["uses"] += 1
+    if p["level"] == 1 and p["uses"] >= _X(content)["practices"]["evolve_at"]:
+        p["level"] = 2
+        _emit(s, ev, "practice_evolved", practice=pid)
+
+
+def _bug_chance(s: dict, content: Content) -> float:
+    ch = content.balance["delegation"]["hidden_bug_chance"]
+    if _has(s, "pair_programming"):
+        ch *= _fx(s, content, "pair_programming", "bug_chance_mult")
+    return ch
+
+
+def _accurate_ok(s: dict, st: dict) -> bool:
+    return st["concept"] in s["unlocked"] or _has(s, "psychological_safety")
+
+
+def _rand_between(s: dict, purpose: str, lo: float, hi: float) -> float:
+    return lo + draw(s, purpose) * (hi - lo)
+
+
+def _xlog(s: dict, what: str) -> None:
+    """Style tally (display only) and momentum. Never touches the process log or Points."""
+    x = s["x"]
+    x["style_log"].append(what)
+    gain = x["momentum_gain"].get(what, 0)
+    if gain:
+        x["momentum"] = min(x["momentum_full"], x["momentum"] + gain)
+
+
+def _x_start(s: dict, ev: list, content: Content) -> None:
+    X = _X(content)
+    s["meters"]["focus"] = X["focus"]["start"]
+    s["x"] = {"sched": [], "used_tickets": [], "practices": {}, "shop": None, "heat": [], "unlocks": [],
+              "configured": False, "boss": None, "max_cover": 0, "last_stand": False, "clutches": 0,
+              "style_log": [], "style_history": [], "momentum": 0, "momentum_full": X["momentum"]["full"],
+              "momentum_gain": dict(X["momentum"]["gain"]), "protect_until_s": 0.0, "retro_uses": 0,
+              "last_card": None, "next_spot_s": 0.0, "next_director_s": X["director"]["every_min"] * 60.0,
+              "relief_used": False, "bounty_card": None, "achievements": [], "free_runs": {},
+              "sprint_start_s": 0.0, "bluffed_this_sprint": False, "flags": []}
+    bosses = sorted(X["bosses"])
+    s["x"]["boss"] = bosses[int(draw(s, "boss") * len(bosses)) % len(bosses)]
+    _x_deal_sprint(s, ev, content)
+    if X["shop"]["free_pick_at_start"]:
+        _x_open_shop(s, ev, content, free=True)
+
+
+def _x_pool(s: dict, content: Content) -> list[str]:
+    P = _X(content)["practices"]
+    pool = list(P["base_pool"])
+    for tid, pid in P["unlocked_by_tutorial"].items():
+        if tid in content.tutorials and content.tutorials[tid]["concept"] in s["unlocked"] and pid not in pool:
+            pool.append(pid)
+    pool += [u for u in s["x"]["unlocks"] if u in P["effects"] and u not in pool]
+    return [p for p in pool if p not in s["x"]["practices"]]
+
+
+def _x_offers(s: dict, content: Content, keep: list[dict]) -> list[dict]:
+    X = _X(content)
+    have = {o["id"] for o in keep}
+    pool = [p for p in _x_pool(s, content) if p not in have]
+    out = list(keep)
+    lo, hi = X["practices"]["price"]
+    while len(out) < X["shop"]["offers"] and pool:
+        pid = pool.pop(int(draw(s, "shop") * len(pool)) % len(pool))
+        out.append({"id": pid, "price": int(round(_rand_between(s, "shop_price", lo, hi) / 5) * 5), "locked": False})
+    return out
+
+
+def _x_open_shop(s: dict, ev: list, content: Content, free: bool = False) -> None:
+    keep = [o for o in (s["x"].get("kept_offers") or []) if o["id"] not in s["x"]["practices"]]
+    s["x"]["shop"] = {"free": free, "rerolls": 0, "offers": _x_offers(s, content, keep)}
+    s["x"]["kept_offers"] = []
+    _emit(s, ev, "shop_opened", free=free, offers=[o["id"] for o in s["x"]["shop"]["offers"]])
+
+
+def _x_deal_sprint(s: dict, ev: list, content: Content) -> None:
+    """M5 seeded runs: draw this sprint's cards, calls and pings from the seed."""
+    X, k = _X(content), s["sprint"]
+    d = X["sprint_deal"]
+    i = min(k - 1, len(d["code_cards"]) - 1)
+    t0 = s["clock_s"]
+    s["x"]["sprint_start_s"] = t0
+    pur = f"deal{k}"
+    unused = [t for t in sorted(content.tickets) if t not in s["x"]["used_tickets"]]
+    easy = [t for t in unused if content.tickets[t]["difficulty"] <= d["max_difficulty"][i]]
+    picks = []
+    for _ in range(d["code_cards"][i]):
+        src = easy or unused or sorted(content.tickets)
+        t = src.pop(int(draw(s, pur) * len(src)) % len(src))
+        for lst in (easy, unused):
+            if t in lst:
+                lst.remove(t)
+        picks.append(t)
+        s["x"]["used_tickets"].append(t)
+    items = []
+    lo, hi = d["spread_min"]
+    dlo, dhi = d["deadline_min"]
+
+    def card(spec_type, sender, ticket, payoff, penalty):
+        at = _rand_between(s, pur, lo, hi)
+        return {"at_s": t0 + at * 60, "kind": "card", "spec": {"type": spec_type, "sender": sender, "ticket": ticket,
+                "deadline": (t0 / 60) + at + _rand_between(s, pur, dlo, dhi), "payoff": payoff, "penalty": penalty}}
+    for n, t in enumerate(picks):
+        kind = content.tickets[t]["kind"]
+        items.append(card("build" if kind == "build" else "fix", "po" if kind == "build" else ("dev1", "dev2")[n % 2],
+                          t, dict(d["code_payoff"]), dict(d["code_penalty"])))
+    for n in range(d["help_calls"][i]):
+        items.append(card("help_call", ("dev2", "dev1")[n % 2], None, {}, dict(d["other_penalty"])))
+    for _ in range(d["status_demands"][i]):
+        items.append(card("status_demand", "po", None, {}, dict(d["other_penalty"])))
+    clo, chi = d["call_spread_min"]
+    for n in range(d["calls"][i]):
+        items.append({"at_s": t0 + _rand_between(s, pur, clo, chi) * 60, "kind": "call", "sender": ("dev2", "po", "dev1")[n % 3]})
+    plo, phi = d["ping_spread_min"]
+    for n in range(d["pings"][i]):
+        items.append({"at_s": t0 + _rand_between(s, pur, plo, phi) * 60, "kind": "ping", "sender": ("dev1", "dev2")[n % 2]})
+    if _x_boss_sprint(s, content) and s["x"]["boss"] == "scope_creep":
+        every = X["bosses"]["scope_creep"]["every_min"]
+        for m in range(every, 900, every):
+            items.append({"at_s": t0 + m * 60, "kind": "card", "spec": {"type": "status_demand", "sender": "po", "ticket": None,
+                          "deadline": t0 / 60 + m + dlo, "payoff": {}, "penalty": dict(d["other_penalty"]), "scope": True}})
+    if "po_pressure" in s["x"]["heat"]:
+        for m in (200, 680):
+            items.append({"at_s": t0 + m * 60, "kind": "card", "spec": {"type": "status_demand", "sender": "po", "ticket": None,
+                          "deadline": t0 / 60 + m + dlo, "payoff": {}, "penalty": dict(d["other_penalty"])}})
+    order = {"card": 0, "ping": 1, "call": 2}
+    s["x"]["sched"] = sorted(items, key=lambda x: (x["at_s"], order[x["kind"]]))
+    s["x"]["boss_live"] = _x_boss_sprint(s, content)
+    s["sched_pos"] = 0
+    if s["x"]["bounty_card"] == "pending":
+        first = next((x for x in s["x"]["sched"] if x["kind"] == "card" and x["spec"]["ticket"]), None)
+        if first:
+            first["spec"]["bounty"] = True
+        s["x"]["bounty_card"] = None
+    _emit(s, ev, "sprint_dealt", sprint=k, tickets=picks, boss=s["x"]["boss"] if _x_boss_sprint(s, content) else None)
+
+
+def _x_fire_schedule(s: dict, ev: list, content: Content) -> None:
+    sch = s["x"]["sched"]
+    while s["sched_pos"] < len(sch) and sch[s["sched_pos"]]["at_s"] <= s["clock_s"]:
+        item = sch[s["sched_pos"]]
+        s["sched_pos"] += 1
+        if item["kind"] == "card":
+            _spawn_card(s, ev, content, item["spec"])
+        elif item["kind"] == "ping":
+            _emit(s, ev, "ping_sent", kind=_pick_ping(s, content), sender=item["sender"])
+        else:
+            _ring(s, ev, content, item["sender"])
+
+
+def _x_card_spawned(s: dict, content: Content, card: dict, spec: dict) -> None:
+    card["bounty"] = bool(spec.get("bounty"))
+    card["spot"] = bool(spec.get("spot"))
+    if _has(s, "timeboxing"):
+        card["deadline_s"] += _fx(s, content, "timeboxing", "deadline_bonus_min") * 60
+    if s["clock_s"] < s["x"]["protect_until_s"]:
+        card["deadline_s"] = max(card["deadline_s"], s["x"]["protect_until_s"] + 30 * 60)
+
+
+def _x_boss_sprint(s: dict, content: Content) -> bool:
+    return s["sprint"] == _X(content)["boss_sprint"]
+
+
+def _x_boss_now(s: dict) -> str | None:
+    return s["x"]["boss"] if s["x"].get("boss_live") else None
+
+
+def _x_day_minutes(s: dict, content: Content) -> float:
+    m = content.balance["time"]["day_minutes"]
+    if "short_days" in s["x"]["heat"]:
+        m = _X(content)["heat"]["modifiers"]["short_days"]["day_minutes"]
+    if _x_boss_now(s) == "friday_deploy" and s["day"] >= 2:
+        m = min(m, _X(content)["bosses"]["friday_deploy"]["day2_minutes"])
+    return m
+
+
+def _x_warnings_lose_at(s: dict, content: Content) -> int:
+    if "one_warning" in s["x"]["heat"]:
+        return _X(content)["heat"]["modifiers"]["one_warning"]["warnings_lose_at"]
+    return content.balance["limits"]["warnings_lose_at"]
+
+
+def _x_viral_chance(s: dict, content: Content) -> float:
+    if "harsh_reviews" in s["x"]["heat"]:
+        return _X(content)["heat"]["modifiers"]["harsh_reviews"]["viral_chance"]
+    return content.balance["push"]["viral_chance"]
+
+
+def _x_cost_mult(s: dict, content: Content, key: str) -> float:
+    m = 1.0
+    if key in ("read", "open_other") and _has(s, "wip_limit"):
+        if len(_live(s)) <= _X(content)["practices"]["effects"]["wip_limit"]["max_live"]:
+            m *= _fx(s, content, "wip_limit", "open_cost_mult")
+    if key == "tutorial" and _has(s, "spike"):
+        m *= _fx(s, content, "spike", "tutorial_cost_mult")
+    return m
+
+
+def _x_clock_running(s: dict, content: Content) -> bool:
+    c = _X(content)["clock"]
+    if c["pause_while_card_open"] and s["open_card"] is not None:
+        return False
+    if c["pause_while_standup"] and s["pending_standup"]:
+        return False
+    return True
+
+
+def _x_context_switch(s: dict, ev: list, content: Content, c: dict) -> None:
+    """Q2: Focus is a daily budget; jumping between cards spends it."""
+    last = s["x"]["last_card"]
+    if last is not None and last != c["id"]:
+        cost = _X(content)["focus"]["switch_cost"]
+        _meter(s, "focus", -cost, content)
+        _emit(s, ev, "focus_switch", card_id=c["id"], focus=-cost)
+    s["x"]["last_card"] = c["id"]
+    if _has(s, "wip_limit") and len(_live(s)) <= _X(content)["practices"]["effects"]["wip_limit"]["max_live"]:
+        _use_practice(s, ev, content, "wip_limit")
+
+
+def _x_free_run(s: dict, ev: list, content: Content, w: dict) -> bool:
+    if _has(s, "tdd_pair"):
+        return True
+    if not _has(s, "definition_of_done_p"):
+        return False
+    used = s["x"]["free_runs"].get(w["ticket"], 0)
+    if used < _fx(s, content, "definition_of_done_p", "free_runs"):
+        s["x"]["free_runs"][w["ticket"]] = used + 1
+        _use_practice(s, ev, content, "definition_of_done_p")
+        return True
+    return False
+
+
+def _x_may_escalate(s: dict, c: dict) -> bool:
+    if s["clock_s"] < s["x"]["protect_until_s"]:
+        return False
+    if _has(s, "sprint_goal") and c["escalation"] >= 1:
+        return False
+    return True
+
+
+def _x_tick_world(s: dict, ev: list, content: Content) -> None:
+    if s["stage"] != "BUILD":
+        return
+    X = _X(content)
+    sus = X["suspicion"]
+    cover = s["meters"]["cover"]
+    s["x"]["max_cover"] = max(s["x"]["max_cover"], cover)
+    # M11 spot checks while Cover is high
+    if cover >= sus["spot_check_from"] and s["clock_s"] >= s["x"]["next_spot_s"] and s["clock_s"] >= s["x"]["protect_until_s"]:
+        s["x"]["next_spot_s"] = s["clock_s"] + sus["spot_check_every_min"] * 60
+        _spawn_card(s, ev, content, {"type": "status_demand", "sender": "po", "ticket": None, "spot": True,
+                                     "deadline": s["clock_s"] / 60 + sus["spot_check_deadline_min"],
+                                     "payoff": dict(sus["spot_check_payoff"]), "penalty": dict(sus["spot_check_penalty"])})
+        _emit(s, ev, "spot_check", cover=cover)
+    if cover >= sus["last_stand_from"] and not s["x"]["last_stand"]:
+        s["x"]["last_stand"] = True
+        _emit(s, ev, "last_stand", cover=cover)
+    # M13 director
+    D = X["director"]
+    while s["clock_s"] >= s["x"]["next_director_s"]:
+        s["x"]["next_director_s"] += D["every_min"] * 60
+        live = len(_live(s))
+        if live <= D["quiet_live_max"] and cover < D["quiet_cover_below"]:
+            unused = [t for t in sorted(content.tickets) if t not in s["x"]["used_tickets"]]
+            d = X["sprint_deal"]
+            if unused and draw(s, "director") < 0.5:
+                t = unused[int(draw(s, "director") * len(unused)) % len(unused)]
+                s["x"]["used_tickets"].append(t)
+                spec = {"type": "build" if content.tickets[t]["kind"] == "build" else "fix", "sender": "po", "ticket": t,
+                        "deadline": s["clock_s"] / 60 + d["deadline_min"][0], "payoff": dict(d["code_payoff"]), "penalty": dict(d["code_penalty"])}
+            else:
+                spec = {"type": "status_demand", "sender": "po", "ticket": None,
+                        "deadline": s["clock_s"] / 60 + d["deadline_min"][0], "payoff": {}, "penalty": dict(d["other_penalty"])}
+            _spawn_card(s, ev, content, spec)
+            _emit(s, ev, "director", action="added_work")
+        elif live >= D["busy_live_min"] and not s["x"]["relief_used"]:
+            s["x"]["relief_used"] = True
+            for c in _live(s):
+                if c["deadline_s"] is not None:
+                    c["deadline_s"] += D["relief_min"] * 60
+            _emit(s, ev, "director", action="relief", minutes=D["relief_min"])
+
+
+def _x_after_push(s: dict, ev: list, content: Content, c: dict, w: dict, result: str) -> None:
+    X = _X(content)
+    honest = all(w["dod"].values()) and bool(w["last_run"] and w["last_run"]["all_pass"])
+    if result == "clean":
+        _xlog(s, "clean_push")
+        if c.get("bounty"):
+            _meter(s, "points", X["comeback"]["bounty_bonus"], content)
+            _emit(s, ev, "bounty_paid", card_id=c["id"], points=X["comeback"]["bounty_bonus"])
+    if s["x"]["last_stand"] and honest and result in ("clean", "acceptable"):
+        drop = X["suspicion"]["clutch_cover_drop"]
+        _meter(s, "cover", -drop, content)
+        s["x"]["last_stand"] = False
+        s["x"]["clutches"] += 1
+        _emit(s, ev, "clutch", cover=-drop)
+    if result == "security_hole" and _x_boss_now(s) == "auditor" and w["ticket"] not in s["attacked"]:
+        b = content.balance
+        s["attacked"].append(w["ticket"])
+        _meter(s, "rating", b["attack_check"]["rating"], content)
+        _meter(s, "points", b["attack_check"]["points"], content)
+        _meter(s, "cover", X["bosses"]["auditor"]["attack_cover"], content)
+        _emit(s, ev, "attack_check_resolved", ticket=w["ticket"], rating=b["attack_check"]["rating"],
+              points=b["attack_check"]["points"], boss="auditor")
+
+
+def _x_standup_delta(s: dict, ev: list, content: Content, ans: str, delta: float) -> float:
+    if ans == "accurate":
+        _xlog(s, "accurate_standup")
+        if _has(s, "psychological_safety"):
+            _use_practice(s, ev, content, "psychological_safety")
+    else:
+        _xlog(s, "bluff")
+        s["x"]["bluffed_this_sprint"] = True
+    if ans == "vague" and _x_boss_now(s) == "demo_day":
+        delta *= _X(content)["bosses"]["demo_day"]["vague_multiplier"]
+    return delta
+
+
+def _x_tutorial_unlock(s: dict, ev: list, content: Content, tid: str) -> None:
+    pid = _X(content)["practices"]["unlocked_by_tutorial"].get(tid)
+    if pid:
+        _emit(s, ev, "practice_unlocked", practice=pid)
+
+
+def _x_auto_ship(s: dict, ev: list, content: Content) -> None:
+    """M7 (spec-fit version): calling Review while work is still out ships it unreviewed."""
+    b = content.balance
+    for c in s["pile"]:
+        if c["state"] not in ("delegated", "returned"):
+            continue
+        if not c["ticket"]:
+            c["state"], c["returns_s"] = "done", None
+            _apply_payoff(s, c, content)
+            continue
+        t = _ticket(content, c["ticket"])
+        o = _bad_option(t) if c["hidden_bug"] else next(x for x in t["options"] if x["effect"] == "correct_small_flaw")
+        if o["effect"] == "crashes":
+            continue
+        result = RESULT_OF[o["effect"]]
+        pts = round(b["push"]["points"][result] * (t["difficulty"] if result in ("clean", "acceptable") else 1))
+        _meter(s, "points", pts, content)
+        rating = b["push"]["rating"].get(result, 0)
+        s["shipped"].append({"ticket": t["id"], "result": result, "effect": o["effect"], "sprint": s["sprint"], "rating": rating})
+        c["state"], c["returns_s"] = "done", None
+        _emit(s, ev, "pushed", card_id=c["id"], ticket=t["id"], result=result, label=RESULT_LABEL[result], points=pts,
+              cover=0, unreviewed=True)
+
+
+def _x_style_rank(log: list[str], content: Content) -> dict:
+    st = _X(content)["style"]
+    score = sum(min(log.count(k), 2) for k in st["good"]) - 2 * sum(log.count(k) for k in st["bad"])
+    rank = st["ranks"][0][1]
+    for at, name in st["ranks"]:
+        if score >= at:
+            rank = name
+    return {"rank": rank, "score": score, "variety": sum(1 for k in st["good"] if k in log)}
+
+
+def _x_end_sprint(s: dict, ev: list, content: Content) -> None:
+    X = _X(content)
+    x = s["x"]
+    style = _x_style_rank(x["style_log"], content)
+    x["style_history"].append(style)
+    x["style_log"] = []
+    _emit(s, ev, "style_ranked", sprint=s["sprint"], **style)
+    if not x["bluffed_this_sprint"] and "no_bluff_sprint" not in x["achievements"]:
+        x["achievements"].append("no_bluff_sprint")
+        _emit(s, ev, "achievement", name="no_bluff_sprint")
+    x["bluffed_this_sprint"] = False
+    x["boss_live"] = False
+    if s["status"] == "active" and s["meters"]["points"] > 0:
+        gain = min(X["shop"]["interest_cap"], int(s["meters"]["points"] * X["shop"]["interest_rate"]))
+        if gain:
+            _meter(s, "points", gain, content)
+            _emit(s, ev, "interest_paid", points=gain)
+    if s["status"] == "active" and s["sprint"] >= X["sprints_total"]:
+        x["achievements"].append("won")
+
+
+def _x_begin_sprint(s: dict, ev: list, content: Content) -> None:
+    X = _X(content)
+    x = s["x"]
+    x["retro_uses"], x["relief_used"] = 0, False
+    x["next_director_s"] = s["clock_s"] + X["director"]["every_min"] * 60
+    C = X["comeback"]
+    if s["meters"]["rating"] < C["behind_rating_below"] or s["warnings"] > 0:
+        x["bounty_card"] = "pending"
+        _meter(s, "focus", C["loss_bonus_focus"], content)
+        _emit(s, ev, "comeback_offered", focus=C["loss_bonus_focus"], bounty=C["bounty_bonus"])
+    _x_deal_sprint(s, ev, content)
+    _x_open_shop(s, ev, content)
+
+
+def _h_configure(s, ev, content, p):
+    """Server-only: meta unlocks and the chosen Heat modifiers, before anything happens in the run."""
+    if not _exp(content):
+        _illegal("experimental mechanics are off")
+    if s["x"]["configured"] or s["clock_s"] > 0 or s["stage"] != "PLANNING" or s["sprint"] != 1:
+        _illegal("a run can only be configured before it starts")
+    X = _X(content)
+    unlocks = [u for u in p.get("unlocks", []) if isinstance(u, str)]
+    heat = list(dict.fromkeys(p.get("heat", [])))
+    if heat and "heat" not in unlocks:
+        _illegal("Heat unlocks after your first win")
+    for h in heat:
+        if h not in X["heat"]["modifiers"]:
+            _illegal(f"unknown heat modifier {h}")
+    s["x"].update(configured=True, unlocks=unlocks, heat=heat)
+    if s["x"]["shop"]:   # the free pick can now include practices unlocked in earlier runs
+        s["x"]["shop"]["offers"] = _x_offers(s, content, [])
+    _emit(s, ev, "run_configured", unlocks=unlocks, heat=heat)
+
+
+def _need_planning_shop(s) -> dict:
+    if s["stage"] != "PLANNING" or not s["x"]["shop"]:
+        _illegal("the shop is only open during planning")
+    return s["x"]["shop"]
+
+
+def _h_buy_practice(s, ev, content, p):
+    shop = _need_planning_shop(s)
+    X = _X(content)
+    off = next((o for o in shop["offers"] if o["id"] == p["practice_id"]), None)
+    if not off:
+        _illegal("that practice is not on offer")
+    if len(s["x"]["practices"]) - sum(1 for d in X["practices"]["duos"] if d in s["x"]["practices"]) >= X["practices"]["slots"]:
+        _illegal("all practice slots are full")
+    price = 0 if shop["free"] else off["price"]
+    if s["meters"]["points"] < price:
+        _illegal("not enough points")
+    if price:
+        _meter(s, "points", -price, content)
+    s["x"]["practices"][off["id"]] = {"level": 1, "uses": 0}
+    shop["offers"] = [o for o in shop["offers"] if o["id"] != off["id"]]
+    _emit(s, ev, "practice_gained", practice=off["id"], price=price)
+    for duo, d in X["practices"]["duos"].items():
+        if duo not in s["x"]["practices"] and all(n in s["x"]["practices"] for n in d["needs"]):
+            s["x"]["practices"][duo] = {"level": 1, "uses": 0}
+            _emit(s, ev, "practice_gained", practice=duo, price=0, duo=True)
+    if shop["free"]:
+        s["x"]["shop"] = None
+
+
+def _h_reroll_shop(s, ev, content, p):
+    shop = _need_planning_shop(s)
+    prices = _X(content)["shop"]["reroll_price"]
+    price = 0 if shop["free"] and shop["rerolls"] == 0 else prices[min(shop["rerolls"], len(prices) - 1)]
+    if s["meters"]["points"] < price:
+        _illegal("not enough points to reroll")
+    if price:
+        _meter(s, "points", -price, content)
+    shop["rerolls"] += 1
+    keep = [o for o in shop["offers"] if o["locked"]]
+    shop["offers"] = _x_offers(s, content, keep)
+    _emit(s, ev, "shop_rerolled", price=price, offers=[o["id"] for o in shop["offers"]])
+
+
+def _h_lock_offer(s, ev, content, p):
+    shop = _need_planning_shop(s)
+    off = next((o for o in shop["offers"] if o["id"] == p["practice_id"]), None)
+    if not off:
+        _illegal("that practice is not on offer")
+    off["locked"] = not off["locked"]
+    s["x"]["kept_offers"] = [o for o in shop["offers"] if o["locked"]]
+    _emit(s, ev, "offer_locked", practice=off["id"], locked=off["locked"])
+
+
+def _h_retro(s, ev, content, p):
+    _need_stage(s, "BUILD")
+    if not _has(s, "retrospective"):
+        _illegal("you do not have the Retrospective practice")
+    if s["x"]["retro_uses"] >= _fx(s, content, "retrospective", "uses_per_sprint"):
+        _illegal("Retrospective is used up for this sprint")
+    c = _card(s, p["card_id"])
+    if c["state"] not in ("pile", "returned", "open"):
+        _illegal("card cannot be reset")
+    s["x"]["retro_uses"] += 1
+    c["escalation"] = 0
+    c["deadline_s"] = s["clock_s"] + content.balance["escalation"]["interval_min"] * 60
+    _use_practice(s, ev, content, "retrospective")
+    _emit(s, ev, "card_reset", card_id=c["id"])
+
+
+def _h_use_ultimate(s, ev, content, p):
+    _need_stage(s, "BUILD")
+    x, M = s["x"], _X(content)["momentum"]
+    if x["momentum"] < x["momentum_full"]:
+        _illegal("momentum is not full yet")
+    kind = p["kind"]
+    if kind == "protect":
+        x["protect_until_s"] = s["clock_s"] + M["protect_min"] * 60
+    elif kind == "swarm":
+        for c in s["pile"]:
+            if c["state"] == "delegated":
+                c["hidden_bug"] = False
+                _return_delegation(s, ev, content, c)
+    elif kind == "retro_now":
+        for c in _live(s):
+            c["escalation"] = max(0, c["escalation"] - 1)
+            if c["deadline_s"] is not None:
+                c["deadline_s"] += M["retro_deadline_min"] * 60
+    else:
+        _illegal("unknown ultimate")
+    x["momentum"] = 0
+    _emit(s, ev, "ultimate_used", kind=kind)
+
+
+def _x_public(s: dict, content: Content) -> dict:
+    X, x, b = _X(content), s["x"], content.balance
+    costs = {k: round(_cost(s, content, k), 1) for k in b["costs_min"]}
+    window = X["intents_window_min"] * 60
+    names = {"po": "Marlo", "dev1": "Ines", "dev2": "Tobi"}
+    intents = []
+    for item in x["sched"][s["sched_pos"]:]:
+        dt = item["at_s"] - s["clock_s"]
+        if dt > window:
+            break
+        who = names.get(item.get("sender") or item["spec"]["sender"], "Someone")
+        if item["kind"] == "call":
+            text = f"{who} will call you"
+        elif item["kind"] == "ping":
+            text = f"{who} will message you"   # whether it is a clue, noise or a trap stays hidden
+        else:
+            sp = item["spec"]
+            text = {"fix": f"{who} will report a bug", "build": f"{who} will ask for a new feature",
+                    "help_call": f"{who} will ask for help", "status_demand": f"{who} will want a status update"}[sp["type"]]
+        intents.append({"in_min": round(dt / 60), "text": text, "kind": item["kind"]})
+    shop = None
+    if x["shop"]:
+        prices = X["shop"]["reroll_price"]
+        sh = x["shop"]
+        shop = {"free": sh["free"], "offers": sh["offers"],
+                "reroll_price": 0 if sh["free"] and sh["rerolls"] == 0 else prices[min(sh["rerolls"], len(prices) - 1)]}
+    style = _x_style_rank(x["style_log"], content)
+    boss_sprint = X["boss_sprint"]
+    return {"sprints_total": X["sprints_total"], "boss": x["boss"], "boss_sprint": boss_sprint,
+            "boss_live": bool(x.get("boss_live")), "clock_running": s["stage"] == "BUILD" and _x_clock_running(s, content),
+            "move_costs": costs, "day_minutes": _day_minutes(s, content), "intents": intents,
+            "practices": [{"id": k, **v} for k, v in x["practices"].items()], "slots": X["practices"]["slots"],
+            "shop": shop, "momentum": x["momentum"], "momentum_full": x["momentum_full"],
+            "protected_min": max(0, round((x["protect_until_s"] - s["clock_s"]) / 60)),
+            "retro_left": (_fx(s, content, "retrospective", "uses_per_sprint") - x["retro_uses"]) if _has(s, "retrospective") else 0,
+            "last_stand": x["last_stand"], "max_cover": x["max_cover"], "style": style, "heat": x["heat"],
+            "process_score": process_score(s, content),
+            "next_clean_factor": round(b["push"]["repeat_decay"] ** s["repeat_counts"].get("clean", 0), 3),
+            "prices": {"standup": dict(b["standup_cover"]), "dod_unticked_cover": b["push"]["dod_unticked_cover"],
+                       "contradiction_cover": b["contradiction_cover"],
+                       "vague_multiplier": X["bosses"]["demo_day"]["vague_multiplier"] if _x_boss_now(s) == "demo_day" else 1},
+            "bug_odds": round(_bug_chance(s, content), 3), "focus_switch_cost": X["focus"]["switch_cost"],
+            "standup_timer_s": X["bosses"]["demo_day"]["standup_timer_s"] if _x_boss_now(s) == "demo_day" else None,
+            "seed": s["seed"]}
 
 
 HANDLERS = {"open_card": _h_open_card, "flag_line": _h_flag_line, "select_patch": _h_select_patch,
@@ -635,7 +1301,9 @@ HANDLERS = {"open_card": _h_open_card, "flag_line": _h_flag_line, "select_patch"
             "triage_reorder": _h_triage_reorder, "delegate": _h_delegate, "coach": _h_coach, "defer": _h_defer,
             "reply_standup": _h_reply_standup, "answer_call": _h_answer_call, "watch_tutorial": _h_watch_tutorial,
             "buy_perk": _h_buy_perk, "use_assistant": _h_use_assistant, "advance_stage": _h_advance_stage,
-            "tick": _h_tick}
+            "tick": _h_tick, "configure": _h_configure, "buy_practice": _h_buy_practice, "reroll_shop": _h_reroll_shop,
+            "lock_offer": _h_lock_offer, "retro": _h_retro, "use_ultimate": _h_use_ultimate}
+EXPERIMENTAL_ONLY = ("configure", "buy_practice", "reroll_shop", "lock_offer", "retro", "use_ultimate")
 
 
 def apply(state: dict, command: dict, content: Content) -> tuple[dict, list[dict]]:
@@ -643,6 +1311,8 @@ def apply(state: dict, command: dict, content: Content) -> tuple[dict, list[dict
     if state["status"] != "active":
         raise GameError("ILLEGAL_COMMAND", "the run has ended")
     h = HANDLERS.get(command.get("type"))
+    if command.get("type") in EXPERIMENTAL_ONLY and not state.get("x"):
+        h = None
     if h is None:
         raise GameError("ILLEGAL_COMMAND", f"unknown command {command.get('type')!r}")
     s, ev = copy.deepcopy(state), []
@@ -663,8 +1333,36 @@ def debrief(s: dict, content: Content) -> dict:
     m = s["meters"]
     ps = process_score(s, content)
     rating_pct = round((m["rating"] - 1) / 4 * 100)
-    return {"ending": s["ending"], "status": s["status"], "rating": m["rating"], "cover": m["cover"], "points": m["points"],
-            "process_score": ps, "gap": rating_pct - ps, "shipped": [x["result"] for x in s["shipped"]]}
+    out = {"ending": s["ending"], "status": s["status"], "rating": m["rating"], "cover": m["cover"], "points": m["points"],
+           "process_score": ps, "gap": rating_pct - ps, "shipped": [x["result"] for x in s["shipped"]]}
+    if s.get("x"):
+        out["x"] = _x_debrief(s, content)
+    return out
+
+
+def _x_debrief(s: dict, content: Content) -> dict:
+    X, x = _X(content), s["x"]
+    story = X["story"]
+    lines = [story[s["ending"]]] if s["ending"] in story else []
+    log = s["process_log"]
+    if x["clutches"]:
+        lines.append(story["clutch"])
+    if any(sh["result"] == "security_hole" for sh in s["shipped"]):
+        lines.append(story["shipped_hole"])
+    if "coach" in log:
+        lines.append(story["coached"])
+    if "dod_skipped" in log:
+        lines.append(story["skipped_dod"])
+    if "no_bluff_sprint" in x["achievements"]:
+        lines.append(story["honest"])
+    else:
+        lines.append(story["bluffed"])
+    heat = len(x["heat"])
+    run_score = round(s["meters"]["points"] * (1 + X["heat"]["bonus_per_level"] * heat))
+    return {"sprints_played": len(x["style_history"]), "style": x["style_history"], "max_cover": x["max_cover"],
+            "near_miss": x["max_cover"] >= X["suspicion"]["last_stand_from"], "clutches": x["clutches"],
+            "story": lines[:4], "heat": x["heat"], "run_score": run_score, "practices": list(x["practices"]),
+            "achievements": x["achievements"], "boss": x["boss"], "seed": s["seed"]}
 
 
 def public_state(s: dict, content: Content) -> dict:
@@ -684,7 +1382,7 @@ def public_state(s: dict, content: Content) -> dict:
     st = s["pending_standup"]
     standup = None
     if st:
-        choices = ["vague", "wrong"] + (["accurate"] if st["concept"] in s["unlocked"] else [])
+        choices = ["vague", "wrong"] + (["accurate"] if _accurate_ok(s, st) else [])
         standup = {"n": st["n"], "ticket": st["ticket"], "teammate": st["teammate"], "choices": choices}
     return {"status": s["status"], "ending": s["ending"], "sprint": s["sprint"], "stage": s["stage"], "day": s["day"],
             "clock_min": round(s["clock_s"] / 60, 1), "day_used_min": round(_day_used_min(s), 1),
@@ -693,5 +1391,14 @@ def public_state(s: dict, content: Content) -> dict:
             "pile": [{"id": c["id"], "type": c["type"], "sender": c["sender"], "ticket": c["ticket"],
                       "title": content.tickets[c["ticket"]]["title"] if c["ticket"] else None,
                       "state": c["state"], "escalation": c["escalation"], "payoff": c["payoff"], "penalty": c["penalty"],
-                      "deadline_min": None if c["deadline_s"] is None else round(c["deadline_s"] / 60, 1)}
-                     for c in s["pile"]]}
+                      "deadline_min": None if c["deadline_s"] is None else round(c["deadline_s"] / 60, 1),
+                      **(_x_card_public(s, c) if s.get("x") else {})}
+                     for c in s["pile"]],
+            **({"x": _x_public(s, content)} if s.get("x") else {})}
+
+
+def _x_card_public(s: dict, c: dict) -> dict:
+    out = {"bounty": c.get("bounty", False), "spot": c.get("spot", False)}
+    if c["state"] in ("delegated", "returned") and c["ticket"] and _has(s, "tdd_pair"):
+        out["bug_known"] = c["hidden_bug"]   # TDD Pair: you can tell whether returned work is bugged
+    return out

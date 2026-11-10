@@ -562,3 +562,31 @@ details.fold > summary small { color:var(--muted); font:700 12px var(--font-body
 .skill { display:grid; grid-template-columns:46px 1fr; grid-template-areas:"ic body" "ic act"; align-items:start; gap:6px 12px; }
 .skill-ic { grid-area:ic; } .skill-body { grid-area:body; } .skill > button, .skill > .skill-own { grid-area:act; justify-self:start; }
 .skill > button { padding:5px 16px; font-size:13px; }
+
+/* ===== Skill play: speed timer, rescue bar, bug wave, the demo hand ===== */
+.speed { display:flex; align-items:center; gap:10px; margin:2px 0 8px; padding:6px 10px; border-radius:12px; background:#fff; border:2px solid var(--line); }
+.speedbar { position:relative; flex:1; height:14px; border-radius:7px; background:var(--soft); overflow:visible; }
+.speedbar i { display:block; height:100%; border-radius:7px; background:var(--green); transition:width 1s linear, background .2s; }
+.speedbar .mark { position:absolute; top:-3px; bottom:-3px; width:3px; margin-left:-1px; border-radius:2px; background:var(--text); opacity:.35; }
+.speedtier { min-width:74px; text-align:right; font:800 14px var(--font-head); letter-spacing:.5px; }
+.speedmiss { color:var(--red-d); font:800 12px var(--font-head); }
+.speed.tier-perfect .speedbar i { background:var(--green); } .speed.tier-perfect .speedtier { color:var(--green-d); }
+.speed.tier-good .speedbar i { background:var(--yellow); } .speed.tier-good .speedtier { color:#8a6a00; }
+.speed.tier-slow .speedbar i { background:var(--line); } .speed.tier-slow .speedtier { color:var(--muted); }
+
+@keyframes alarm { 0%,100% { box-shadow:0 0 0 0 rgba(255,75,75,.55); } 50% { box-shadow:0 0 0 8px rgba(255,75,75,0); } }
+.lane-card.is-stuck { animation:alarm 1s ease-out infinite; }
+.stuckbox { gap:8px; } .stuckbox b { font:800 17px var(--font-head); }
+.rescue { height:12px; border-radius:6px; background:#fff; border:2px solid var(--red); overflow:hidden; }
+.rescue i { display:block; height:100%; background:var(--red); transition:width 1s linear; } .rescue.quick i { background:var(--green); } .rescue.quick { border-color:var(--green); }
+.rescuebtn { align-self:flex-start; padding:10px 22px; font-size:16px; }
+
+.pile-item.wave { border-color:var(--red); background:var(--red-soft); }
+.chip.wavechip { animation:alarm 1.2s ease-out infinite; }
+
+#demo { position:fixed; left:0; top:0; z-index:60; pointer-events:none; opacity:0; }
+#demo[hidden] { display:none; }
+.demo-dot { position:absolute; left:-15px; top:-15px; width:30px; height:30px; border-radius:50%; background:var(--yellow); border:4px solid #fff; box-shadow:0 0 0 3px var(--text), 0 6px 14px rgba(0,0,0,.25); }
+.demo-card { position:absolute; left:-46px; top:-30px; width:92px; height:34px; border-radius:10px; background:#fff; border:3px solid var(--blue); opacity:.9; box-shadow:0 8px 18px rgba(24,70,110,.2); }
+.concept-body p { font-size:18px; } .concept-card { width:min(420px, 100%); }
+.speed { position:sticky; top:0; z-index:3; box-shadow:0 4px 10px rgba(24,70,110,.08); }

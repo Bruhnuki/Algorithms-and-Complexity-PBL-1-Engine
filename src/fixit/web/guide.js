@@ -37,19 +37,20 @@ export const TERMS = {
 
 // "New idea" cards. Each one teaches ONE concept the first time it matters. app.js decides when.
 export const CONCEPTS = {
-  welcome: { title: "Your to-do list", text: "Requests from your team appear here. Your first job: get one fix to users before the sprint ends.", terms: ["sprint"] },
-  standup: { title: "The daily standup", text: "Every morning a teammate asks how it's going. Be honest: bluffing raises Suspicion.", terms: ["suspicion"] },
-  bug: { title: "What is a bug?", text: "A mistake in the app's code. Read what it should do, then find the line that doesn't match.", terms: ["bug"] },
-  team: { title: "Your team works live", text: "Drag a request onto Ines or Tobi and watch their bar fill. Each can do one thing at a time. Drop it on You to fix it yourself.", terms: [] },
-  test: { title: "Testing", text: "A test runs the examples from the description. Green means they work, but tests can miss safety problems.", terms: ["test"] },
-  dod: { title: "The Done checklist", text: "Tick only what is true. Ticking boxes you did not check is a lie that raises Suspicion.", terms: ["dod"] },
-  review_changes: { title: "Checking a teammate's work", text: "You know how many changes are faulty, not which. Test or ask to find them, fix them, then send it to users.", terms: ["review"] },
-  stuck: { title: "Someone is stuck", text: "A stuck teammate stops working until you unblock them. That is a Scrum Master's real job.", terms: ["sm"] },
-  outage: { title: "Outage!", text: "The app is broken for everyone. Fix it fast for a big bonus. If it drags on, your rating drops.", terms: ["rating"] },
-  practices: { title: "Practices", text: "Good team habits, here as power-ups that change a rule in your favour. Pick one.", terms: ["practice"] },
-  hand: { title: "Action cards", text: "Each move now needs a matching card from your hand. Out of the right card? Regroup draws a new hand.", terms: ["cards"] },
-  release: { title: "Releases", text: "Fixes now wait in a release. Send it to users to collect the points. Bigger pays more, but one bug loses the bonus.", terms: ["release"] },
-  boss: { title: "Boss sprint", text: "The last sprint changes one rule. Read it at the top before you start.", terms: [] },
+  welcome: { title: "Your to-do list", text: "Fix one request before the sprint ends.", terms: [] },
+  standup: { title: "Daily standup", text: "Answer honestly. Bluffing raises Suspicion.", terms: [] },
+  bug: { title: "A bug!", text: "Find the line that doesn't match the description.", terms: [] },
+  team: { title: "Your team", text: "Drag a request onto Ines or Tobi. Watch them work.", terms: [] },
+  test: { title: "Testing", text: "Green means the examples work.", terms: [] },
+  dod: { title: "Done checklist", text: "Tick only what is true.", terms: [] },
+  review_changes: { title: "Check their work", text: "Find the faulty changes, fix them, send it.", terms: [] },
+  stuck: { title: "Someone is stuck!", text: "Unblock them fast. The bar is running out.", terms: [] },
+  outage: { title: "Outage!", text: "The app is down. Fix it fast.", terms: [] },
+  practices: { title: "Practices", text: "Power-ups that change a rule. Pick one.", terms: [] },
+  hand: { title: "Action cards", text: "Each move needs a card. Out of cards? Regroup.", terms: [] },
+  release: { title: "Releases", text: "Fixes wait here. Send them together for a bonus.", terms: [] },
+  boss: { title: "Boss sprint", text: "One rule changes. Read the top bar.", terms: [] },
+  wave: { title: "Bug wave!", text: "Clear them all before time runs out.", terms: [] },
 };
 
 // Plain-language scoring guide (shown in ToobYou). Numbers are checked against balance.yaml by a test.

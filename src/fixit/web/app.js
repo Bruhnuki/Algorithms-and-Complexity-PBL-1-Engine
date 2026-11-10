@@ -230,6 +230,7 @@ function conceptFor(s) {
     ["review_changes", s.pile.some((c) => c.review)],
     ["stuck", !!x.team && Object.values(x.team).some((m) => m.stuck)],
     ["outage", s.pile.some((c) => c.outage && c.state !== "done")],
+    ["wave", !!(x.wave && !x.wave.failed)],
     ["practices", !!(x.shop && f.has("practices"))],
     ["hand", f.has("hand") && !!x.hand && build],
     ["release", f.has("release") && build],
@@ -318,13 +319,20 @@ const XTOAST = {
   outage_fixed: (e) => ["good", `Outage fixed! +${e.points} pts, rating +${e.rating}`],
   outage_missed: (e) => ["bad", `The outage dragged on: rating ${e.rating}, Suspicion +${e.cover}`],
   urgent: (e) => ["warn", `Marlo: "This one is urgent!" Done within ${e.minutes} min pays +${e.points}`],
+  speed_result: (e) => e.tier === "slow" ? ["warn", "Slow fix: no speed bonus"] : ["good", e.tier === "perfect" ? `PERFECT FIX! +${e.points}` : `Fast fix +${e.points}`],
+  quick_save: (e) => ["good", `Quick save! +${e.points}`],
+  wave: (e) => ["bad", `BUG WAVE! Clear all ${e.ids.length} in ${e.minutes} min: +${e.points}`],
+  wave_progress: (e) => ["good", `${e.left} to go`],
+  wave_clear: (e) => ["good", `WAVE CLEARED! +${e.points}`],
+  wave_failed: () => ["bad", "The wave got away from you"],
   sprint_dealt: (e) => ["info", e.boss ? "Boss sprint: " + (BOSSES[e.boss] || {}).name : "Sprint " + e.sprint + " dealt"],
 };
 
 function collect(events) {
   for (const e of events) {
     const t = e.type;
-    if (XTOAST[t]) { const [k, m] = XTOAST[t](e); toast(k, m); if (["clutch", "practice_gained", "combo", "outage_fixed"].includes(t)) burst(); if (["last_stand", "outage", "dev_stuck", "combo_broken"].includes(t)) shakeScreen(); }
+    if (XTOAST[t]) { const [k, m] = XTOAST[t](e); toast(k, m); if (["clutch", "practice_gained", "combo", "outage_fixed", "quick_save", "wave_clear"].includes(t) || (t === "speed_result" && e.tier === "perfect")) burst(); if (["last_stand", "outage", "dev_stuck", "combo_broken", "wave"].includes(t)) shakeScreen(); }
+    if (t === "dev_started") markSeen("demo_give");
     if (["pushed", "push_blocked", "review_resolved", "rating_resolved", "attack_check_resolved", "warning_issued", "contradiction_detected", "card_escalated", "call_missed"].includes(t)) {
       run.wall.push(e); react(e);
     }
@@ -524,12 +532,13 @@ function pilePanel(s) {
   const louder = ["", "Getting louder: they called you", "Getting louder: they want a meeting"];
   return h("section", { class: "card", id: "pile", "aria-label": "To-do list" }, h("h2", {}, ic("clipboard"), " ", term("todo"), ` (${live.length})`),
     live.length ? null : h("p", { class: "muted" }, "Nothing here right now. New requests arrive during the day."),
-    live.map((c) => h("div", { class: `pile-item esc${c.escalation}` + (c.state === "open" ? " open" : "") + (c.bounty ? " bounty" : "") + (c.spot ? " spot" : "") + (c.outage ? " outage" : "") + (c.urgent ? " urgent" : ""),
+    live.map((c) => h("div", { class: `pile-item esc${c.escalation}` + (c.state === "open" ? " open" : "") + (c.bounty ? " bounty" : "") + (c.spot ? " spot" : "") + (c.outage ? " outage" : "") + (c.urgent ? " urgent" : "") + (c.wave ? " wave" : ""),
       draggable: team && s.stage === "BUILD" && c.state === "pile" ? "true" : null,
       ondragstart: (e) => { run.dragCard = c.id; run.dragging = true; e.dataTransfer.setData("text/plain", c.id); },
       ondragend: () => { run.dragging = false; run.dragCard = null; setTimeout(() => { run.sig = null; render(); }, 0); } },
       c.outage ? h("span", { class: "chip danger" }, ic("alert"), " Outage! Users can't use the app") : null,
       c.urgent ? h("span", { class: "chip goal" }, ic("bolt"), " Urgent: bonus if done on time") : null,
+      c.wave ? h("span", { class: "chip danger" }, ic("alert"), " Bug wave") : null,
       c.bounty ? h("span", { class: "chip good" }, "Bounty: extra points for a clean fix") : null,
       h("div", { class: "ptitle" }, ic(typeIcon(c.type)), h("b", {}, (c.spot ? "Spot check: " : "") + (c.title || typeLabel(c.type)))),
       h("div", { class: "pmeta", title: [c.payoff.points ? `Reward: +${c.payoff.points} points.` : "", c.penalty.cover ? `Ignore it and Suspicion goes up by ${c.penalty.cover}.` : ""].join(" ").trim() },
@@ -567,20 +576,19 @@ function codeDesk(s) {
     return h("section", { class: "card", "aria-label": "Standup" }, h("h2", {}, "Daily ", term("standup"), " with " + who(q.teammate)),
       h("p", {}, `"How did your last fix go?"`), timer,
       h("div", { class: "row", "data-guide": "standup" }, q.choices.map((c) => h("button", { class: pr ? "deal" : "", onclick: () => cmd("reply_standup", { answer: c }) }, label[c] || c, pr ? h("small", {}, say[c]) : null))),
-      q.choices.includes("accurate") ? null : h("p", { class: "muted" }, "Can't explain it honestly yet? You haven't learned how that kind of code works. Watch the short video in ToobYou, and next time you can."));
+      q.choices.includes("accurate") ? null : h("p", { class: "muted small" }, "Watch a video in ToobYou to unlock the honest answer."));
   }
-  if (s.stage === "STANDUP") return h("section", { class: "card" }, h("h2", {}, "Standup done"), h("p", {}, "Everyone knows what everyone is doing. Now the work begins."),
+  if (s.stage === "STANDUP") return h("section", { class: "card" }, h("h2", {}, "Standup done"),
     h("button", { class: "primary", "data-guide": "start-build", onclick: () => cmd("advance_stage", { to: "BUILD" }) }, "Start the work day"));
   if (s.stage === "PLANNING") {
     const x = s.x, boss = x && (BOSSES[x.boss] || {});
     const soon = x && x.unlocks_next && x.unlocks_next.length ? x.unlocks_next.map((k) => FEATURE_NAMES[k]).filter(Boolean) : [];
     return h("div", {}, shopEl(s),
       h("section", { class: "card" }, h("h2", {}, "Planning" + (x ? ` · `: ""), x ? term("sprint", `sprint ${s.sprint} of ${x.sprints_total}`) : null),
-        h("p", {}, "Planning is where the team looks at the to-do list and agrees what to get done."),
         x && x.boss_live ? h("p", { class: "bossnote" }, ic("flag"), ` Boss sprint: ${boss.name}. ${boss.rule}`) : null,
-        x ? h("p", { class: "goalnote" }, ic("flag"), " ", term("goal"), `: send ${x.goal.target} fix${x.goal.target > 1 ? "es" : ""} to users this sprint, ones you fixed or checked yourself. Miss it and you get a strike.`) : null,
+        x ? h("p", { class: "goalnote" }, ic("flag"), " ", term("goal"), `: send ${x.goal.target} fix${x.goal.target > 1 ? "es" : ""} to users`) : null,
         h("button", { class: "primary", "data-guide": "start-sprint", onclick: () => cmd("advance_stage", { to: "STANDUP" }) }, "Start the sprint"),
-        soon.length ? h("p", { class: "muted small" }, ic("lock"), " Next sprint you'll learn: " + [...new Set(soon)].join(", ") + ".") : null));
+        null));
   }
   const rev = s.stage === "BUILD" && !w && run.reviewing && s.pile.find((c) => c.id === run.reviewing && c.review);
   if (rev) return reviewDesk(s, rev);
@@ -599,8 +607,9 @@ function codeDesk(s) {
   const perks = s.perks.includes("ai_assistant");
   const box = { tests: "The test passed", matches_doc: "It does what the description says", no_security: "It's safe: strangers can't misuse it" };
   return h("section", { class: "card", "aria-label": "Code desk" }, h("h2", {}, ic(w.kind === "fix" ? "bug" : "hammer"), " " + w.title),
+    w.speed ? h("div", { class: "speed", "data-speed": "" }, h("div", { class: "speedbar" }, h("i", {}), h("em", { class: "mark" })), h("b", { class: "speedtier" }), h("small", { class: "speedmiss" })) : null,
     h("div", { class: "doc" }, h("small", {}, "What it should do"), h("p", {}, w.doc)),
-    h("p", { class: "muted small" }, "Below is the ", term("code"), w.kind === "fix" ? ". One line is wrong. Click it." : ". One line is missing (the ____). Pick it from the choices."),
+    h("p", { class: "muted small" }, w.kind === "fix" ? "One line is wrong. Click it fast." : "One line is missing. Pick it."),
     h("pre", { class: "code", "data-guide": "code" }, w.lines.map((t, i) => h("div", { class: "line" + (w.flagged === i + 1 ? " flagged" : ""), role: w.kind === "fix" ? "button" : null, tabindex: w.kind === "fix" ? "0" : null,
       onclick: () => w.kind === "fix" && cmd("flag_line", { line_no: i + 1 }), onkeydown: (e) => { if (e.key === "Enter" && w.kind === "fix") cmd("flag_line", { line_no: i + 1 }); } }, h("span", { class: "n" }, i + 1), t))),
     h("h3", {}, w.kind === "fix" ? "Replace it with" : "Fill the gap with"),
@@ -697,8 +706,9 @@ function teamBoard(s) {
     const body = !m.task ? h("p", { class: "lane-free" }, "Free. Drag a request here.")
       : [h("div", { class: "lane-task" }, ic("hammer"), " " + (m.title || "Working")),
         h("div", { class: "bar mprog" + (m.stuck ? " stuck" : ""), "data-dev": d }, h("i", {})),
-        m.stuck ? h("div", { class: "stuckbox" }, h("b", {}, `${nm} is stuck!`), h("span", { class: "small" }, " No progress until you help (", h("span", { class: "stuckmin", "data-dev": d }, m.stuck_min), " min so far)."),
-          h("button", { class: "primary", "data-guide": "unblock:" + d, onclick: () => cmd("unblock", { dev: d }) }, `Unblock (${x.unblock_min} min)`))
+        m.stuck ? h("div", { class: "stuckbox" }, h("b", {}, `${nm} is stuck!`),
+          h("div", { class: "rescue", "data-dev": d }, h("i", {})),
+          h("button", { class: "primary rescuebtn", "data-guide": "unblock:" + d, title: `Unblock quickly for a bonus (${x.unblock_min} min of your time)`, onclick: () => cmd("unblock", { dev: d }) }, "Unblock"))
           : h("small", { class: "muted eta", "data-dev": d }, `About ${m.eta_min} min left`)];
     const el = h("div", { class: "lane-card" + (m.stuck ? " is-stuck" : m.task ? " busy" : " free"), "data-lane": d },
       h("div", { class: "lane-head" }, avatar(d, m.stuck ? "panicked" : "calm"), h("div", {}, h("b", {}, nm), h("small", {}, trait))), body);
@@ -709,9 +719,29 @@ function teamBoard(s) {
     h("div", { class: "lanes3" }, me, mates));
 }
 // progress bars move every second without rebuilding the page
+const TIER_LABEL = { perfect: "PERFECT", good: "GOOD", slow: "SLOW" };
+function syncSpeed(s) {
+  const box = document.querySelector(".speed[data-speed]");
+  if (!box || !s.work || !s.work.speed) return;
+  const sp = s.work.speed, frac = Math.max(0, 1 - sp.seconds / sp.good_s);
+  const bar = box.querySelector(".speedbar"), fill = bar.firstChild;
+  fill.style.width = Math.round(100 * frac) + "%";
+  bar.querySelector(".mark").style.left = Math.round(100 * (1 - sp.perfect_s / sp.good_s)) + "%";   // the PERFECT zone is the part to the right of this mark
+  box.className = "speed tier-" + sp.tier;
+  const t = box.querySelector(".speedtier"), lbl = TIER_LABEL[sp.tier];
+  if (t.textContent !== lbl) t.textContent = lbl;
+  const m = box.querySelector(".speedmiss"), mt = sp.misses ? `${sp.misses} wrong: +${sp.misses * sp.penalty_s}s` : "";
+  if (m.textContent !== mt) m.textContent = mt;
+}
+
 function syncTeam(s) {
   const team = s.x && s.x.team;
   if (!team) return;
+  document.querySelectorAll(".rescue[data-dev]").forEach((b) => {
+    const m = team[b.dataset.dev]; if (!m) return;
+    b.firstChild.style.width = Math.max(0, Math.round(100 * (1 - m.stuck_min / s.x.stuck_limit))) + "%";
+    b.classList.toggle("quick", m.stuck_min <= s.x.quick_min);
+  });
   document.querySelectorAll(".mprog[data-dev]").forEach((b) => { const m = team[b.dataset.dev]; if (m) b.firstChild.style.width = Math.round(100 * m.progress) + "%"; });
   document.querySelectorAll(".stuckmin[data-dev]").forEach((e) => { const m = team[e.dataset.dev]; if (m && e.textContent !== String(m.stuck_min)) e.textContent = String(m.stuck_min); });
   document.querySelectorAll(".eta[data-dev]").forEach((e) => { const m = team[e.dataset.dev]; if (m && m.eta_min != null) e.textContent = `About ${m.eta_min} min left`; });
@@ -920,6 +950,7 @@ function hudEl(s) {
       multEl(s),
       x.release ? h("span", { class: "chip", title: "Pushes waiting in the release" }, ic("rocket"), ` Release ${x.release.items.length}/${x.release.max}`) : null,
       x.last_stand ? h("span", { class: "chip danger" }, ic("warn"), " Last stand") : null,
+      x.wave && !x.wave.failed ? h("span", { class: "chip danger wavechip" }, ic("alert"), ` Bug wave: ${x.wave.left} of ${x.wave.total} left`) : null,
       x.protected_min ? h("span", { class: "chip good" }, ic("check"), ` Protected ${x.protected_min} min`) : null,
       x.boss_live ? h("span", { class: "chip boss", title: boss.rule }, ic("flag"), ` Boss: ${boss.name}. ${boss.rule}`)
         : null),
@@ -1157,10 +1188,40 @@ const buildCoach = () => h("div", { class: "coach" }, h("span", { class: "heron"
 function syncCoach(s) {
   const g = shownGuide(s), st = document.querySelector("#browser .gstep"), why = document.querySelector("#browser .gwhy");
   if (!st) return;
+  const key = "why:" + String(g.target || g.step).split(":")[0];
+  if (run.whyKey && run.whyKey !== key) markSeen(run.whyKey);   // you moved on: you have read it
+  run.whyKey = key;
+  const showWhy = !!g.why && !seen.has(key);
   if (st.textContent !== g.step) st.textContent = g.step;
-  if (why.textContent !== (g.why || "")) { why.textContent = g.why || ""; }
-  why.hidden = !g.why;
+  st.title = g.why || "";
+  const text = showWhy ? g.why : "";
+  if (why.textContent !== text) why.textContent = text;
+  why.hidden = !showWhy;
 }
+// A hand that shows the drag, so no sentence is needed. It plays until the first request has been handed to a teammate.
+const demo = h("div", { id: "demo", "aria-hidden": "true", hidden: true }, h("span", { class: "demo-card" }), h("span", { class: "demo-dot" }));
+document.body.append(demo);
+let demoAnim = null, demoKey = null;
+function stopDemo() { if (demoAnim) { demoAnim.cancel(); demoAnim = null; } demo.hidden = true; demoKey = null; }
+function startDemo(from, to, key) {
+  const a = from.getBoundingClientRect(), b = to.getBoundingClientRect();
+  const x1 = a.left + a.width / 2, y1 = a.top + 22, x2 = b.left + b.width / 2, y2 = b.top + b.height / 2;
+  if (demoKey === key && demoAnim) return;
+  stopDemo(); demoKey = key; demo.hidden = false;
+  if (REDUCED) { demo.style.transform = `translate(${x2}px, ${y2}px)`; return; }
+  const at = (x, y, o) => ({ transform: `translate(${x}px, ${y}px)`, opacity: o });
+  demoAnim = demo.animate([{ ...at(x1, y1, 0), offset: 0 }, { ...at(x1, y1, 1), offset: .12 }, { ...at(x1, y1, 1), offset: .3 }, { ...at(x2, y2, 1), offset: .75 }, { ...at(x2, y2, 1), offset: .88 }, { ...at(x2, y2, 0), offset: 1 }],
+    { duration: 2800, iterations: Infinity, easing: "ease-in-out" });
+}
+function syncDemo(g) {
+  const m = g.target && g.target.match(/^give:([^:]+):(dev\d)$/);
+  if (!m || seen.has("demo_give") || run.modal) return stopDemo();
+  const btn = document.querySelector(`[data-guide="${g.target}"]`), lane = document.querySelector(`[data-lane="${m[2]}"]`);
+  const card = btn && btn.closest(".pile-item");
+  if (!card || !lane) return stopDemo();
+  startDemo(card, lane, g.target);
+}
+
 // The glow moves only when the target changes. It is never removed and re-added on every update (that restarted the animation).
 function revealInPage(el) {
   const sc = el.closest(".page, .note-body");
@@ -1172,6 +1233,7 @@ function applyGuide(s) {
   const g = shownGuide(s);
   const el = g.target ? [...document.querySelectorAll(`[data-guide="${g.target}"]`)].find((e) => e.offsetParent !== null) : null;
   document.querySelectorAll(".guide-on").forEach((e) => { if (e !== el) e.classList.remove("guide-on"); });
+  syncDemo(g);
   if (!el) return;
   if (!el.classList.contains("guide-on")) el.classList.add("guide-on");
   if (run.lastGuide !== g.target) { run.lastGuide = g.target; revealInPage(el); }
@@ -1234,7 +1296,7 @@ function browserFrame(s) {
 // what each page actually draws; a page is rebuilt only when this changes
 const PAGE_DEPS = {
   slack: (s) => [run.lines.slice(-12).map((l) => l.id), s.stage, s.standup, s.x ? [s.x.standup_timer_s, s.x.prices] : null],
-  github: (s) => [s.pile, s.stage, s.work, s.open_card, s.day, s.perks, run.runs, s.standup,
+  github: (s) => [s.pile, s.stage, s.work && { ...s.work, speed: s.work.speed && s.work.speed.misses }, s.open_card, s.day, s.perks, run.runs, s.standup,
     s.x ? [s.x.shop, s.x.intents.map((i) => [i.text, i.kind]), s.x.move_costs, s.x.retro_left, s.x.next_clean_factor, s.x.practices, s.meters.points, s.x.goal,
       s.x.hand, s.x.release, s.x.mult, s.x.review, run.reviewing,
       s.x.team && Object.values(s.x.team).map((m) => [m.task, m.stuck]), s.x.combo] : null],
@@ -1245,7 +1307,7 @@ const PAGE_DEPS = {
 const REGIONS = {
   tabs: { sig: () => attached().map((a) => a.id).join(), build: tabsEl },
   hud: { sig: (s) => JSON.stringify(s.x ? [s.sprint, s.stage, s.x.clock_running, s.x.process_score, s.x.style.rank, s.x.last_stand,
-    s.x.protected_min, s.x.momentum, s.x.practices.map((p) => [p.id, p.level]), s.x.boss_live, s.x.goal, s.x.mult, s.x.release && s.x.release.items.length] : null), build: hudEl },
+    s.x.protected_min, s.x.momentum, s.x.practices.map((p) => [p.id, p.level]), s.x.boss_live, s.x.goal, s.x.mult, s.x.release && s.x.release.items.length, s.x.wave] : null), build: hudEl },
   hand: { sig: (s) => JSON.stringify(s.x && s.x.hand ? [s.x.hand, s.stage] : null), build: handEl },
   call: { sig: (s) => JSON.stringify(s.call || null) + "|" + (run.error || "") + "|" + hasCard(s, "call"), build: callEl },
   rail: { sig: (s) => [pathIndex(s), s.sprint, s.pile.filter((c) => c.state === "done").length, s.pile.length].join(), build: roadmap },
@@ -1254,7 +1316,7 @@ const scrollables = () => [...document.querySelectorAll(".note-body")];
 
 // Everything that only needs its text, width or class changed: patched in place, never rebuilt.
 function syncChrome(s) {
-  syncAddr(s); syncCoach(s); syncBadges(s); syncTeam(s); syncLive(s);
+  syncAddr(s); syncCoach(s); syncBadges(s); syncTeam(s); syncLive(s); syncSpeed(s);
 }
 
 function updateScreen(s) {

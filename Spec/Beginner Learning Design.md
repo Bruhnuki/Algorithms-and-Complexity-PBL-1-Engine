@@ -177,3 +177,37 @@ Measured in the browser with a mutation counter:
 - **To-do cards redesigned:** title; a coloured type pill with the sender's face and the due time; one full-width main action (Fix it myself, Help them or Check their work); "Give to" with each teammate's face; a quiet "Later". The page-wide look of four stacked buttons and wrapped text is gone.
 - **Word book** is now "Key words": 12 words, folded away. "How scoring works" is folded too. Videos come first on ToobYou.
 - 186 tests pass, including four new tests for the skills.
+
+## Round 6: skill, reactions and less reading
+
+Feedback: it still feels like clicking a button, reading text, clicking another button. Players should act with their hands and eyes, and learn by seeing, not by reading.
+
+### New things you do (not click through)
+
+| Mechanic | What you do | What it pays or costs |
+| --- | --- | --- |
+| **Speed-fix** | When you fix a bug yourself, a timer bar drains in real seconds. Spot the wrong line fast. | Under 25 s: PERFECT, +100% of the fix's points. Under 50 s: GOOD, +50%. Slower: no bonus. Each wrong line adds 8 s and breaks your combo. |
+| **Rescue reaction** | A teammate gets stuck: their card pulses red and a rescue bar drains. Press Unblock before it runs out. | Within 12 game minutes: quick-save +40. Left until 45 min: the request gets louder and your combo breaks. |
+| **Bug waves** | Three urgent bugs land at once (red cards, a flashing chip: "Bug wave: 3 of 3 left"). Drag them to the right people before time is up. | Clear all three on time: +200. One getting louder fails the wave. |
+| **Drag and drop** | Drag requests onto Ines, Tobi or yourself. | The shape of the whole sprint. |
+| **Combo** (earlier) | Finish on time, one after another. | Growing bonus; wrong line, a late request or a broken fix breaks it. |
+
+All numbers are in `content/balance.yaml` (`originals.speed_fix`, `team_board.quick_*`, `events.wave_*`). The timer is server-side: while a card is open the game clock waits, but the card's own real seconds are counted from the ticks the page sends.
+
+### Show, don't tell
+
+- **An animated hand** demonstrates the drag: a card ghost follows a yellow dot from the request to Ines, in a loop, until you give your first request to a teammate. No sentence is needed.
+- **Glow plus one line.** The guide is one line. Its "why" shows only the first time each kind of step comes up, then only as a hover hint.
+- **The picture is the message:** a red pulsing card means stuck, a draining bar means hurry, a red chip means wave.
+- **Idea cards** are one short sentence each (14 cards, none longer than a line). The Planning and Standup screens lost their explanation paragraphs.
+
+### Checked
+
+- A browser run: the demo hand animated and vanished after the first give; the speed bar drained (98% → 86%) and a wrong line cost more ("1 wrong: +8s"); the stuck lane pulsed with a draining rescue bar; a bug wave produced three red cards and the chip.
+- The stuck and wave screens were seen on a test server with those events made frequent; they are rare on a normal run.
+- Bots, 40 runs each: team play 33 wins, fixing everything alone 21. The wave and speed rules are covered by new tests (190 pass).
+
+### Not checked
+
+- Whether this is fun. These are the first rules that reward fast hands and reactions, but only a person can say if the speed targets (25 and 50 seconds), the rescue window and the wave size feel right.
+- Sound, which would help the alarm moments, is not built.

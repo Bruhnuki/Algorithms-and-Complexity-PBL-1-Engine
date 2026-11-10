@@ -278,3 +278,52 @@ header.topbar h1 .ic { width:34px; height:34px; vertical-align:-10px; }
 @media (max-width:900px) { .rail:not(.collapsed) { width:176px; } .railbody { min-width:176px; } }
 
 .callslot:empty { display:none; } .callslot { display:block; }
+
+/* ===== Experimental engagement mechanics (branch experimental/engagement-mechanics) ===== */
+.hud { display:flex; flex-direction:column; gap:6px; padding:8px 14px; background:var(--panel); border-bottom:var(--bw) solid var(--line); }
+.hud[hidden] { display:none; }
+.hud-row { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; }
+.chip { display:inline-flex; align-items:center; gap:4px; padding:3px 10px; border:2px solid var(--line); border-radius:999px; background:#fff; font:800 13px var(--font-head); white-space:nowrap; }
+.chip .ic { width:16px; height:16px; }
+.chip .sep { color:var(--muted); }
+.chip.live { border-color:var(--green); background:var(--green-soft); color:var(--green-d); }
+.chip.paused { border-color:var(--blue); background:var(--blue-soft); color:var(--blue-d); }
+.chip.danger { border-color:var(--red); background:var(--red-soft); color:var(--red-d); }
+.chip.good { border-color:var(--green); background:var(--green-soft); color:var(--green-d); }
+.chip.boss { border-color:var(--purple); background:var(--purple-soft); color:var(--purple-d); white-space:normal; }
+.chip.faint { color:var(--muted); }
+.hud .lbl { font:800 12px var(--font-head); text-transform:uppercase; letter-spacing:.6px; color:var(--muted); }
+.bar.mom { width:140px; height:10px; }
+.bar.mom i { background:var(--yellow); }
+.ult { padding:4px 10px; font-size:13px; background:var(--yellow-soft); border-color:var(--yellow-d); }
+.pracs { display:inline-flex; flex-wrap:wrap; gap:4px; margin-left:auto; }
+.pchip { padding:2px 8px; border-radius:8px; background:var(--blue-soft); color:var(--blue-d); font:800 12px var(--font-head); }
+.pchip.duo { background:var(--purple-soft); color:var(--purple-d); }
+.small { font-size:13px; }
+.lanes { display:grid; grid-template-columns:repeat(auto-fit, minmax(58px,1fr)); gap:4px; margin-bottom:10px; }
+.lane { display:flex; flex-direction:column; align-items:center; padding:6px 2px; border:2px solid var(--line); border-radius:10px; background:#fff; text-align:center; }
+.lane b { font:800 18px var(--font-head); }
+.lane small { font-size:11px; color:var(--muted); line-height:1.2; }
+.lane.empty { opacity:.55; }
+.intents ul { margin:6px 0 0; padding-left:18px; }
+.intents li { margin:3px 0; font-size:14px; }
+.cost { margin-top:4px; font-size:13px; color:var(--muted); font-weight:700; }
+.cost.risk { color:var(--red-d); }
+.cost.good { color:var(--green-d); }
+.odds { margin-top:4px; padding:6px 8px; border-radius:8px; background:var(--yellow-soft); font-size:13px; font-weight:700; }
+.odds .ic { width:16px; height:16px; vertical-align:-3px; }
+.pile-item.bounty { border-color:var(--yellow-d); }
+.pile-item.spot { border-color:var(--red); }
+.shop .offers { display:grid; grid-template-columns:repeat(auto-fit, minmax(190px, 1fr)); gap:10px; margin:10px 0; }
+.offer { display:flex; flex-direction:column; gap:6px; padding:12px; border:var(--bw) solid var(--line); border-bottom-width:4px; border-radius:var(--radius); background:#fff; }
+.offer p { margin:0; flex:1; color:var(--muted); font-size:14px; }
+.offer.locked { border-color:var(--blue); box-shadow:0 0 0 3px var(--blue-soft); }
+.bossnote { padding:8px 12px; border-radius:10px; background:var(--purple-soft); color:var(--purple-d); font-weight:800; }
+button.deal { display:flex; flex-direction:column; align-items:flex-start; text-align:left; }
+button.deal small { font-weight:700; text-transform:none; letter-spacing:0; opacity:.8; }
+.sutimer { display:inline-block; margin:4px 0 8px; padding:4px 12px; border-radius:999px; background:var(--blue-soft); color:var(--blue-d); font:800 15px var(--font-head); }
+.sutimer.hurry { background:var(--red-soft); color:var(--red-d); }
+.xdeb { margin-top:10px; }
+.xdeb .row { flex-wrap:wrap; }
+.story { margin:6px 0; padding:8px 12px; border-left:4px solid var(--line); background:var(--soft); border-radius:6px; }
+@media (max-width:760px) { .pracs { margin-left:0; } }

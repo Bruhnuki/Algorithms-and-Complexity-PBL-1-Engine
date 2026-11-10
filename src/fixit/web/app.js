@@ -153,7 +153,31 @@ async function questions(kind, next) {
       catch (e) { if (e.code === "ALREADY_SUBMITTED") next(); else err.textContent = e.message; }
     } }, "Submit answers"), h("button", { onclick: next }, "Skip for now"))));
 }
-const preTest = () => questions("pre", newRun);
+const preTest = () => questions("pre", setupRun);
+
+// Experimental: a run can use a class challenge code (everyone gets the same sprints) and, after a first win, Heat.
+const HEAT_TEXT = { no_assistant: "No AI Assistant", one_warning: "One warning ends the run", short_days: "Shorter working days",
+  po_pressure: "Marlo wants extra status updates", harsh_reviews: "Reviewers go viral more often" };
+async function setupRun() {
+  let un = { unlocks: [], heat: [] };
+  try { un = await api("/api/v1/me/unlocks"); } catch (_) { return newRun(); }
+  const code = h("input", { id: "challenge", inputmode: "numeric", placeholder: "Leave empty for a random run", autocomplete: "off" });
+  const picked = new Set();
+  const err = h("div", { class: "err", role: "alert" });
+  mount(h("section", { class: "card narrow" }, h("h2", {}, ic("flag"), " New run"),
+    h("p", { class: "lead" }, "Three sprints. Every run deals different tickets, and the last sprint is a boss."),
+    h("label", { for: "challenge" }, "Class challenge code (optional)"), code,
+    h("p", { class: "muted" }, "Everyone who types the same code gets the same sprints, so you can compare choices in class."),
+    un.heat.length ? h("fieldset", {}, h("legend", {}, "Heat: make it harder for a bigger run score"),
+      un.heat.map((k) => h("label", { class: "check" }, h("input", { type: "checkbox", onchange: (e) => { e.target.checked ? picked.add(k) : picked.delete(k); } }), h("span", {}, HEAT_TEXT[k] || k))))
+      : h("p", { class: "muted" }, ic("lock"), " Win a run to unlock Heat modifiers."),
+    un.unlocks.length ? h("p", { class: "muted" }, "Unlocked from earlier runs: " + un.unlocks.filter((u) => u !== "heat").map(practiceName).join(", ")) : null,
+    err, h("div", { class: "row" }, h("button", { class: "primary", onclick: () => {
+      const v = code.value.trim();
+      if (v && !/^[0-9]{1,6}$/.test(v)) { err.textContent = "A challenge code is a number up to 6 digits."; return; }
+      newRun({ ...(v ? { challenge: Number(v) } : {}), heat: [...picked] }).catch((e) => { err.textContent = e.message; });
+    } }, "Start the run"))));
+}
 
 // ------------------------------------------------------------ game
 const NAMES = { po: "Marlo (PO)", dev1: "Ines (Dev)", dev2: "Tobi (Dev)" };
@@ -161,8 +185,8 @@ const TUTORIALS = [{ id: "conditions", title: "Reading if / else" }, { id: "defi
 let run = null;      // {id, lastSeq, lastLine, state, lines[], wall[]}
 let timers = [];
 
-async function newRun() {
-  const r = await api("/api/v1/runs", "POST", {});
+async function newRun(opts = {}) {
+  const r = await api("/api/v1/runs", "POST", opts);
   run = { id: r.id, lastSeq: 0, lastLine: 0, state: r.state, lines: [], wall: [], lastTick: performance.now(), busy: false, notes: [] };
   timers.forEach(clearInterval);
   timers = [setInterval(poll, 1000), setInterval(tick, 1000)];
@@ -187,9 +211,30 @@ async function tick() {
   try { await api(`/api/v1/runs/${run.id}/tick`, "POST", { real_ms: ms }); } catch (_) {}
 }
 
+// experimental mechanics: what each new event says when it happens
+const XTOAST = {
+  practice_gained: (e) => ["good", (e.duo ? "Combo unlocked: " : "New practice: ") + practiceName(e.practice)],
+  practice_evolved: (e) => ["good", practiceName(e.practice) + " levelled up"],
+  practice_unlocked: (e) => ["info", practiceName(e.practice) + " can now appear in the shop"],
+  spot_check: () => ["warn", "Spot check! Marlo is checking your work"],
+  last_stand: () => ["bad", "Last stand: one more slip and you're found out. A clean, honest push pulls you back."],
+  clutch: (e) => ["good", "Clutch! Cover " + e.cover],
+  director: (e) => e.action === "relief" ? ["info", "Marlo gives everyone " + e.minutes + " more minutes"] : ["warn", "Things are quiet. New work arrives"],
+  bounty_paid: (e) => ["good", "Bounty paid: +" + e.points + " pts"],
+  interest_paid: (e) => ["good", "Interest on saved points: +" + e.points],
+  comeback_offered: () => ["info", "Comeback: extra Focus and a bounty ticket this sprint"],
+  ultimate_used: (e) => ["good", ULTIMATES[e.kind] ? ULTIMATES[e.kind].name + "!" : "Ultimate used"],
+  style_ranked: (e) => ["info", "Sprint style rank: " + e.rank],
+  achievement: () => ["good", "Achievement: a whole sprint with no bluffing"],
+  card_reset: () => ["good", "Retrospective: card calmed down"],
+  focus_switch: (e) => ["warn", "Switching tasks: Focus " + e.focus],
+  sprint_dealt: (e) => ["info", e.boss ? "Boss sprint: " + (BOSSES[e.boss] || {}).name : "Sprint " + e.sprint + " dealt"],
+};
+
 function collect(events) {
   for (const e of events) {
     const t = e.type;
+    if (XTOAST[t]) { const [k, m] = XTOAST[t](e); toast(k, m); if (t === "clutch" || t === "practice_gained") burst(); if (t === "last_stand") shakeScreen(); }
     if (["pushed", "push_blocked", "review_resolved", "rating_resolved", "attack_check_resolved", "warning_issued", "contradiction_detected", "card_escalated", "call_missed"].includes(t)) {
       run.wall.push(e); react(e);
     }
@@ -275,7 +320,7 @@ const APPS = [
 const appName = (id) => APPS.find((a) => a.id === id).name;
 
 function coachHint(s) {
-  if (s.stage === "PLANNING") return `Peek at your open issues in ${appName("github")}, then start the sprint.`;
+  if (s.stage === "PLANNING") return s.x && s.x.shop ? (s.x.shop.free ? "Pick a starting practice, then start the sprint." : "Spend points on practices, then start the next sprint.") : `Peek at your open issues in ${appName("github")}, then start the sprint.`;
   if (s.stage === "STANDUP") return `Standup time! Answer your teammate in ${appName("slack")}.`;
   if (s.stage === "BUILD") return s.open_card ? `Fix it in ${appName("github")}: click the wrong line, pick a replacement, run the script, then push.` : `Open an issue in ${appName("github")} and press Work.`;
   return "Sprint review. Let's see how you did!";
@@ -295,22 +340,56 @@ function pilePanel(s) {
     h("button", { title: "Push this to later", onclick: () => cmd("defer", { card_id: c.id }) }, "Defer")];
   const live = s.pile.filter((c) => c.state !== "done");
   return h("section", { class: "card", id: "pile", "aria-label": "Pile" }, h("h2", {}, ic("clipboard"), " Issues (" + live.length + ")"), h("p", { class: "sub" }, "Your Pile: everything your team is asking you for."),
-    live.map((c) => h("div", { class: `pile-item esc${c.escalation}` + (c.state === "open" ? " open" : "") },
-      h("b", {}, ic(typeIcon(c.type)), " " + (c.title || c.type.replace("_", " "))), h("div", { class: "tag" }, `${c.type} from ${NAMES[c.sender] || c.sender} · ${c.state}` + (c.deadline_min != null ? ` · due ${c.deadline_min} min` : " · escalated")),
+    live.map((c) => h("div", { class: `pile-item esc${c.escalation}` + (c.state === "open" ? " open" : "") + (c.bounty ? " bounty" : "") + (c.spot ? " spot" : "") },
+      h("b", {}, ic(typeIcon(c.type)), " " + (c.spot ? "Spot check: " : "") + (c.title || c.type.replace("_", " "))),
+      c.bounty ? h("span", { class: "chip good" }, "Bounty: extra points for a clean push") : null,
+      h("div", { class: "tag" }, `${c.type} from ${NAMES[c.sender] || c.sender} · ${c.state}` + (c.deadline_min != null ? ` · due ${c.deadline_min} min` : " · escalated")),
       h("div", { class: "tag" }, ["escalation: " + ["message", "call", "meeting"][c.escalation], c.payoff.points ? ` · +${c.payoff.points} pts` : "", c.penalty.cover ? ` · +${c.penalty.cover} cover if ignored` : ""].join("")),
-      h("div", { class: "row" }, moves(c)))));
+      s.x ? priceTag(s, c) : null,
+      h("div", { class: "row" }, moves(c),
+        s.x && s.x.retro_left > 0 && c.escalation > 0 && s.stage === "BUILD" ? h("button", { title: "Retrospective: calm this card back down", onclick: () => cmd("retro", { card_id: c.id }) }, "Retro") : null))));
+}
+
+// M1/M2: what a move costs right now, and which other cards would slip while you do it
+function priceTag(s, c) {
+  const x = s.x, cost = x.move_costs;
+  const slip = (mins) => s.pile.filter((o) => o.id !== c.id && o.state !== "done" && o.state !== "delegated" && o.deadline_min != null && o.deadline_min <= s.clock_min + mins).length;
+  const work = c.ticket ? cost.read : cost.open_other;
+  const out = [];
+  if (s.stage === "BUILD" && c.state !== "open" && c.state !== "delegated") {
+    const n = slip(work);
+    out.push(h("div", { class: "cost" + (n ? " risk" : "") }, `Work: ${work} min` + (n ? ` · ${n} other card${n > 1 ? "s" : ""} will escalate meanwhile` : "") + ` · Delegate: ${cost.delegate} min · Defer: ${cost.defer} min` + (x.focus_switch_cost && c.state !== "open" ? ` · switching costs ${x.focus_switch_cost} Focus` : "")));
+  }
+  if (c.ticket && (c.state === "returned" || c.state === "delegated")) {
+    const pct = Math.round(100 * x.bug_odds);
+    out.push(h("div", { class: "odds" }, ic("bug"), c.bug_known === undefined ? ` About ${pct}% of delegated tickets come back with a hidden bug. Only reading the code tells you for sure.`
+      : c.bug_known ? " TDD Pair: this one has a bug." : " TDD Pair: this one is clean."));
+  }
+  if (c.ticket && c.state === "delegated") out.push(h("div", { class: "tag" }, "If you end the sprint before it comes back, it ships unreviewed."));
+  return out;
 }
 
 function codeDesk(s) {
   const w = s.work;
   if (s.stage === "STANDUP" && s.standup) {
     const q = s.standup;
+    const pr = s.x && s.x.prices, cov = (n) => (n > 0 ? "+" : "") + n + " Cover";
+    const say = { accurate: pr && `${cov(pr.standup.accurate)} now, but ${cov(pr.contradiction_cover)} later if that ticket turns out buggy`,
+      vague: pr && `${cov(pr.standup.vague * pr.vague_multiplier)}. A bluff`, wrong: pr && `${cov(pr.standup.wrong)}. A bluff` };
+    const timer = s.x && s.x.standup_timer_s ? standupTimer(q, s.x.standup_timer_s) : null;
     return h("section", { class: "card", "aria-label": "Standup" }, h("h2", {}, "Standup: " + NAMES[q.teammate]),
-      h("p", {}, "How did your last push go?"), h("div", { class: "row" }, q.choices.map((c) => h("button", { onclick: () => cmd("reply_standup", { answer: c }) }, c[0].toUpperCase() + c.slice(1)))),
+      h("p", {}, "How did your last push go?"), timer,
+      h("div", { class: "row" }, q.choices.map((c) => h("button", { class: pr ? "deal" : "", onclick: () => cmd("reply_standup", { answer: c }) }, c[0].toUpperCase() + c.slice(1), pr ? h("small", {}, say[c]) : null))),
       h("p", { class: "muted" }, "An accurate answer is only offered once you have unlocked the concept in ToobYou."));
   }
   if (s.stage === "STANDUP") return h("section", { class: "card" }, h("h2", {}, "Standup done"), h("button", { class: "primary", onclick: () => cmd("advance_stage", { to: "BUILD" }) }, "Start building"));
-  if (s.stage === "PLANNING") return h("section", { class: "card" }, h("h2", {}, "Planning"), h("p", {}, "Look at the Pile, then start the sprint."), h("button", { class: "primary", onclick: () => cmd("advance_stage", { to: "STANDUP" }) }, "Go to standup"));
+  if (s.stage === "PLANNING") {
+    const x = s.x, boss = x && (BOSSES[x.boss] || {});
+    return h("div", {}, shopEl(s),
+      h("section", { class: "card" }, h("h2", {}, "Planning" + (x ? ` · sprint ${s.sprint} of ${x.sprints_total}` : "")),
+        x && x.boss_live ? h("p", { class: "bossnote" }, ic("flag"), ` Boss sprint: ${boss.name}. ${boss.rule}`) : null,
+        h("p", {}, "Look at the Pile, then start the sprint."), h("button", { class: "primary", onclick: () => cmd("advance_stage", { to: "STANDUP" }) }, "Go to standup")));
+  }
   if (s.stage === "BUILD" && !w) {
     const next = s.day >= 2 ? ["REVIEW", "End sprint (Review)"] : ["STANDUP", "End day 1 (next standup)"];
     return h("section", { class: "card" }, h("h2", {}, ic("branch"), " Fix-it desk"), h("p", { class: "muted" }, s.open_card ? "This card has no code. Send your reply." : "Open a card from the Pile."),
@@ -326,12 +405,40 @@ function codeDesk(s) {
     h("p", { class: "muted" }, w.kind === "fix" ? "Step 1: click the line you think is wrong. Step 2: pick the replacement below. Step 3: run the script to check." : "Fill the blank line from the tray."),
     w.options.map((o) => h("button", { class: "opt" + (w.selected === o.id ? " sel" : "") + (w.assistant === o.id ? " hint" : ""), onclick: () => cmd("select_patch", { option_id: o.id }) }, o.text.trim())),
     w.assistant ? h("p", { class: "muted" }, "AI Assistant suggests the highlighted option (it can be wrong).") : null,
-    h("div", { class: "row" }, h("button", { title: "Test your fix and see if it works", onclick: runScript }, ic("play"), " Run Script"), perks ? h("button", { onclick: () => cmd("use_assistant") }, "AI Assistant") : null),
+    h("div", { class: "row" }, h("button", { title: "Test your fix and see if it works", onclick: runScript }, ic("play"), " Run Script" + (s.x ? ` (${s.x.move_costs.test} min)` : "")), perks ? h("button", { onclick: () => cmd("use_assistant") }, "AI Assistant") : null),
     lastRun ? h("div", {}, lastRun.map((r) => h("div", { class: "run " + (r.pass ? "pass" : "fail") }, ic(r.pass ? "check" : "cross"), " ", r.text))) : null,
     h("h3", {}, "Checklist: is it really done?"),
     ["tests", "matches_doc", "no_security"].map((b) => h("label", { class: "check" }, h("input", { type: "checkbox", checked: w.dod[b], onchange: () => cmd("toggle_dod", { box: b }) }), h("span", {}, { tests: "Tests pass", matches_doc: "Matches the doc", no_security: "No security concern" }[b]))),
-    h("div", { class: "row" }, h("button", { class: "primary", title: "Send your fix live to the customers", onclick: () => cmd("push"), disabled: !w.selected }, ic("rocket"), " Push (send it live)"), h("button", { onclick: () => cmd("hold") }, "Hold")));
+    s.x ? pushDeal(s, w) : null,
+    h("div", { class: "row" }, h("button", { class: "primary", title: "Send your fix live to the customers", onclick: () => cmd("push"),
+      disabled: !w.selected || (s.x && s.x.boss_live && s.x.boss === "friday_deploy" && !Object.values(w.dod).every(Boolean)) }, ic("rocket"), " Push (send it live)"), h("button", { onclick: () => cmd("hold") }, "Hold")));
 }
+
+function pushDeal(s, w) {
+  const x = s.x, unticked = Object.values(w.dod).filter((v) => !v).length;
+  const lines = [];
+  if (unticked) lines.push(h("div", { class: "cost risk" }, x.boss_live && x.boss === "friday_deploy" ? "Friday Deploy: tick every box before you can push."
+    : `Pushing with ${unticked} box${unticked > 1 ? "es" : ""} unticked: +${x.prices.unticked_box} Cover and a lower process score.`));
+  else if (!w.last_run) lines.push(h("div", { class: "cost risk" }, "Boxes ticked without running the script counts as a dishonest checklist."));
+  if (x.next_clean_factor < 1) lines.push(h("div", { class: "cost" }, `Repeat reward: another clean push this sprint is worth ${Math.round(x.next_clean_factor * 100)}% of the first.`));
+  if (x.last_stand) lines.push(h("div", { class: "cost good" }, "Last stand: an honest, clean push now pulls your Cover back down."));
+  return lines;
+}
+
+// Demo Day: a timed standup. When the timer runs out the answer counts as vague (the server scores it).
+function standupTimer(q, secs) {
+  if (!run.sTimer || run.sTimer.n !== q.n) run.sTimer = { n: q.n, end: performance.now() + secs * 1000, sent: false };
+  const el = h("div", { class: "sutimer", id: "sutimer", role: "timer" }, secs + " s");
+  return el;
+}
+setInterval(() => {
+  const t = run && run.sTimer, el = document.getElementById("sutimer");
+  if (!t || !el || !run.state || !run.state.standup) return;
+  const left = Math.max(0, Math.ceil((t.end - performance.now()) / 1000));
+  el.textContent = left + " s to answer";
+  el.classList.toggle("hurry", left <= 5);
+  if (left === 0 && !t.sent) { t.sent = true; toast("warn", "Too slow: that counts as a vague answer"); cmd("reply_standup", { answer: "vague" }); }
+}, 250);
 
 async function runScript() {
   await cmd("run_script");
@@ -363,7 +470,7 @@ function slackApp(s) {
 }
 
 function githubApp(s) {
-  return h("div", { class: "gh" }, h("aside", {}, pilePanel(s)),
+  return h("div", { class: "gh" }, h("aside", {}, lanesEl(s), pilePanel(s), intentsEl(s)),
     h("div", { class: "main" }, s.stage === "STANDUP"
       ? h("section", { class: "card" }, h("h2", {}, "Standup is happening in " + appName("slack")), h("p", {}, "Your teammate is waiting for your answer."), h("button", { class: "primary", onclick: () => openApp("slack") }, "Open " + appName("slack")))
       : codeDesk(s)));
@@ -420,11 +527,95 @@ function youtubeApp(s) {
 }
 
 function shopApp(s) {
-  const own = s.perks.includes("ai_assistant");
-  return h("section", { class: "card", "aria-label": "Upgrades" }, h("h2", {}, "Upgrades"), h("p", { class: "sub" }, "Spend your points on a helper."),
+  const own = s.perks.includes("ai_assistant"), noAi = s.x && s.x.heat.includes("no_assistant");
+  return h("div", {}, s.x ? (shopEl(s) || h("section", { class: "card" }, h("h2", {}, ic("cart"), " Practice shop"), h("p", { class: "muted" }, "The practice shop opens during planning, between sprints."))) : null,
+    h("section", { class: "card", "aria-label": "Upgrades" }, h("h2", {}, "Upgrades"), h("p", { class: "sub" }, noAi ? "Heat: the AI Assistant is switched off this run." : "Spend your points on a helper."),
     h("div", { class: "product" }, h("div", { class: "prod-img", "aria-hidden": "true" }, ic("robot")),
       h("div", { class: "grow" }, h("b", {}, "AI Assistant"), h("div", { class: "muted" }, "Suggests a fix for you. It can be wrong."), h("div", { class: "price" }, own ? [ic("check"), " Owned"] : "150 pts")),
-      h("button", { class: "primary", disabled: own, onclick: () => cmd("buy_perk", { perk_id: "ai_assistant" }) }, own ? "Owned" : "Buy")));
+      h("button", { class: "primary", disabled: own || noAi, onclick: () => cmd("buy_perk", { perk_id: "ai_assistant" }) }, own ? "Owned" : "Buy"))));
+}
+
+// ------------------------------------------------------------ experimental mechanics (state.x)
+const PRACTICES = {
+  definition_of_done_p: ["Definition of Done", "Your first Run Script on each ticket costs no time."],
+  pair_programming: ["Pair Programming", "Delegated tickets come back with a bug less often."],
+  timeboxing: ["Timeboxing", "New requests arrive with more time before they escalate."],
+  wip_limit: ["WIP Limit", "Opening a card is faster while the Pile is small."],
+  swarming: ["Swarming", "Coaching someone heads off extra calls."],
+  retrospective: ["Retrospective", "Once a sprint, calm one escalated card back down."],
+  psychological_safety: ["Psychological Safety", "You can give an accurate standup answer without the tutorial."],
+  sustainable_pace: ["Sustainable Pace", "More Focus back each morning; tiredness sets in later."],
+  backlog_refinement: ["Backlog Refinement", "Deferring a card no longer escalates it."],
+  spike: ["Spike", "Tutorials take half the time."],
+  tdd_pair: ["TDD Pair (combo)", "Run Script is always free, and you can tell if returned work is bugged."],
+  sprint_goal: ["Sprint Goal (combo)", "No card escalates past a message."],
+};
+const practiceName = (id) => (PRACTICES[id] || [id])[0];
+const BOSSES = {
+  auditor: { name: "The Auditor", rule: "A shipped security hole is attacked immediately." },
+  scope_creep: { name: "Scope Creep", rule: "Marlo adds a new request every 90 minutes." },
+  friday_deploy: { name: "Friday Deploy", rule: "No pushing with unticked boxes, and day 2 is short." },
+  demo_day: { name: "Demo Day", rule: "Standups are timed and vague answers cost double." },
+};
+const ULTIMATES = {
+  protect: { name: "Protect the Sprint", text: "No escalations or spot checks for a while." },
+  swarm: { name: "Swarm", text: "Everything delegated comes back now, bug-free." },
+  retro_now: { name: "Retro Now", text: "Every card calms down one level and gets more time." },
+};
+const DUOS = new Set(["tdd_pair", "sprint_goal"]);
+
+function hudEl(s) {
+  const x = s.x;
+  if (!x) return h("div", { class: "hud", "data-region": "hud", hidden: true });
+  const boss = BOSSES[x.boss] || { name: x.boss, rule: "" };
+  const mom = h("div", { class: "bar mom" }, h("i", {}));
+  mom.firstChild.style.width = Math.min(100, 100 * x.momentum / x.momentum_full) + "%";
+  const ready = x.momentum >= x.momentum_full && s.stage === "BUILD";
+  return h("div", { class: "hud", "data-region": "hud" },
+    h("div", { class: "hud-row" },
+      h("span", { class: "chip" }, ic("calendar"), ` Sprint ${s.sprint} of ${x.sprints_total}`),
+      h("span", { class: "chip " + (x.clock_running ? "live" : "paused"), title: "The clock runs while you stand at the Pile and stops while you read a card or answer a standup." }, ic("clock"), x.clock_running ? " Clock running" : " Clock paused"),
+      h("span", { class: "chip", title: "Points come from pushes. Process score comes from how you work. The debrief shows the gap." }, ic("coin"), ` ${s.meters.points} pts`, h("span", { class: "sep" }, " | "), ic("check"), ` Process ${x.process_score}`),
+      h("span", { class: "chip", title: "Variety of good habits this sprint. Repeating one action stops counting." }, ic("star"), ` Style ${x.style.rank}`),
+      x.last_stand ? h("span", { class: "chip danger" }, ic("warn"), " Last stand") : null,
+      x.protected_min ? h("span", { class: "chip good" }, ic("check"), ` Protected ${x.protected_min} min`) : null,
+      x.boss_live ? h("span", { class: "chip boss", title: boss.rule }, ic("flag"), ` Boss: ${boss.name}. ${boss.rule}`)
+        : h("span", { class: "chip faint", title: boss.rule }, ic("flag"), ` Sprint ${x.boss_sprint} boss: ${boss.name}`)),
+    h("div", { class: "hud-row" },
+      h("span", { class: "lbl" }, "Momentum"), mom,
+      ready ? Object.keys(ULTIMATES).map((k) => h("button", { class: "ult", title: ULTIMATES[k].text, onclick: () => cmd("use_ultimate", { kind: k }) }, ULTIMATES[k].name))
+        : h("span", { class: "muted small" }, "Fills from coaching, honest checklists, reviews and accurate standups."),
+      x.practices.length ? h("span", { class: "pracs" }, x.practices.map((p) => h("span", { class: "pchip" + (DUOS.has(p.id) ? " duo" : ""), title: (PRACTICES[p.id] || ["", ""])[1] }, practiceName(p.id) + (p.level > 1 ? " (Lv 2)" : "")))) : null));
+}
+
+function intentsEl(s) {
+  const x = s.x;
+  if (!x) return null;
+  return h("section", { class: "card intents", "aria-label": "Coming up" }, h("h3", {}, ic("clock"), " Coming up"),
+    x.intents.length ? h("ul", {}, x.intents.slice(0, 5).map((i) => h("li", {}, h("b", {}, i.in_min <= 0 ? "now" : `in ${i.in_min} min`), " " + i.text)))
+      : h("p", { class: "muted small" }, "Nothing announced for the next two hours."));
+}
+
+function lanesEl(s) {
+  if (!s.x) return null;
+  const n = (st) => s.pile.filter((c) => st.includes(c.state)).length;
+  const lanes = [["In the Pile", ["pile"]], ["With you", ["open"]], ["With the team", ["delegated"]], ["Back for review", ["returned"]], ["Done", ["done"]]];
+  return h("div", { class: "lanes", "aria-label": "Work in flight" }, lanes.map(([k, st]) => h("div", { class: "lane" + (n(st) ? "" : " empty") }, h("b", {}, n(st)), h("small", {}, k))));
+}
+
+function shopEl(s) {
+  const x = s.x;
+  if (!x || !x.shop) return null;
+  const sh = x.shop, full = x.practices.filter((p) => !DUOS.has(p.id)).length >= x.slots;
+  return h("section", { class: "card shop", "aria-label": "Practice shop" },
+    h("h2", {}, ic("cart"), sh.free ? " Pick one practice to start with" : " Practice shop"),
+    h("p", { class: "sub" }, sh.free ? "Free. Practices change the rules in your favour, and some pairs combine into something stronger." : `You have ${s.meters.points} points. Unspent points earn a little interest each sprint.`),
+    h("div", { class: "offers" }, sh.offers.map((o) => h("div", { class: "offer" + (o.locked ? " locked" : "") },
+      h("b", {}, practiceName(o.id)), h("p", {}, (PRACTICES[o.id] || ["", ""])[1]),
+      h("div", { class: "row" }, h("button", { class: "primary", disabled: full || (!sh.free && s.meters.points < o.price), onclick: () => cmd("buy_practice", { practice_id: o.id }) }, sh.free ? "Take it" : `Buy · ${o.price} pts`),
+        h("button", { onclick: () => cmd("lock_offer", { practice_id: o.id }), title: "A locked offer stays when you reroll" }, o.locked ? "Unlock" : "Lock"))))),
+    h("div", { class: "row" }, h("button", { onclick: () => cmd("reroll_shop"), disabled: s.meters.points < sh.reroll_price }, `Reroll (${sh.reroll_price ? sh.reroll_price + " pts" : "free"})`),
+      full ? h("span", { class: "muted" }, "All practice slots are full.") : null));
 }
 
 // One big project per difficulty. Only the Easy project is playable so far.
@@ -464,7 +655,7 @@ function roadmap(s) {
     nav.classList.toggle("collapsed", !run.railOpen); toggle.setAttribute("aria-expanded", String(run.railOpen)); toggle.title = run.railOpen ? "Hide roadmap" : "Show roadmap";
   } }, ic("map"), h("span", { class: "rt" }, "Roadmap"), ic("chev-l", "chev-open"));
   nav.append(toggle, h("div", { class: "railbody", id: "railbody" },
-    h("div", { class: "projhead" }, h("small", {}, `Project 1 · ${proj.level}`), h("b", {}, proj.title)),
+    h("div", { class: "projhead" }, h("small", {}, `Project 1 · ${proj.level}` + (s.x ? ` · sprint ${s.sprint} of ${s.x.sprints_total}` : "")), h("b", {}, proj.title)),
     h("ol", { class: "rnodes" }, PATH_NODES.map((n, i) => {
       const state = i < at ? "done" : i === at ? "now" : "locked", chest = i === PATH_NODES.length - 1;
       const sub = state === "now" && n.label.startsWith("Build") ? `${doneCards} of ${s.pile.length} done` : "";
@@ -605,24 +796,27 @@ const pageEl = (s) => h("div", { class: "page", role: "tabpanel", "aria-label": 
 const notesLayer = (s) => h("div", { class: "notes" }, run.notes.map((n) => noteEl(s, n)));
 
 function browserFrame(s) {
-  return h("div", { class: "win", id: "browser" }, tabsEl(s), addrEl(s), coachEl(s), callEl(s), appheadEl(), h("div", { class: "winbody" }, roadmap(s), pageEl(s)));
+  return h("div", { class: "win", id: "browser" }, tabsEl(s), addrEl(s), coachEl(s), hudEl(s), callEl(s), appheadEl(), h("div", { class: "winbody" }, roadmap(s), pageEl(s)));
 }
 
 // what each page actually draws; a page is rebuilt only when this changes
 const PAGE_DEPS = {
-  slack: (s) => [run.lines.slice(-12).map((l) => l.id), s.stage, s.standup],
-  github: (s) => [s.pile, s.stage, s.work, s.open_card, s.day, s.perks, run.runs, s.standup],
+  slack: (s) => [run.lines.slice(-12).map((l) => l.id), s.stage, s.standup, s.x ? [s.x.standup_timer_s, s.x.prices] : null],
+  github: (s) => [s.pile, s.stage, s.work, s.open_card, s.day, s.perks, run.runs, s.standup,
+    s.x ? [s.x.shop, s.x.intents, s.x.move_costs, s.x.retro_left, s.x.next_clean_factor, s.x.practices, s.meters.points, Math.floor(s.clock_min / 10)] : null],
   play: (s) => [Number(s.meters.rating), reviewList().length],
   youtube: (s) => [s.unlocked],
-  shop: (s) => [s.perks],
+  shop: (s) => [s.perks, s.x ? [s.x.shop, s.meters.points, s.x.heat] : null],
 };
 const REGIONS = {
   tabs: { sig: () => attached().map((a) => a.id).join() + "|" + run.app, build: tabsEl },
   addr: { sig: (s) => JSON.stringify([s.meters, s.warnings, s.stage, s.day, run.app]), build: addrEl },
   coach: { sig: (s) => s.stage + "|" + coachHint(s), build: coachEl },
+  hud: { sig: (s) => JSON.stringify(s.x ? [s.sprint, s.stage, s.meters.points, s.x.clock_running, s.x.process_score, s.x.style.rank, s.x.last_stand,
+    s.x.protected_min, s.x.momentum, s.x.practices, s.x.boss_live] : null), build: hudEl },
   call: { sig: (s) => JSON.stringify(s.call || null) + "|" + (run.error || ""), build: callEl },
   apphead: { sig: () => run.app + "|" + attached().length, build: appheadEl },
-  rail: { sig: (s) => [pathIndex(s), s.pile.filter((c) => c.state === "done").length, s.pile.length].join(), build: roadmap },
+  rail: { sig: (s) => [pathIndex(s), s.sprint, s.pile.filter((c) => c.state === "done").length, s.pile.length].join(), build: roadmap },
   page: { sig: (s) => run.app + "|" + JSON.stringify(PAGE_DEPS[run.app](s)), build: pageEl },
 };
 const notesSig = (s) => JSON.stringify(run.notes.map((n) => [n.id, n.x, n.y, n.w, n.z, n.min, n.ping, badgeFor(n.id, s), PAGE_DEPS[n.id](s)]));
@@ -676,12 +870,24 @@ function render() {
 async function debrief() {
   timers.forEach(clearInterval);
   const d = await api(`/api/v1/runs/${run.id}/debrief`);
-  const names = { win: "You survived the sprint", lose_rating: "Fired: Rating fell below 2.0", lose_cover: "Exposed: Cover hit 100", lose_warnings: "Demoted twice" };
+  const names = { win: d.x ? "You survived all " + d.x.sprints_played + " sprints" : "You survived the sprint", lose_rating: "Fired: Rating fell below 2.0", lose_cover: "Exposed: Cover hit 100", lose_warnings: "Demoted twice" };
   mount(h("section", { class: "card narrow" }, h("div", { class: "hero", "aria-hidden": "true" }, ic(d.ending === "win" ? "c-heron-cheer" : "c-heron-oops")), h("h2", {}, names[d.ending] || d.ending),
     h("table", {}, [["Rating", Number(d.rating).toFixed(2)], ["Cover", d.cover], ["Points", d.points], ["Process score", d.process_score], ["Gap (rating % minus process)", d.gap]].map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, v)))),
     h("p", { class: "muted" }, "Points never count toward your process score: honest process does."),
-    h("div", { class: "row" }, h("button", { class: "primary", onclick: () => questions("post", () => mount(h("section", { class: "card narrow" }, h("h2", {}, "Thanks for playing")))) }, "Take the post-test"), h("button", { onclick: newRun }, "Play again"))));
+    d.x ? xDebrief(d.x) : null,
+    h("div", { class: "row" }, h("button", { class: "primary", onclick: () => questions("post", () => mount(h("section", { class: "card narrow" }, h("h2", {}, "Thanks for playing")))) }, "Take the post-test"), h("button", { onclick: setupRun }, "Play again"))));
   if (d.ending === "win") { lastPt = null; burst(40); setTimeout(() => burst(30), 350); }
+}
+
+function xDebrief(x) {
+  return h("div", { class: "xdeb" },
+    h("div", { class: "row" }, h("span", { class: "chip" }, ic("coin"), ` Run score ${x.run_score}` + (x.heat.length ? ` (Heat ${x.heat.length})` : "")),
+      h("span", { class: "chip" }, ic("star"), " Style " + (x.style.map((r) => r.rank).join(" · ") || "-")),
+      h("span", { class: "chip" + (x.near_miss ? " danger" : "") }, ic("search"), ` Highest Cover ${x.max_cover}` + (x.near_miss ? " · close call" : "")),
+      x.clutches ? h("span", { class: "chip good" }, ic("check"), ` ${x.clutches} clutch save${x.clutches > 1 ? "s" : ""}`) : null),
+    h("h3", {}, "What the team says"), x.story.map((l) => h("p", { class: "story" }, l)),
+    x.practices.length ? h("p", { class: "muted" }, "Practices: " + x.practices.map(practiceName).join(", ")) : null,
+    h("p", { class: "muted" }, `Challenge code ${x.seed}: share it so classmates can play the same sprints.`));
 }
 
 // ------------------------------------------------------------ instructor
@@ -690,8 +896,8 @@ async function instructorScreen() {
   mount(h("section", { class: "card" }, h("h2", {}, "Your cohort"), list));
   try {
     const r = await api(`/api/v1/instructor/cohorts/${me.cohort_id}/runs`);
-    list.replaceChildren(h("table", {}, h("tr", {}, ["Student", "Status", "Ending", "Process", "Gain", ""].map((x) => h("th", {}, x))),
-      r.runs.map((x) => h("tr", {}, h("td", {}, x.student), h("td", {}, x.status), h("td", {}, x.ending || ""), h("td", {}, x.process_score), h("td", {}, x.gain == null ? "" : x.gain.toFixed(2)),
+    list.replaceChildren(h("table", {}, h("tr", {}, ["Student", "Code", "Status", "Ending", "Process", "Gain", ""].map((x) => h("th", {}, x))),
+      r.runs.map((x) => h("tr", {}, h("td", {}, x.student), h("td", {}, x.seed ?? ""), h("td", {}, x.status), h("td", {}, x.ending || ""), h("td", {}, x.process_score), h("td", {}, x.gain == null ? "" : x.gain.toFixed(2)),
         h("td", {}, h("button", { onclick: () => transcript(x.run_id) }, "Transcript"))))));
   } catch (e) { list.replaceChildren(h("div", { class: "err" }, e.message)); }
 }

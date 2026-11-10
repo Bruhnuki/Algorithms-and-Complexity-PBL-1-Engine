@@ -839,14 +839,14 @@ def _x_deal_sprint(s: dict, ev: list, content: Content) -> None:
     lo, hi = d["spread_min"]
     dlo, dhi = d["deadline_min"]
 
-    def card(spec_type, sender, ticket, payoff, penalty):
-        at = _rand_between(s, pur, lo, hi)
+    def card(spec_type, sender, ticket, payoff, penalty, first=False):
+        at = lo if first else _rand_between(s, pur, lo, hi)   # the first ticket is waiting when the sprint starts
         return {"at_s": t0 + at * 60, "kind": "card", "spec": {"type": spec_type, "sender": sender, "ticket": ticket,
                 "deadline": (t0 / 60) + at + _rand_between(s, pur, dlo, dhi), "payoff": payoff, "penalty": penalty}}
     for n, t in enumerate(picks):
         kind = content.tickets[t]["kind"]
         items.append(card("build" if kind == "build" else "fix", "po" if kind == "build" else ("dev1", "dev2")[n % 2],
-                          t, dict(d["code_payoff"]), dict(d["code_penalty"])))
+                          t, dict(d["code_payoff"]), dict(d["code_penalty"]), first=(n == 0)))
     for n in range(d["help_calls"][i]):
         items.append(card("help_call", ("dev2", "dev1")[n % 2], None, {}, dict(d["other_penalty"])))
     for _ in range(d["status_demands"][i]):
@@ -1133,6 +1133,7 @@ def _x_begin_sprint(s: dict, ev: list, content: Content) -> None:
         _meter(s, "focus", C["loss_bonus_focus"], content)
         _emit(s, ev, "comeback_offered", focus=C["loss_bonus_focus"], bounty=C["bounty_bonus"])
     _x_deal_sprint(s, ev, content)
+    _x_fire_schedule(s, ev, content)
     _x_open_shop(s, ev, content)
 
 
@@ -1288,7 +1289,7 @@ def _x_public(s: dict, content: Content) -> dict:
             "last_stand": x["last_stand"], "max_cover": x["max_cover"], "style": style, "heat": x["heat"],
             "process_score": process_score(s, content),
             "next_clean_factor": round(b["push"]["repeat_decay"] ** s["repeat_counts"].get("clean", 0), 3),
-            "prices": {"standup": dict(b["standup_cover"]), "dod_unticked_cover": b["push"]["dod_unticked_cover"],
+            "prices": {"standup": dict(b["standup_cover"]), "unticked_box": b["push"]["dod_unticked_cover"],
                        "contradiction_cover": b["contradiction_cover"],
                        "vague_multiplier": X["bosses"]["demo_day"]["vague_multiplier"] if _x_boss_now(s) == "demo_day" else 1},
             "bug_odds": round(_bug_chance(s, content), 3), "focus_switch_cost": X["focus"]["switch_cost"],

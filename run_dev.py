@@ -7,4 +7,4 @@ import uvicorn  # noqa: E402
 
 os.environ.setdefault("INSTRUCTOR_CODE", "dev-instructor")
 if __name__ == "__main__":
-    uvicorn.run("fixit.api.app:app_from_env", factory=True, host="127.0.0.1", port=8000)
+    uvicorn.run("fixit.api.app:app_from_env", factory=True, host="127.0.0.1", port=int(os.environ.get("PORT", "8000")))

@@ -71,3 +71,6 @@ export const SCORING = {
   ],
   lose_when: "You lose if the app rating falls below 2.0, Suspicion reaches 100, or you collect 2 strikes.",
 };
+
+// The short list shown in the Word book. Every other word is still explained when tapped in the game.
+export const CORE_TERMS = ["sprint", "standup", "todo", "bug", "test", "dod", "ship", "review", "suspicion", "rating", "teamwork", "sm"];

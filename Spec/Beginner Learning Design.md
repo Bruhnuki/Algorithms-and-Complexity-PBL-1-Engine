@@ -159,3 +159,21 @@ Measured in the browser with a mutation counter:
 
 ### Not checked
 - Whether the screen now feels calm enough. The next test should be a person who has never seen the game; if they still click without reading, cut more (for example the "why" line under the guide, or the Coming up list).
+
+## Round 5: skills in Amazin', new to-do cards, shorter Word book
+
+- **Amazin' is now a skills shop.** Six skills, bought any time with Points and kept for the whole run (`balance.yaml` → `perks`; the practice shop still opens at planning, below them):
+
+| Skill | What it does | Price |
+| --- | --- | --- |
+| Ask the AI | Suggests a fix, can be wrong | 150 |
+| Keyboard Warrior | Reading and fixing code takes 30% less time | 120 |
+| Debug Master | Tests take half the time | 120 |
+| Security Scan | Tells you if a fix leaves a security hole, which tests can't (shown on the code desk) | 100 |
+| Focus Mode | +25 Energy every morning | 100 |
+| Team Training | Teammates make 30% fewer mistakes | 180 |
+
+  The four new effects exist only in the experimental versions; the original MVP game still sells only the AI Assistant. The skill cards show an icon, name, one line and the price, and a price button says how many more points you need.
+- **To-do cards redesigned:** title; a coloured type pill with the sender's face and the due time; one full-width main action (Fix it myself, Help them or Check their work); "Give to" with each teammate's face; a quiet "Later". The page-wide look of four stacked buttons and wrapped text is gone.
+- **Word book** is now "Key words": 12 words, folded away. "How scoring works" is folded too. Videos come first on ToobYou.
+- 186 tests pass, including four new tests for the skills.

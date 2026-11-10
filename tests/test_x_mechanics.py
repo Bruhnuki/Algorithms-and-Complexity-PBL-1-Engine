@@ -432,3 +432,58 @@ def test_GOAL_unreviewed_auto_ships_do_not_count(xcontent):
     s, ev = run(s, xcontent, "advance_stage", to="REVIEW")
     assert any(e.get("unreviewed") for e in ev if e["type"] == "pushed")
     assert not next(e for e in ev if e["type"] == "sprint_goal")["met"]
+
+
+# ---------------------------------------------------------------- Amazin' skills
+def own(s, *perks):
+    s["perks"] = list(perks)
+    return s
+
+
+def test_SKILLS_are_bought_with_points_and_only_in_the_experimental_version(xcontent, content):
+    s = to_build(xcontent)
+    s["meters"]["points"] = 500
+    s, _ = run(s, xcontent, "buy_perk", perk_id="security_scan")
+    assert "security_scan" in s["perks"] and s["meters"]["points"] == 400
+    with pytest.raises(GameError, match="already"):
+        run(s, xcontent, "buy_perk", perk_id="security_scan")
+    s2, _ = reducer.start_run(1, content)
+    s2["meters"]["points"] = 500
+    with pytest.raises(GameError, match="not sold"):
+        run(s2, content, "buy_perk", perk_id="debug_master")
+    assert {p["id"] for p in reducer.public_state(s, xcontent)["x"]["perk_shop"]} >= {"keyboard_warrior", "debug_master", "security_scan", "focus_mode", "team_training"}
+
+
+def test_SKILLS_keyboard_warrior_and_debug_master_save_time(xcontent):
+    base = reducer._cost(to_build(xcontent), xcontent, "read"), reducer._cost(to_build(xcontent), xcontent, "test")
+    s = own(to_build(xcontent), "keyboard_warrior", "debug_master")
+    pk = xcontent.balance["perks"]
+    assert reducer._cost(s, xcontent, "read") == pytest.approx(base[0] * pk["keyboard_warrior"]["time_mult"])
+    assert reducer._cost(s, xcontent, "test") == pytest.approx(base[1] * pk["debug_master"]["test_time_mult"])
+
+
+def test_SKILLS_focus_mode_adds_energy_each_morning_and_team_training_cuts_mistakes(xcontent):
+    s = own(to_build(xcontent), "focus_mode")
+    s["meters"]["focus"] = 10
+    s, _ = run(s, xcontent, "advance_stage", to="STANDUP")
+    plain = to_build(xcontent)
+    plain["meters"]["focus"] = 10
+    plain, _ = run(plain, xcontent, "advance_stage", to="STANDUP")
+    assert s["meters"]["focus"] - plain["meters"]["focus"] == xcontent.balance["perks"]["focus_mode"]["morning_focus"]
+    assert reducer._bug_chance(own(to_build(xcontent), "team_training"), xcontent) == pytest.approx(
+        reducer._bug_chance(to_build(xcontent), xcontent) * xcontent.balance["perks"]["team_training"]["bug_mult"])
+
+
+def test_SKILLS_security_scan_shows_a_hole_the_tests_miss(xcontent):
+    s = own(to_build(xcontent), "security_scan")
+    cid = add_card(s, "find_user")
+    s, _ = run(s, xcontent, "open_card", card_id=cid)
+    s, _ = run(s, xcontent, "flag_line", line_no=xcontent.tickets["find_user"]["buggy_line"])
+    for effect, want in (("security_hole", "hole"), ("correct", "clear")):
+        opt = next(o["id"] for o in xcontent.tickets["find_user"]["options"] if o["effect"] == effect)
+        s, _ = run(s, xcontent, "select_patch", option_id=opt)
+        assert reducer.public_state(s, xcontent)["work"]["scan"] == want
+    s2 = to_build(xcontent)
+    cid2 = add_card(s2, "find_user", "q1")
+    s2, _ = run(s2, xcontent, "open_card", card_id=cid2)
+    assert reducer.public_state(s2, xcontent)["work"]["scan"] is None

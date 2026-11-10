@@ -57,6 +57,12 @@ allowed_keywords: [function, return, if, else]   # plus operators = and ==
 
 perks:
   ai_assistant: {price: 150, error_rate: 0.2}
+  # skills sold in Amazin' (experimental branch only; the MVP game only has the AI Assistant)
+  keyboard_warrior: {price: 120, time_mult: 0.7}     # reading code and patching take 30% less time
+  debug_master: {price: 120, test_time_mult: 0.5}    # tests take half the time
+  security_scan: {price: 100}                        # tells you if a fix leaves a security hole
+  focus_mode: {price: 100, morning_focus: 25}        # +25 Energy every morning
+  team_training: {price: 180, bug_mult: 0.7}         # teammates make 30% fewer mistakes
 
 density: {"1": 2, "4": 5, "7": 8}
 

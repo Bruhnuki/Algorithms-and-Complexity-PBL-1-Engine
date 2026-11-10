@@ -1,5 +1,5 @@
 import { runWelcome } from "/welcome.js";
-import { TERMS, CONCEPTS, SCORING } from "/guide.js";
+import { TERMS, CONCEPTS, SCORING, CORE_TERMS } from "/guide.js";
 // Front end: draws server state, sends commands. No game rules live here (scores, costs, results all come from the server).
 const root = document.getElementById("root");
 const nav = document.getElementById("nav");
@@ -501,17 +501,25 @@ function pilePanel(s) {
   const f = new Set((s.x && s.x.features) || []), canDelegate = !s.x || f.has("delegate");
   const isCode = (c) => c.type === "fix" || c.type === "build";
   const team = s.x && s.x.team;
-  const give = (c, d) => h("button", { class: "give", "data-guide": `give:${c.id}:${d}`, title: team[d].task ? `${who(d)} is busy right now` : `Give it to ${who(d)}` + needs(s, "delegate"), disabled: !hasCard(s, "delegate") || !!team[d].task,
-    onclick: () => cmd("delegate", { card_id: c.id, to: d }) }, who(d));
-  const moves = (c) => s.stage !== "BUILD" || c.state === "delegated" ? [] : c.review ? [
-    h("button", { class: "primary", "data-guide": "review:" + c.id, title: "Check their work change by change", onclick: () => { run.reviewing = c.id; run.sig = null; render(); } }, "Check their work")] : [
-    c.state !== "open" ? h("button", { "data-guide": "work:" + c.id, title: (isCode(c) ? "Read the code and fix it yourself" : "Open it and reply") + needs(s, "work"), onclick: () => cmd("open_card", { card_id: c.id }), disabled: !!s.open_card || !hasCard(s, "work") },
-      c.state === "returned" ? "Check their work" : isCode(c) ? "Fix it myself" : "Open")
-      : h("button", { title: "Put it back on the list for now", onclick: () => cmd("hold") }, "Put it down"),
-    canDelegate && team && c.state === "pile" ? [h("span", { class: "givelbl" }, "Give to"), give(c, "dev1"), give(c, "dev2")]
-      : canDelegate && !team ? h("button", { title: "Hand it to a developer. You check their work when it comes back." + needs(s, "delegate"), disabled: !hasCard(s, "delegate"), onclick: () => cmd("delegate", { card_id: c.id }) }, "Ask the team") : null,
-    c.type === "help_call" ? h("button", { "data-guide": "coach:" + c.id, title: "Teach them how to solve it" + needs(s, "coach"), disabled: !hasCard(s, "coach"), onclick: () => cmd("coach", { card_id: c.id }) }, "Help them") : null,
-    h("button", { class: "quiet", title: "Move it down the list. It gets a little louder." + needs(s, "defer"), disabled: !hasCard(s, "defer"), onclick: () => cmd("defer", { card_id: c.id }) }, "Later")];
+  const give = (c, d) => h("button", { class: "give", "data-guide": `give:${c.id}:${d}`, title: team[d].task ? `${who(d)} is busy right now` : `Give it to ${who(d)}` + needs(s, "delegate"),
+    disabled: !hasCard(s, "delegate") || !!team[d].task, onclick: () => cmd("delegate", { card_id: c.id, to: d }) }, avatar(d, "calm"), who(d));
+  // each card has ONE main action, an optional "give to" group and a quiet "later"
+  const actions = (c) => {
+    if (s.stage !== "BUILD" || c.state === "delegated") return null;
+    if (c.review) return h("div", { class: "pactions" }, h("button", { class: "pmain primary", "data-guide": "review:" + c.id, title: "Check their work change by change", onclick: () => { run.reviewing = c.id; run.sig = null; render(); } }, "Check their work"));
+    const help = c.type === "help_call";
+    const main = c.state === "open" ? h("button", { class: "pmain", title: "Put it back on the list for now", onclick: () => cmd("hold") }, "Put it down")
+      : help ? h("button", { class: "pmain", "data-guide": "coach:" + c.id, title: "Teach them how to solve it" + needs(s, "coach"), disabled: !hasCard(s, "coach"), onclick: () => cmd("coach", { card_id: c.id }) }, "Help them")
+      : h("button", { class: "pmain", "data-guide": "work:" + c.id, title: (isCode(c) ? "Read the code and fix it yourself" : "Open it and reply") + needs(s, "work"), disabled: !!s.open_card || !hasCard(s, "work"), onclick: () => cmd("open_card", { card_id: c.id }) },
+        c.state === "returned" ? "Check their work" : isCode(c) ? "Fix it myself" : "Open");
+    const gives = canDelegate && c.state === "pile" && !help
+      ? (team ? h("div", { class: "pgive" }, h("span", { class: "givelbl" }, "Give to"), give(c, "dev1"), give(c, "dev2"))
+        : h("button", { class: "give", title: "Hand it to a developer. You check their work when it comes back." + needs(s, "delegate"), disabled: !hasCard(s, "delegate"), onclick: () => cmd("delegate", { card_id: c.id }) }, "Ask the team"))
+      : null;
+    return h("div", { class: "pactions" }, main, gives,
+      c.state === "open" ? null : h("button", { class: "quiet", title: "Move it down the list. It gets a little louder." + needs(s, "defer"), disabled: !hasCard(s, "defer"), onclick: () => cmd("defer", { card_id: c.id }) }, "Later"),
+      s.x && s.x.retro_left > 0 && c.escalation > 0 ? h("button", { class: "quiet", title: "Retrospective: calm this card back down", onclick: () => cmd("retro", { card_id: c.id }) }, "Calm it down") : null);
+  };
   const live = s.pile.filter((c) => c.state !== "done");
   const louder = ["", "Getting louder: they called you", "Getting louder: they want a meeting"];
   return h("section", { class: "card", id: "pile", "aria-label": "To-do list" }, h("h2", {}, ic("clipboard"), " ", term("todo"), ` (${live.length})`),
@@ -522,15 +530,16 @@ function pilePanel(s) {
       ondragend: () => { run.dragging = false; run.dragCard = null; setTimeout(() => { run.sig = null; render(); }, 0); } },
       c.outage ? h("span", { class: "chip danger" }, ic("alert"), " Outage! Users can't use the app") : null,
       c.urgent ? h("span", { class: "chip goal" }, ic("bolt"), " Urgent: bonus if done on time") : null,
-      h("b", {}, ic(typeIcon(c.type)), " " + (c.spot ? "Spot check: " : "") + (c.title || typeLabel(c.type))),
       c.bounty ? h("span", { class: "chip good" }, "Bounty: extra points for a clean fix") : null,
-      h("div", { class: "tag", title: [c.payoff.points ? `Reward: +${c.payoff.points} points.` : "", c.penalty.cover ? `Ignore it and Suspicion goes up by ${c.penalty.cover}.` : ""].join(" ").trim() },
-        TYPE_TERM[c.type] ? term(TYPE_TERM[c.type], typeLabel(c.type)) : typeLabel(c.type), ` · ${who(c.sender)} · `, liveDue(c.deadline_min, s.clock_min),
-        c.state === "delegated" ? ` · ${who(c.assignee || "dev1")} is on it` : c.state === "returned" ? ` · back from ${who(c.assignee || "dev1")}` : ""),
+      h("div", { class: "ptitle" }, ic(typeIcon(c.type)), h("b", {}, (c.spot ? "Spot check: " : "") + (c.title || typeLabel(c.type)))),
+      h("div", { class: "pmeta", title: [c.payoff.points ? `Reward: +${c.payoff.points} points.` : "", c.penalty.cover ? `Ignore it and Suspicion goes up by ${c.penalty.cover}.` : ""].join(" ").trim() },
+        h("span", { class: "pill kind-" + c.type }, TYPE_TERM[c.type] ? term(TYPE_TERM[c.type], typeLabel(c.type)) : typeLabel(c.type)),
+        h("span", { class: "pwho" }, avatar(c.sender, "calm"), who(c.sender)),
+        h("span", { class: "pdue" }, ic("clock"), liveDue(c.deadline_min, s.clock_min))),
+      c.state === "delegated" ? h("div", { class: "pstate" }, `${who(c.assignee || "dev1")} is on it`) : c.state === "returned" ? h("div", { class: "pstate back" }, `Back from ${who(c.assignee || "dev1")}: check it`) : null,
       c.escalation ? h("div", { class: "tag louder" }, term("escalation", louder[c.escalation] || louder[2])) : null,
       s.x ? priceTag(s, c) : null,
-      h("div", { class: "row" }, moves(c).flat(),
-        s.x && s.x.retro_left > 0 && c.escalation > 0 && s.stage === "BUILD" ? h("button", { title: "Retrospective: calm this card back down", onclick: () => cmd("retro", { card_id: c.id }) }, "Calm it down") : null))));
+      actions(c))));
 }
 
 // What a move costs right now, and which other requests would slip while you do it
@@ -543,7 +552,6 @@ function priceTag(s, c) {
     const n = slip(work);   // only say something when there is a real cost to doing this now
     if (n) out.push(h("div", { class: "cost risk" }, `Doing this now: ${n} other request${n > 1 ? "s" : ""} will get louder`));
   }
-  if (c.ticket && c.state === "delegated") out.push(h("div", { class: "tag" }, "Check it when it comes back."));
   return out;
 }
 
@@ -601,6 +609,7 @@ function codeDesk(s) {
     h("div", { class: "row" }, h("button", { "data-guide": "test", title: "Run the description's examples on your fix" + needs(s, "test"), disabled: !hasCard(s, "test"), onclick: runScript }, ic("play"), " Test my fix" + (s.x ? ` (${s.x.move_costs.test} min)` : "")),
       perks ? h("button", { disabled: !hasCard(s, "assist"), title: needs(s, "assist"), onclick: () => cmd("use_assistant") }, "Ask the AI") : null),
     lastRun ? h("div", {}, lastRun.map((r) => h("div", { class: "run " + (r.pass ? "pass" : "fail") }, ic(r.pass ? "check" : "cross"), " ", r.text))) : null,
+    w.scan ? h("div", { class: "run " + (w.scan === "hole" ? "fail" : "pass") }, ic(w.scan === "hole" ? "alert" : "search"), w.scan === "hole" ? " Security Scan: this fix leaves a security hole." : " Security Scan: no security problem found.") : null,
     h("h3", {}, term("dod")),
     h("div", { "data-guide": "dod" }, ["tests", "matches_doc", "no_security"].map((b) => h("label", { class: "check" }, h("input", { type: "checkbox", checked: w.dod[b], onchange: () => cmd("toggle_dod", { box: b }) }), h("span", {}, box[b])))),
     s.x ? pushDeal(s, w) : null,
@@ -769,23 +778,40 @@ function youtubeApp(s) {
         return h("div", { class: "video" }, h("div", { class: "thumb th" + i, "aria-hidden": "true" }, ic(got ? "check" : "play")), h("b", {}, t.title),
           h("button", { onclick: () => cmd("watch_tutorial", { tutorial_id: t.id }), disabled: got || !hasCard(s, "learn"), title: needs(s, "learn") }, got ? "Watched" : hasCard(s, "learn") ? "Watch (30 min)" : "Needs a Learn card"));
       }))),
-    h("section", { class: "card wordbook", "aria-label": "Word book" }, h("h2", {}, ic("clipboard"), " Word book"),
-      h("p", { class: "sub" }, "Every new word in the game, in everyday language. Tap any underlined word in the game to see it too."),
-      h("dl", {}, Object.values(TERMS).sort((a, b) => a[0].localeCompare(b[0])).flatMap(([w, d]) => [h("dt", {}, w), h("dd", {}, d)]))),
-    h("section", { class: "card welcome-like", "aria-label": "How scoring works" }, h("h2", {}, ic("coin"), " How scoring works"),
+    h("details", { class: "card fold wordbook" }, h("summary", {}, ic("clipboard"), " Key words ", h("small", {}, `${CORE_TERMS.length} words`)),
+      h("p", { class: "sub" }, "The words you need most. Tap any underlined word in the game for the others."),
+      h("dl", {}, CORE_TERMS.map((k) => TERMS[k]).flatMap(([w, d]) => [h("dt", {}, w), h("dd", {}, d)]))),
+    h("details", { class: "card fold welcome-like" }, h("summary", {}, ic("coin"), " How scoring works"),
       h("h3", {}, "What earns you points"), h("div", { class: "w-cards n4" }, SCORING.earn.map(card)),
       h("h3", {}, "What costs you"), h("div", { class: "w-cards n4" }, SCORING.lose.map(card)),
-      h("div", { class: "w-cards n4" }, SCORING.extras.map(card)),
       h("p", { class: "w-note" }, ic("flag"), " " + SCORING.lose_when)));
 }
 
+// Skills you can buy any time with Points. Prices come from the server; wording stays free of numbers.
+const SKILLS = {
+  ai_assistant: ["Ask the AI", "robot", "Suggests a fix for you. It can be wrong."],
+  keyboard_warrior: ["Keyboard Warrior", "bolt", "Reading and fixing code takes less time."],
+  debug_master: ["Debug Master", "bug", "Tests are much faster."],
+  security_scan: ["Security Scan", "search", "Tells you if a fix leaves a security hole. Tests can't."],
+  focus_mode: ["Focus Mode", "bulb", "You start every morning with extra Energy."],
+  team_training: ["Team Training", "chat", "Ines and Tobi make fewer mistakes."],
+};
+function skillCard(s, id, price) {
+  const [name, icon, text] = SKILLS[id], own = s.perks.includes(id), noAi = id === "ai_assistant" && s.x && s.x.heat.includes("no_assistant");
+  const short = price - s.meters.points;
+  return h("div", { class: "skill" + (own ? " owned" : "") },
+    h("span", { class: "skill-ic", "aria-hidden": "true" }, ic(icon)),
+    h("div", { class: "skill-body" }, h("b", {}, name), h("span", {}, noAi ? "Switched off by Heat in this run." : text)),
+    own ? h("span", { class: "skill-own" }, ic("check"), " Owned")
+      : h("button", { class: short <= 0 ? "primary" : "", disabled: noAi || short > 0, title: short > 0 ? `You need ${short} more points` : "Buy this skill", onclick: () => cmd("buy_perk", { perk_id: id }) }, `${price} pts`));
+}
 function shopApp(s) {
-  const own = s.perks.includes("ai_assistant"), noAi = s.x && s.x.heat.includes("no_assistant");
-  return h("div", {}, s.x ? (shopEl(s) || h("section", { class: "card" }, h("h2", {}, ic("cart"), " Practice shop"), h("p", { class: "muted" }, "The practice shop opens during planning, between sprints."))) : null,
-    h("section", { class: "card", "aria-label": "Upgrades" }, h("h2", {}, "Upgrades"), h("p", { class: "sub" }, noAi ? "Heat: the AI Assistant is switched off this run." : "Spend your points on a helper."),
-    h("div", { class: "product" }, h("div", { class: "prod-img", "aria-hidden": "true" }, ic("robot")),
-      h("div", { class: "grow" }, h("b", {}, "AI Assistant"), h("div", { class: "muted" }, "Suggests a fix for you. It can be wrong."), h("div", { class: "price" }, own ? [ic("check"), " Owned"] : "150 pts")),
-      h("button", { class: "primary", disabled: own || noAi, onclick: () => cmd("buy_perk", { perk_id: "ai_assistant" }) }, own ? "Owned" : "Buy"))));
+  const list = (s.x ? s.x.perk_shop : [{ id: "ai_assistant", price: 150 }]).filter((p) => SKILLS[p.id]);
+  return h("div", {},
+    h("section", { class: "card", "aria-label": "Skills" }, h("h2", {}, ic("bolt"), " Skills"),
+      h("p", { class: "sub" }, `Spend points on skills that stay with you for the whole run. You have ${s.meters.points} points.`),
+      h("div", { class: "skills" }, list.map((p) => skillCard(s, p.id, p.price)))),
+    s.x ? shopEl(s) : null);
 }
 
 // ------------------------------------------------------------ experimental mechanics (state.x)

@@ -327,6 +327,8 @@ def _begin_standup(s: dict, ev: list, content: Content) -> None:
         _trust_gain(s, ev, content, dev, "trust_daily_recovery", "standup")
     if s.get("x"):
         f = content.balance["experimental"]["focus"]["day_refill"]
+        if "focus_mode" in s["perks"]:
+            f += content.balance["perks"]["focus_mode"]["morning_focus"]
         if _has(s, "sustainable_pace"):
             f += _fx(s, content, "sustainable_pace", "extra_refill")
         _meter(s, "focus", f, content)
@@ -572,7 +574,8 @@ def _h_delegate(s, ev, content, p):
         dev = _pick_dev(s, p.get("to"))
     c["state"], c["work"] = "delegated", None
     c["assignee"] = dev if team else (c["sender"] if c["sender"] in ("dev1", "dev2") else ("dev1", "dev2")[s["next_card"] % 2])
-    base = _O(content, "team_board")["bug_chance"][dev] * (_fx(s, content, "pair_programming", "bug_chance_mult") if _has(s, "pair_programming") else 1) if team else _bug_chance(s, content)
+    base = (_O(content, "team_board")["bug_chance"][dev] * (_fx(s, content, "pair_programming", "bug_chance_mult") if _has(s, "pair_programming") else 1)
+            * (content.balance["perks"]["team_training"]["bug_mult"] if "team_training" in s["perks"] else 1)) if team else _bug_chance(s, content)
     c["hidden_bug"] = bool(c["ticket"]) and draw(s, "delegation_bug") < base + _trust_penalty(s, content, c["assignee"])
     if s.get("x") and _has(s, "pair_programming") and c["ticket"]:
         _use_practice(s, ev, content, "pair_programming")
@@ -693,6 +696,8 @@ def _h_buy_perk(s, ev, content, p):
         _illegal("no such perk")
     if p["perk_id"] in s["perks"]:
         _illegal("already owned")
+    if p["perk_id"] != "ai_assistant" and not s.get("x"):
+        _illegal("that skill is not sold in this version")
     if s.get("x") and "no_assistant" in s["x"]["heat"] and p["perk_id"] == "ai_assistant":
         _illegal("Heat: the AI Assistant is switched off in this run")
     if s["meters"]["points"] < perk["price"]:
@@ -797,6 +802,8 @@ def _bug_chance(s: dict, content: Content) -> float:
     ch = content.balance["delegation"]["hidden_bug_chance"]
     if _has(s, "pair_programming"):
         ch *= _fx(s, content, "pair_programming", "bug_chance_mult")
+    if "team_training" in s["perks"]:
+        ch *= content.balance["perks"]["team_training"]["bug_mult"]
     return ch
 
 
@@ -1017,6 +1024,11 @@ def _x_cost_mult(s: dict, content: Content, key: str) -> float:
             m *= _fx(s, content, "wip_limit", "open_cost_mult")
     if key == "tutorial" and _has(s, "spike"):
         m *= _fx(s, content, "spike", "tutorial_cost_mult")
+    pk = content.balance["perks"]
+    if key in ("read", "patch") and "keyboard_warrior" in s["perks"]:
+        m *= pk["keyboard_warrior"]["time_mult"]
+    if key == "test" and "debug_master" in s["perks"]:
+        m *= pk["debug_master"]["test_time_mult"]
     return m
 
 
@@ -1929,6 +1941,7 @@ def _x_public(s: dict, content: Content) -> dict:
             "bug_odds": round(_bug_chance(s, content), 3), "focus_switch_cost": X["focus"]["switch_cost"],
             "standup_timer_s": X["bosses"]["demo_day"]["standup_timer_s"] if _x_boss_now(s) == "demo_day" else None,
             "seed": s["seed"], "features": x.get("features", list(FEATURES)),
+            "perk_shop": [{"id": k, "price": v["price"]} for k, v in content.balance["perks"].items()],
             "unlocks_next": [f for f in _features_for(s["sprint"] + 1, content) if f not in x.get("features", FEATURES)],
             **_o_public(s, content)}
 
@@ -2019,7 +2032,9 @@ def public_state(s: dict, content: Content) -> dict:
             open_work = {"ticket": t["id"], "title": t["title"], "doc": t["doc"], "kind": t["kind"], "lines": lines,
                          "options": [{"id": o["id"], "text": o["text"]} for o in t["options"]], "glossary": gl,
                          "concept": t["concept"], "flagged": w["flagged"], "selected": w["selected"], "dod": w["dod"],
-                         "last_run": w["last_run"], "assistant": w["assistant"]}
+                         "last_run": w["last_run"], "assistant": w["assistant"],
+                         "scan": (None if "security_scan" not in s["perks"] or not w["selected"] else
+                                  ("hole" if _option(t, w["selected"])["effect"] == "security_hole" else "clear"))}
     st = s["pending_standup"]
     standup = None
     if st:

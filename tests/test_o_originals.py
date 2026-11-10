@@ -31,7 +31,8 @@ def add_card(s, ticket, cid="z1", state="pile"):
 def ship(s, c, cid):
     t = c.tickets[next(x["ticket"] for x in s["pile"] if x["id"] == cid)]
     s, _ = run(s, c, "open_card", card_id=cid)
-    s, _ = run(s, c, "flag_line", line_no=t["buggy_line"])
+    if t["kind"] == "fix":
+        s, _ = run(s, c, "flag_line", line_no=t["buggy_line"])
     s, _ = run(s, c, "select_patch", option_id=next(o["id"] for o in t["options"] if o["effect"] == "correct"))
     s, _ = run(s, c, "run_script")
     for b in reducer.DOD:
@@ -47,9 +48,10 @@ def test_O_off_by_switch(xcontent):
         run(s, xcontent, "regroup")
 
 
-def test_O_deterministic_and_winnable(ocontent):
+def test_O_deterministic_and_winnable(ocontent, bcontent):
     assert len({bot.play(42, ocontent, "solo").digest() for _ in range(3)}) == 1
-    assert any(bot.play(seed, ocontent, "solo").s["ending"] == "win" for seed in (1, 5, 13))
+    # winnable the way players meet it: mechanics introduced one sprint at a time
+    assert any(bot.play(seed, bcontent, "solo").s["ending"] == "win" for seed in range(1, 13))
     assert bot.play(1, ocontent, "reckless").s["ending"].startswith("lose")
 
 
@@ -238,7 +240,7 @@ def test_ONBOARD_sprint_1_is_only_the_basics(bcontent):
     cid = add_card(s, "final_price")
     s, ev = ship(s, bcontent, cid)                     # no cards needed in sprint 1
     pushed = next(e for e in ev if e["type"] == "pushed")
-    combo = sum(e["points"] for e in ev if e["type"] == "combo")
+    combo = sum(e["points"] for e in ev if e["type"] in ("combo", "speed_result"))
     assert "held" not in pushed and "mult" not in pushed and s["meters"]["points"] == pushed["points"] + combo
 
 
@@ -304,3 +306,75 @@ def test_EVENTS_outage_pays_when_fixed_and_hurts_when_missed(ocontent):
     card["deadline_s"] = s["clock_s"]
     s3, ev = run(s, ocontent, "tick", real_ms=1000)
     assert any(e["type"] == "outage_missed" for e in ev) and s3["meters"]["rating"] < r0
+
+
+# ---------------------------------------------------------------- speed-fix, quick rescue, bug waves
+def test_SPEED_real_seconds_on_the_open_card_decide_the_bonus(ocontent):
+    def fix(secs, wrong=0):
+        s = to_build(ocontent, hand=["work", "test"] * 6)
+        cid = add_card(s, "final_price")
+        s, _ = run(s, ocontent, "open_card", card_id=cid)
+        t0 = s["clock_s"]
+        for _ in range(int(secs / 5)):
+            s, _ = run(s, ocontent, "tick", real_ms=5000)
+        assert s["clock_s"] == t0                         # the world waits while you read
+        for _ in range(wrong):
+            s, _ = run(s, ocontent, "flag_line", line_no=1)
+        t = ocontent.tickets["final_price"]
+        s, _ = run(s, ocontent, "flag_line", line_no=t["buggy_line"])
+        s, _ = run(s, ocontent, "select_patch", option_id=next(o["id"] for o in t["options"] if o["effect"] == "correct"))
+        s, _ = run(s, ocontent, "run_script")
+        for b in reducer.DOD:
+            s, _ = run(s, ocontent, "toggle_dod", box=b)
+        s, ev = run(s, ocontent, "push")
+        return next(e for e in ev if e["type"] == "speed_result"), ev
+    perfect, _ = fix(15)
+    good, _ = fix(40)
+    slow, _ = fix(90)
+    assert (perfect["tier"], good["tier"], slow["tier"]) == ("perfect", "good", "slow")
+    assert perfect["points"] > good["points"] > slow["points"] == 0
+    missed, ev = fix(15, wrong=2)                          # two wrong lines add 16 s of penalty
+    assert missed["tier"] == "good" and missed["misses"] == 2
+
+
+def test_SPEED_a_wrong_line_breaks_the_combo(ocontent):
+    s = to_build(ocontent, hand=["work"] * 3)
+    s["x"]["combo"] = 3
+    s, _ = run(s, ocontent, "open_card", card_id=add_card(s, "final_price"))
+    s, ev = run(s, ocontent, "flag_line", line_no=1)
+    assert s["x"]["combo"] == 0 and any(e["type"] == "combo_broken" and e["why"] == "wrong line" for e in ev)
+    assert reducer.public_state(s, ocontent)["work"]["speed"]["misses"] == 1
+
+
+def test_RESCUE_a_quick_unblock_pays_a_bonus_a_slow_one_does_not(ocontent):
+    for stuck_min, pays in ((5, True), (30, False)):
+        s = to_build(ocontent, hand=["delegate"] * 2)
+        s, _ = run(s, ocontent, "delegate", card_id=add_card(s, "final_price"), to="dev1")
+        s["x"]["team"]["dev1"].update(stuck=True, stuck_min=stuck_min)
+        p0 = s["meters"]["points"]
+        s, ev = run(s, ocontent, "unblock", dev="dev1")
+        assert any(e["type"] == "quick_save" for e in ev) == pays
+        assert (s["meters"]["points"] - p0 == ocontent.balance["originals"]["team_board"]["quick_bonus_points"]) == pays
+    assert reducer.public_state(s, ocontent)["x"]["stuck_limit"] == ocontent.balance["originals"]["team_board"]["stuck_escalate_min"]
+
+
+def test_WAVE_clear_all_on_time_for_a_bonus_and_one_louder_card_fails_it(ocontent):
+    s = to_build(ocontent, hand=["work", "test"] * 8)
+    s["pile"] = []
+    reducer._fire_event(s, [], ocontent, "wave")
+    ids = [c["id"] for c in s["pile"]]
+    size = ocontent.balance["originals"]["events"]["wave_size"]
+    assert len(ids) == size and all(c["wave"] for c in s["pile"])
+    assert reducer.public_state(s, ocontent)["x"]["wave"] == {"left": size, "total": size, "failed": False}
+    p0 = s["meters"]["points"]
+    for cid in ids:
+        s, ev = ship(s, ocontent, cid)
+    assert any(e["type"] == "wave_clear" for e in ev) and reducer.public_state(s, ocontent)["x"]["wave"] is None
+    assert s["meters"]["points"] - p0 >= ocontent.balance["originals"]["events"]["wave_bonus_points"]   # pushes wait in the release; the bonus is banked at once
+    s2 = to_build(ocontent, hand=["work", "test"] * 8)
+    s2["pile"] = []
+    reducer._fire_event(s2, [], ocontent, "wave")
+    wave_cards = [c for c in s2["pile"]]
+    wave_cards[0]["deadline_s"] = s2["clock_s"]
+    s2, ev = run(s2, ocontent, "tick", real_ms=1000)
+    assert any(e["type"] == "wave_failed" for e in ev) and reducer.public_state(s2, ocontent)["x"]["wave"]["failed"]

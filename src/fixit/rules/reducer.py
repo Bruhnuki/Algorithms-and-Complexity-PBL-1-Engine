@@ -257,6 +257,10 @@ def _escalate(s: dict, ev: list, content: Content, c: dict) -> None:
     _emit(s, ev, "card_escalated", card_id=c["id"], level=c["escalation"], penalty=c["penalty"])
     if s.get("x"):
         _break_combo(s, ev, content, "a request got louder")
+        wv = s["x"].get("wave")
+        if wv and c.get("wave") and not wv["failed"]:
+            wv["failed"] = True
+            _emit(s, ev, "wave_failed", left=wv["left"])
         if c.get("outage") and not c.get("outage_missed"):
             E = _O(content, "events")
             c["outage_missed"] = True
@@ -458,7 +462,11 @@ def _h_flag_line(s, ev, content, p):
     w["flagged"] = n
     if w["from_delegate"]:
         w["reviewed"] = True
-    _emit(s, ev, "line_flagged", card_id=c["id"], line_no=n, correct=(n == t["buggy_line"]))
+    right = n == t["buggy_line"]
+    if not right and s.get("x"):
+        w["misses"] = w.get("misses", 0) + 1
+        _break_combo(s, ev, content, "wrong line")
+    _emit(s, ev, "line_flagged", card_id=c["id"], line_no=n, correct=right)
 
 
 def _h_select_patch(s, ev, content, p):
@@ -755,10 +763,14 @@ def _h_advance_stage(s, ev, content, p):
 def _h_tick(s, ev, content, p):
     if s["stage"] != "BUILD":
         return
-    if s.get("x") and not _x_clock_running(s, content):
-        return   # hybrid clock: paused while you read a card or answer a standup
     t = content.balance["time"]
     ms = max(0, min(int(p["real_ms"]), t["tick_max_real_ms"]))
+    if s.get("x") and not _x_clock_running(s, content):
+        if s["open_card"]:   # the world waits while you read, but your fix is being timed
+            w = _card(s, s["open_card"])["work"]
+            if w is not None:
+                w["ms"] = w.get("ms", 0) + ms
+        return   # hybrid clock: paused while you read a card or answer a standup
     _advance(s, ev, content, ms / 1000 * t["real_to_game"])
     _emit(s, ev, "tick_applied", real_ms=ms)
 
@@ -939,7 +951,7 @@ def _x_deal_sprint(s: dict, ev: list, content: Content) -> None:
     if _orig(content, "events"):
         E = _O(content, "events")
         for day in (0, 1):
-            for ev_name, key in (("outage", "outage_chance_per_day"), ("urgent", "urgent_chance_per_day")):
+            for ev_name, key in (("outage", "outage_chance_per_day"), ("wave", "wave_chance_per_day"), ("urgent", "urgent_chance_per_day")):
                 if draw(s, pur + ev_name) < E[key]:
                     at = day * 480 + _rand_between(s, pur + ev_name, 90, 380)
                     items.append({"at_s": t0 + at * 60, "kind": "event", "event": ev_name})
@@ -1684,8 +1696,13 @@ def _h_unblock(s, ev, content, p):
     m = s["x"]["team"].get(dev)
     if not m or not m["stuck"]:
         _illegal("they are not stuck")
-    _spend_min(s, ev, content, _O(content, "team_board")["unblock_min"])
+    T = _O(content, "team_board")
+    quick = m["stuck_min"] <= T["quick_unblock_min"]
+    _spend_min(s, ev, content, T["unblock_min"])
     m.update(stuck=False, stuck_min=0.0)
+    if quick:
+        _meter(s, "points", T["quick_bonus_points"], content)
+        _emit(s, ev, "quick_save", dev=dev, points=T["quick_bonus_points"])
     _log(s, "blocker_cleared")
     _trust_gain(s, ev, content, dev, "trust_per_coach", "unblocked")
     _emit(s, ev, "dev_unblocked", dev=dev)
@@ -1711,6 +1728,8 @@ def _finish_bonus(s: dict, ev: list, content: Content, c: dict, result: str) -> 
         _emit(s, ev, "outage_fixed", card_id=c["id"], points=E["outage_bonus_points"], rating=E["outage_rating"])
     if c.get("urgent") and on_time:
         bonus += _O(content, "events")["urgent_bonus_points"]
+    bonus += _speed_bonus(s, ev, content, c)
+    _wave_progress(s, ev, content, c, on_time)
     if _orig(content, "combo"):
         C = _O(content, "combo")
         if on_time:
@@ -1730,8 +1749,60 @@ def _finish_bonus(s: dict, ev: list, content: Content, c: dict, result: str) -> 
             _meter(s, "points", bonus, content)
 
 
+def _speed_tier(content: Content, w: dict) -> tuple[str, float]:
+    S = _O(content, "speed_fix")
+    secs = w.get("ms", 0) / 1000 + w.get("misses", 0) * S["miss_penalty_s"]
+    return ("perfect" if secs <= S["perfect_s"] else "good" if secs <= S["good_s"] else "slow"), secs
+
+
+def _speed_bonus(s: dict, ev: list, content: Content, c: dict) -> int:
+    """Fixing it yourself FAST pays extra. The timer runs only on real seconds spent with the card open."""
+    w = c.get("work")
+    if not (_orig(content, "speed_fix") and w and c.get("ticket")):
+        return 0
+    tier, secs = _speed_tier(content, w)
+    S = _O(content, "speed_fix")
+    frac = S["perfect_bonus"] if tier == "perfect" else S["good_bonus"] if tier == "good" else 0
+    base = 100 * content.tickets[c["ticket"]]["difficulty"]
+    pts = round(base * frac)
+    _emit(s, ev, "speed_result", card_id=c["id"], tier=tier, seconds=round(secs), points=pts, misses=w.get("misses", 0))
+    return pts
+
+
+def _wave_progress(s: dict, ev: list, content: Content, c: dict, ok: bool) -> None:
+    wave = s["x"].get("wave")
+    if not wave or not c.get("wave") or wave["failed"]:
+        return
+    if not ok:
+        wave["failed"] = True
+        _emit(s, ev, "wave_failed", left=wave["left"])
+        return
+    wave["left"] -= 1
+    if wave["left"] <= 0:
+        pts = _O(content, "events")["wave_bonus_points"]
+        _meter(s, "points", pts, content)
+        s["x"]["wave"] = None
+        _emit(s, ev, "wave_clear", points=pts)
+    else:
+        _emit(s, ev, "wave_progress", left=wave["left"])
+
+
 def _fire_event(s: dict, ev: list, content: Content, name: str) -> None:
     E = _O(content, "events")
+    if name == "wave":
+        pool = [t for t in sorted(content.tickets) if t not in s["x"]["used_tickets"]]
+        pool += [t for t in sorted(content.tickets) if t not in pool]   # reuse when the fresh ones run out
+        ids = []
+        for _ in range(E["wave_size"]):
+            t = pool.pop(int(draw(s, "wave") * len(pool)) % len(pool))
+            spec = {"type": "fix" if content.tickets[t]["kind"] == "fix" else "build", "sender": "po", "ticket": t,
+                    "deadline": s["clock_s"] / 60 + E["wave_deadline_min"], "payoff": {"points": 100}, "penalty": {"cover": 3}}
+            _spawn_card(s, ev, content, spec)
+            s["pile"][-1]["wave"] = True
+            ids.append(s["pile"][-1]["id"])
+        s["x"]["wave"] = {"ids": ids, "left": len(ids), "failed": False}
+        _emit(s, ev, "wave", ids=ids, minutes=E["wave_deadline_min"], points=E["wave_bonus_points"])
+        return
     if name == "outage":
         unused = [t for t in sorted(content.tickets) if t not in s["x"]["used_tickets"]] or sorted(content.tickets)
         t = unused[int(draw(s, "outage") * len(unused)) % len(unused)]
@@ -1888,6 +1959,10 @@ def _o_public(s: dict, content: Content) -> dict:
                        "stuck": m["stuck"], "stuck_min": round(m["stuck_min"]), "speed": T["speed"][d], "bug_chance": T["bug_chance"][d]}
         out["team"] = team
         out["unblock_min"] = T["unblock_min"]
+        out["stuck_limit"] = T["stuck_escalate_min"]
+        out["quick_min"] = T["quick_unblock_min"]
+        wv = x.get("wave")
+        out["wave"] = {"left": wv["left"], "total": len(wv["ids"]), "failed": wv["failed"]} if wv else None
     if _orig(content, "combo"):
         C = _O(content, "combo")
         out["combo"] = {"count": x["combo"], "next_mult": round(1 + min(C["cap"], C["step"] * x["combo"]), 2)}
@@ -2033,6 +2108,7 @@ def public_state(s: dict, content: Content) -> dict:
                          "options": [{"id": o["id"], "text": o["text"]} for o in t["options"]], "glossary": gl,
                          "concept": t["concept"], "flagged": w["flagged"], "selected": w["selected"], "dod": w["dod"],
                          "last_run": w["last_run"], "assistant": w["assistant"],
+                         "speed": _speed_public(s, content, w),
                          "scan": (None if "security_scan" not in s["perks"] or not w["selected"] else
                                   ("hole" if _option(t, w["selected"])["effect"] == "security_hole" else "clear"))}
     st = s["pending_standup"]
@@ -2054,8 +2130,17 @@ def public_state(s: dict, content: Content) -> dict:
             **({"x": _x_public(s, content)} if s.get("x") else {})}
 
 
+def _speed_public(s: dict, content: Content, w: dict):
+    if not (s.get("x") and _orig(content, "speed_fix")):
+        return None
+    S = _O(content, "speed_fix")
+    tier, secs = _speed_tier(content, w)
+    return {"ms": w.get("ms", 0), "misses": w.get("misses", 0), "tier": tier, "seconds": round(secs, 1),
+            "perfect_s": S["perfect_s"], "good_s": S["good_s"], "penalty_s": S["miss_penalty_s"]}
+
+
 def _x_card_public(s: dict, c: dict) -> dict:
-    out = {"bounty": c.get("bounty", False), "spot": c.get("spot", False), "outage": c.get("outage", False), "urgent": c.get("urgent", False),
+    out = {"bounty": c.get("bounty", False), "spot": c.get("spot", False), "outage": c.get("outage", False), "urgent": c.get("urgent", False), "wave": c.get("wave", False),
            "assignee": c.get("assignee")}
     if c["state"] in ("delegated", "returned") and c["ticket"] and _has(s, "tdd_pair"):
         out["bug_known"] = c["hidden_bug"]   # TDD Pair: you can tell whether returned work is bugged

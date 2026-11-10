@@ -304,8 +304,18 @@ originals:
     bug_chance: {dev1: 0.3, dev2: 0.6}     # chance their work comes back with a mistake
     stuck_chance_per_hour: {dev1: 0.2, dev2: 0.6}
     unblock_min: 8                         # your time to unblock someone
+    quick_unblock_min: 12                  # unblock within this many game minutes for a quick-save bonus
+    quick_bonus_points: 40
     stuck_escalate_min: 45                 # left stuck this long: the request gets louder
     other_task_minutes: 30                 # status updates and help requests
+  # O9 speed-fix: finding the bug is a timed skill. Real seconds count while a card is open.
+  speed_fix:
+    enabled: true
+    perfect_s: 25                          # at or under this (plus penalties) = PERFECT
+    good_s: 50                             # at or under this = GOOD
+    perfect_bonus: 1.0                     # bonus points = base points x this
+    good_bonus: 0.5
+    miss_penalty_s: 8                      # each wrong line adds this many seconds
   # O7 combo: requests finished on time in a row multiply the points of the next one
   combo:
     enabled: true
@@ -320,6 +330,10 @@ originals:
     outage_rating: 0.1
     outage_miss_rating: -0.3
     outage_miss_cover: 6
+    wave_chance_per_day: 0.5               # a bug wave: several urgent bugs land at once; clear them all for a bonus
+    wave_size: 3
+    wave_deadline_min: 90
+    wave_bonus_points: 200
     urgent_chance_per_day: 0.6             # Marlo marks a request urgent: less time, bonus points
     urgent_deadline_min: 100
     urgent_bonus_points: 75

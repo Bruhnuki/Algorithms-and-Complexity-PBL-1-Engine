@@ -41,6 +41,9 @@ class Bot:
         t = self.ticket_of(card)
         if not self.do("open_card", card_id=card["id"]):
             return False
+        if self.s.get("x"):
+            for _ in range(6):   # a person takes real seconds to read the code: about 30 s
+                self.do("tick", real_ms=5000)
         if t["kind"] == "fix":
             self.do("flag_line", line_no=t["buggy_line"])
         self.do("select_patch", option_id=self.correct(t, effect))

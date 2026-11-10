@@ -22,7 +22,10 @@ class Bot:
         cmd = {"type": typ, "payload": payload}
         try:
             self.s, ev = reducer.apply(self.s, cmd, self.c)
-        except GameError:
+        except GameError as e:
+            # original-mechanics branch: out of the right action card -> regroup once and retry
+            if e.code == "NO_CARD" and typ != "regroup" and self.do("regroup"):
+                return self.do(typ, **payload)
             return False
         self.log.append(cmd)
         self.events += ev
@@ -93,7 +96,23 @@ class Bot:
             self.delegated = set()
         return self.delegated
 
+    def review_changes(self, card):
+        """Original O2: inspect every change, fix the faulty ones, ship."""
+        for i in range(len(card["review"]["changes"])):
+            if not self.do("review_inspect", card_id=card["id"], index=i, tool="test"):
+                self.do("review_inspect", card_id=card["id"], index=i, tool="ask")
+            cur = next(c for c in self.s["pile"] if c["id"] == card["id"])
+            if cur["review"]["changes"][i]["shown"] == "faulty":
+                self.do("review_fix", card_id=card["id"], index=i)
+        self.do("review_ship", card_id=card["id"])
+
+    def end_day(self):
+        if self.s.get("x") and self.s["x"].get("release"):
+            self.do("ship_release")
+
     def work_returned(self, card):
+        if card.get("review"):
+            return self.review_changes(card)
         t = self.ticket_of(card)
         self.do("open_card", card_id=card["id"])
         self.do("run_script")
@@ -125,12 +144,14 @@ class Bot:
         self.build_day()
         if self.s["stage"] == "BUILD" and self.s["open_card"]:
             self.do("hold")
+        self.end_day()
         self.do("advance_stage", to="STANDUP")
         self.standup()
         self.do("advance_stage", to="BUILD")
         self.build_day()
         if self.s["open_card"]:
             self.do("hold")
+        self.end_day()
         self.do("advance_stage", to="REVIEW")
         return self
 

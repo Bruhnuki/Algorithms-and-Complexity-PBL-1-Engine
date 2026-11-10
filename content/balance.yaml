@@ -239,3 +239,50 @@ experimental:
   meta_unlocks:
     won: [retrospective, heat]
     no_bluff_sprint: [psychological_safety]
+
+# =====================================================================================
+# ORIGINAL (spec-breaking) versions of the research mechanics. Branch experimental/original-mechanics.
+# Each one can be switched off on its own to compare it with the spec-fit version.
+# These break PILE-2, CODE-1..3, CODE-5, PERK-1, END-1 and the MVP scope on purpose. See
+# Spec/Original Mechanics.md.
+# =====================================================================================
+originals:
+  # O1 (M1 original): moves need an action card from your hand
+  action_hand:
+    enabled: true
+    hand_size: 5
+    draw_after_push: 1              # a finished push draws a card
+    regroup_min: 30                  # throw the hand away and draw a fresh one, at a time cost
+    starter_deck: {work: 4, test: 3, delegate: 2, coach: 1, defer: 2, call: 2, learn: 1, assist: 1}
+    shop_cards: [work, test, delegate, coach, defer, call]   # cards the between-sprint shop can add
+    add_price: 40
+    remove_price: 30
+  # O2 (M2 original): returned work is reviewed change by change; you can ship without reading code
+  change_review:
+    enabled: true
+    changes: 5                       # changes in a returned submission
+    faulty_if_bugged: [1, 2]         # faulty changes when the delegation came back bugged
+    clean_chance_extra: 0.2          # chance of one faulty change even when "clean"
+    inspect_min: 5                   # run the tests on one change
+    ask_min: 3                       # ask the author about one change (costs trust)
+    fix_min: 10                      # fix one revealed faulty change
+    send_back_min: 2
+    trust_start: 3
+    trust_max: 5
+    trust_bug_chance_per_point: 0.05 # each missing trust point raises that teammate's bug chance
+  # O3 (M4 original): pushes score base points x a multiplier from process and honesty
+  score_multiplier:
+    enabled: true
+    process_weight: 0.01             # multiplier gain per process score point (100 -> +1.0)
+    honest_streak_step: 0.25         # +0.25 per honest push in a row
+    honest_streak_cap: 1.0
+  # O4 (M7 original): pushes go into an unshipped release; ship it to bank the points
+  release_train:
+    enabled: true
+    bonus_per_extra_item: 0.25       # release multiplier = 1 + 0.25 x (items - 1)
+    max_items: 5
+    ship_min: 5
+  # O5 (M15 original): public leaderboard per challenge code, with your place vs the median
+  leaderboard:
+    enabled: true
+    size: 10

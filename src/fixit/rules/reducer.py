@@ -261,6 +261,8 @@ def _return_delegation(s: dict, ev: list, content: Content, c: dict) -> None:
     c["returns_s"] = None
     if c["ticket"]:
         c["state"] = "returned"
+        if _orig(content, "change_review"):
+            _make_review(s, content, c)
         _emit(s, ev, "delegation_returned", card_id=c["id"], needs_review=True)
     else:
         c["state"] = "done"
@@ -311,6 +313,8 @@ def _begin_standup(s: dict, ev: list, content: Content) -> None:
         last = cands[0] if cands else next(iter(content.tickets))
     s["pending_standup"] = {"n": n, "ticket": last, "concept": content.tickets[last]["concept"],
                             "teammate": "dev1" if n % 2 else "dev2"}
+    if _orig(content, "action_hand"):
+        _new_hand(s, ev, content)
     if s.get("x"):
         f = content.balance["experimental"]["focus"]["day_refill"]
         if _has(s, "sustainable_pace"):
@@ -395,6 +399,9 @@ def _h_open_card(s, ev, content, p):
     c = _card(s, p["card_id"])
     if c["state"] not in ("pile", "returned"):
         _illegal("card cannot be opened")
+    if c["state"] == "returned" and c.get("review"):
+        _illegal("returned work is reviewed change by change")
+    _play(s, ev, content, "work")
     if c["ticket"]:
         t = _ticket(content, c["ticket"])
         work = {"ticket": t["id"], "flagged": None, "selected": None, "last_run": None, "assistant": None,
@@ -457,6 +464,7 @@ def _h_select_patch(s, ev, content, p):
 
 def _h_run_script(s, ev, content, p):
     c, w = _code_work(s)
+    _play(s, ev, content, "test")
     t = _ticket(content, w["ticket"])
     opt = _option(t, w["selected"]) if w["selected"] else None
     runs = run_ticket(t, opt, content)
@@ -497,6 +505,7 @@ def _h_push(s, ev, content, p):
         _illegal("choose a patch before pushing")
     if s.get("x") and _x_boss_now(s) == "friday_deploy" and not all(w["dod"].values()):
         _illegal("Friday Deploy: every Definition of Done box must be ticked before a push")
+    _release_room(s, content)
     o = _option(t, w["selected"])
     if o["effect"] == "crashes":
         _meter(s, "points", b["push"]["points"]["runtime_error"], content)
@@ -512,6 +521,7 @@ def _h_push(s, ev, content, p):
     rating = round(b["push"]["rating"].get(result, 0) * (factor if result == "clean" else 1), 6)
     if result in ("clean", "acceptable"):
         s["repeat_counts"][result] = k + 1
+    ps_before = process_score(s, content)
     cover = 0
     if not all(w["dod"].values()):
         cover = b["push"]["dod_unticked_cover"]
@@ -523,12 +533,14 @@ def _h_push(s, ev, content, p):
         _log(s, "dod_dishonest")
     if w["from_delegate"] and w["reviewed"]:
         _log(s, "review_before_push")
-    _meter(s, "points", pts, content)
+    honest = all(w["dod"].values()) and bool(w["last_run"] and w["last_run"]["all_pass"])
+    pts, extra = _award(s, ev, content, pts, result, t["id"], honest, ps_before)
     s["shipped"].append({"ticket": t["id"], "result": result, "effect": o["effect"], "sprint": s["sprint"], "rating": rating})
     c["state"] = "done"
     s["open_card"] = None
     _spend(s, ev, content, "push")
-    _emit(s, ev, "pushed", card_id=c["id"], ticket=t["id"], result=result, label=RESULT_LABEL[result], points=pts, cover=cover)
+    _emit(s, ev, "pushed", card_id=c["id"], ticket=t["id"], result=result, label=RESULT_LABEL[result], points=pts, cover=cover, **extra)
+    _draw_after_push(s, ev, content)
     if s.get("x"):
         _x_after_push(s, ev, content, c, w, result)
 
@@ -538,10 +550,12 @@ def _h_delegate(s, ev, content, p):
     c = _card(s, p["card_id"])
     if c["state"] not in ("pile", "open"):
         _illegal("card cannot be delegated")
+    _play(s, ev, content, "delegate")
     if s["open_card"] == c["id"]:
         s["open_card"] = None
     c["state"], c["work"] = "delegated", None
-    c["hidden_bug"] = bool(c["ticket"]) and draw(s, "delegation_bug") < _bug_chance(s, content)
+    c["assignee"] = c["sender"] if c["sender"] in ("dev1", "dev2") else ("dev1", "dev2")[s["next_card"] % 2]
+    c["hidden_bug"] = bool(c["ticket"]) and draw(s, "delegation_bug") < _bug_chance(s, content) + _trust_penalty(s, content, c["assignee"])
     if s.get("x") and _has(s, "pair_programming") and c["ticket"]:
         _use_practice(s, ev, content, "pair_programming")
     c["returns_s"] = s["clock_s"] + content.balance["delegation"]["return_after_min"] * 60
@@ -555,6 +569,7 @@ def _h_coach(s, ev, content, p):
     c = _card(s, p["card_id"])
     if c["type"] != "help_call" or c["state"] not in ("pile", "open"):
         _illegal("only a help call can be coached")
+    _play(s, ev, content, "coach")
     if s["open_card"] == c["id"]:
         s["open_card"] = None
     c["state"] = "done"
@@ -573,6 +588,7 @@ def _h_defer(s, ev, content, p):
     c = _card(s, p["card_id"])
     if c["state"] not in ("pile", "open"):
         _illegal("card cannot be deferred")
+    _play(s, ev, content, "defer")
     if s["open_card"] == c["id"]:
         s["open_card"] = None
     c["state"] = "pile"
@@ -619,6 +635,7 @@ def _h_reply_standup(s, ev, content, p):
 def _h_answer_call(s, ev, content, p):
     if not s["call"]:
         _illegal("no call is ringing")
+    _play(s, ev, content, "call")
     sender, busy = s["call"]["sender"], s["open_card"] is not None
     s["call"] = None
     if busy:
@@ -635,6 +652,7 @@ def _h_watch_tutorial(s, ev, content, p):
         _illegal("no such tutorial")
     if tut["concept"] in s["unlocked"]:
         _illegal("already unlocked")
+    _play(s, ev, content, "learn")
     s["unlocked"].append(tut["concept"])
     _spend(s, ev, content, "tutorial")
     _emit(s, ev, "tutorial_watched", tutorial_id=tut["id"])
@@ -662,6 +680,7 @@ def _h_use_assistant(s, ev, content, p):
     if "ai_assistant" not in s["perks"]:
         _illegal("you do not own the AI Assistant")
     c, w = _code_work(s)
+    _play(s, ev, content, "assist")
     t = _ticket(content, w["ticket"])
     right = next(o for o in t["options"] if o["effect"] == "correct")
     pick = right
@@ -782,6 +801,7 @@ def _x_start(s: dict, ev: list, content: Content) -> None:
               "last_card": None, "next_spot_s": 0.0, "next_director_s": X["director"]["every_min"] * 60.0,
               "relief_used": False, "bounty_card": None, "achievements": [], "free_runs": {},
               "sprint_start_s": 0.0, "bluffed_this_sprint": False, "flags": [], "goals": []}
+    _o_start(s, ev, content)
     bosses = sorted(X["bosses"])
     s["x"]["boss"] = bosses[int(draw(s, "boss") * len(bosses)) % len(bosses)]
     _x_deal_sprint(s, ev, content)
@@ -1072,8 +1092,13 @@ def _x_tutorial_unlock(s: dict, ev: list, content: Content, tid: str) -> None:
 def _x_auto_ship(s: dict, ev: list, content: Content) -> None:
     """M7 (spec-fit version): calling Review while work is still out ships it unreviewed."""
     b = content.balance
+    if s["x"].get("release"):
+        _ship_release(s, ev, content, auto=True)
     for c in s["pile"]:
         if c["state"] not in ("delegated", "returned"):
+            continue
+        if c.get("review"):   # O2: a change-by-change submission ships as it stands
+            _review_ship(s, ev, content, c, auto=True)
             continue
         if not c["ticket"]:
             c["state"], c["returns_s"] = "done", None
@@ -1276,6 +1301,340 @@ def _h_use_ultimate(s, ev, content, p):
     _emit(s, ev, "ultimate_used", kind=kind)
 
 
+# ================================================================ ORIGINAL (spec-breaking) mechanics
+# Branch experimental/original-mechanics. Each is switched in balance.yaml `originals.<name>.enabled` and
+# only runs with the experimental block on. State lives in s["x"].
+
+def _orig(content: Content, name: str) -> bool:
+    o = content.balance.get("originals", {}).get(name, {})
+    return _exp(content) and bool(o.get("enabled"))
+
+
+def _O(content: Content, name: str) -> dict:
+    return content.balance["originals"][name]
+
+
+def _o_start(s: dict, ev: list, content: Content) -> None:
+    x = s["x"]
+    x.update(hand=[], deck=[], discard=[], deck_list={}, release=[], honest_streak=0, trust={})
+    if _orig(content, "action_hand"):
+        x["deck_list"] = dict(_O(content, "action_hand")["starter_deck"])
+        x["deck"] = _shuffled(s, [k for k, n in sorted(x["deck_list"].items()) for _ in range(n)])
+        _new_hand(s, ev, content)
+    if _orig(content, "change_review"):
+        x["trust"] = {d: _O(content, "change_review")["trust_start"] for d in ("dev1", "dev2")}
+
+
+# ---- O1 action hand
+def _shuffled(s: dict, cards: list) -> list:
+    out = list(cards)
+    for i in range(len(out) - 1, 0, -1):
+        j = int(draw(s, "deck") * (i + 1)) % (i + 1)
+        out[i], out[j] = out[j], out[i]
+    return out
+
+
+def _draw_cards(s: dict, n: int) -> list:
+    x, got = s["x"], []
+    for _ in range(n):
+        if not x["deck"]:
+            if not x["discard"]:
+                break
+            x["deck"], x["discard"] = _shuffled(s, x["discard"]), []
+        got.append(x["deck"].pop())
+    x["hand"] += got
+    return got
+
+
+def _new_hand(s: dict, ev: list, content: Content) -> None:
+    x = s["x"]
+    x["discard"] += x["hand"]
+    x["hand"] = []
+    got = _draw_cards(s, _O(content, "action_hand")["hand_size"])
+    _emit(s, ev, "hand_drawn", cards=got)
+
+
+def _play(s: dict, ev: list, content: Content, kind: str) -> None:
+    """O1: a move needs a matching action card in your hand; playing it discards it."""
+    if not _orig(content, "action_hand"):
+        return
+    x = s["x"]
+    if kind not in x["hand"]:
+        raise GameError("NO_CARD", f"you need a {kind} card in your hand (regroup to draw a new hand)")
+    x["hand"].remove(kind)
+    x["discard"].append(kind)
+    _emit(s, ev, "card_played", kind=kind)
+
+
+def _draw_after_push(s: dict, ev: list, content: Content) -> None:
+    if _orig(content, "action_hand"):
+        got = _draw_cards(s, _O(content, "action_hand")["draw_after_push"])
+        if got:
+            _emit(s, ev, "cards_drawn", cards=got)
+
+
+def _spend_min(s: dict, ev: list, content: Content, minutes: float) -> None:
+    if _day_used_min(s) + minutes > _day_minutes(s, content) + 1e-9:
+        raise GameError("DAY_FULL", "Not enough working hours left today; move on")
+    _advance(s, ev, content, minutes * 60, day_capped=False)
+
+
+def _h_regroup(s, ev, content, p):
+    if not _orig(content, "action_hand"):
+        _illegal("the action hand is off")
+    _need_stage(s, "BUILD")
+    _spend_min(s, ev, content, _O(content, "action_hand")["regroup_min"])
+    _new_hand(s, ev, content)
+
+
+def _deck_shop(s: dict, content: Content) -> None:
+    if not _orig(content, "action_hand"):
+        _illegal("the action hand is off")
+    shop = _need_planning_shop(s)
+    if shop["free"]:
+        _illegal("take your free practice first")
+
+
+def _h_add_card(s, ev, content, p):
+    _deck_shop(s, content)
+    A, kind = _O(content, "action_hand"), p["kind"]
+    if kind not in A["shop_cards"]:
+        _illegal("that card is not sold")
+    if s["meters"]["points"] < A["add_price"]:
+        _illegal("not enough points")
+    _meter(s, "points", -A["add_price"], content)
+    s["x"]["deck_list"][kind] = s["x"]["deck_list"].get(kind, 0) + 1
+    s["x"]["discard"].append(kind)
+    _emit(s, ev, "deck_changed", added=kind, price=A["add_price"])
+
+
+def _h_remove_card(s, ev, content, p):
+    _deck_shop(s, content)
+    A, kind, x = _O(content, "action_hand"), p["kind"], s["x"]
+    if x["deck_list"].get(kind, 0) <= 0:
+        _illegal("you have no such card")
+    if sum(x["deck_list"].values()) <= A["hand_size"]:
+        _illegal("your deck cannot be smaller than a hand")
+    if s["meters"]["points"] < A["remove_price"]:
+        _illegal("not enough points")
+    _meter(s, "points", -A["remove_price"], content)
+    x["deck_list"][kind] -= 1
+    for pile in ("discard", "deck", "hand"):
+        if kind in x[pile]:
+            x[pile].remove(kind)
+            break
+    _emit(s, ev, "deck_changed", removed=kind, price=A["remove_price"])
+
+
+# ---- O3 score multiplier and O4 release train
+def _multiplier(s: dict, content: Content, honest: bool, ps: int | None = None) -> float:
+    """Process score (as it stood before this push) plus the honest-push streak."""
+    if not _orig(content, "score_multiplier"):
+        return 1.0
+    M = _O(content, "score_multiplier")
+    streak = s["x"]["honest_streak"] + 1 if honest else 0
+    ps = process_score(s, content) if ps is None else ps
+    return round(1 + ps * M["process_weight"] + min(M["honest_streak_cap"], streak * M["honest_streak_step"]), 3)
+
+
+def _release_room(s: dict, content: Content) -> None:
+    if _orig(content, "release_train") and len(s["x"]["release"]) >= _O(content, "release_train")["max_items"]:
+        _illegal("the release is full: ship it first")
+
+
+def _award(s: dict, ev: list, content: Content, pts: int, result: str, ticket: str, honest: bool, ps: int | None = None) -> tuple[int, dict]:
+    """Points for a push: O3 multiplies them, O4 holds them in the release until it ships."""
+    extra = {}
+    if s.get("x") and _orig(content, "score_multiplier"):
+        mult = _multiplier(s, content, honest, ps)
+        s["x"]["honest_streak"] = s["x"]["honest_streak"] + 1 if honest else 0
+        if pts > 0:
+            pts = round(pts * mult)
+        extra["mult"] = mult
+    if s.get("x") and _orig(content, "release_train"):
+        s["x"]["release"].append({"ticket": ticket, "result": result, "points": pts})
+        extra["held"] = True
+    else:
+        _meter(s, "points", pts, content)
+    return pts, extra
+
+
+def _release_mult(content: Content, n: int) -> float:
+    return round(1 + _O(content, "release_train")["bonus_per_extra_item"] * max(0, n - 1), 3)
+
+
+def _ship_release(s: dict, ev: list, content: Content, auto: bool = False) -> None:
+    rel = s["x"]["release"]
+    base = sum(i["points"] for i in rel)
+    ok = all(i["result"] in ("clean", "acceptable") for i in rel)
+    mult = _release_mult(content, len(rel)) if ok else 1.0
+    total = round(base * mult) if base > 0 else base
+    _meter(s, "points", total, content)
+    s["x"]["release"] = []
+    _emit(s, ev, "release_shipped", items=len(rel), base=base, mult=mult, points=total, failed=not ok, auto=auto)
+
+
+def _h_ship_release(s, ev, content, p):
+    if not _orig(content, "release_train"):
+        _illegal("the release train is off")
+    _need_stage(s, "BUILD")
+    if not s["x"]["release"]:
+        _illegal("nothing is waiting in the release")
+    _spend_min(s, ev, content, _O(content, "release_train")["ship_min"])
+    _ship_release(s, ev, content)
+
+
+# ---- O2 change-by-change review
+def _trust_penalty(s: dict, content: Content, dev: str) -> float:
+    if not (s.get("x") and _orig(content, "change_review")):
+        return 0.0
+    R = _O(content, "change_review")
+    return (R["trust_max"] - s["x"]["trust"].get(dev, R["trust_max"])) * R["trust_bug_chance_per_point"]
+
+
+def _make_review(s: dict, content: Content, c: dict) -> None:
+    R = _O(content, "change_review")
+    n = R["changes"]
+    if c["hidden_bug"]:
+        lo, hi = R["faulty_if_bugged"]
+        k = lo + int(draw(s, "review") * (hi - lo + 1)) % (hi - lo + 1)
+    else:
+        k = 1 if draw(s, "review") < R["clean_chance_extra"] else 0
+    idx = list(range(n))
+    faulty = set()
+    for _ in range(k):
+        faulty.add(idx.pop(int(draw(s, "review") * len(idx)) % len(idx)))
+    c["review"] = {"changes": [{"faulty": i in faulty, "shown": None, "fixed": False} for i in range(n)],
+                   "faulty_count": k, "inspected": 0}
+
+
+def _review_public(c: dict) -> dict:
+    r = c["review"]   # never sends which change is really faulty, only what the player has seen
+    return {"faulty_count": r["faulty_count"], "inspected": r["inspected"],
+            "changes": [{"shown": ch["shown"], "fixed": ch["fixed"]} for ch in r["changes"]]}
+
+
+def _review_card(s: dict, content: Content, p: dict) -> tuple[dict, dict]:
+    if not _orig(content, "change_review"):
+        _illegal("change-by-change review is off")
+    _need_stage(s, "BUILD")
+    c = _card(s, p["card_id"])
+    if c["state"] != "returned" or not c.get("review"):
+        _illegal("this card has no submission to review")
+    return c, c["review"]
+
+
+def _h_review_inspect(s, ev, content, p):
+    c, r = _review_card(s, content, p)
+    R, i, tool = _O(content, "change_review"), p["index"], p["tool"]
+    if not 0 <= i < len(r["changes"]):
+        _illegal("no such change")
+    ch = r["changes"][i]
+    if tool == "test":
+        _play(s, ev, content, "test")
+        shown = "faulty" if ch["faulty"] else "ok"
+        _spend_min(s, ev, content, R["inspect_min"])
+    elif tool == "ask":
+        dev = c.get("assignee", "dev1")
+        if s["x"]["trust"].get(dev, 0) <= 0:
+            _illegal("they will not answer more questions; trust is gone")
+        shown = "faulty" if ch["faulty"] else "ok"
+        s["x"]["trust"][dev] -= 1
+        _spend_min(s, ev, content, R["ask_min"])
+        _emit(s, ev, "trust_changed", dev=dev, trust=s["x"]["trust"][dev])
+    elif tool == "assistant":
+        if "ai_assistant" not in s["perks"]:
+            _illegal("you do not own the AI Assistant")
+        _play(s, ev, content, "assist")
+        truth = ch["faulty"]
+        if content.balance["assistant_flaky"] and draw(s, "assistant_error") < content.balance["perks"]["ai_assistant"]["error_rate"]:
+            truth = not truth   # the assistant is wrong about 1 time in 5
+        shown = "faulty" if truth else "ok"
+        _spend(s, ev, content, "assistant")
+    else:
+        _illegal("unknown tool")
+    ch["shown"] = shown
+    r["inspected"] += 1
+    _emit(s, ev, "change_inspected", card_id=c["id"], index=i, tool=tool, shown=shown)
+
+
+def _h_review_fix(s, ev, content, p):
+    c, r = _review_card(s, content, p)
+    i = p["index"]
+    if not 0 <= i < len(r["changes"]) or r["changes"][i]["shown"] != "faulty" or r["changes"][i]["fixed"]:
+        _illegal("only a change you found faulty can be fixed")
+    _play(s, ev, content, "work")
+    _spend_min(s, ev, content, _O(content, "change_review")["fix_min"])
+    r["changes"][i]["fixed"] = True
+    _emit(s, ev, "change_fixed", card_id=c["id"], index=i)
+
+
+def _review_ship(s: dict, ev: list, content: Content, c: dict, auto: bool = False) -> None:
+    b, t, r = content.balance, _ticket(content, c["ticket"]), c["review"]
+    left = any(ch["faulty"] and not ch["fixed"] for ch in r["changes"])
+    o = _bad_option(t) if left else next(x for x in t["options"] if x["effect"] == "correct")
+    result = "runtime_error" if o["effect"] == "crashes" else RESULT_OF[o["effect"]]
+    if result == "runtime_error":
+        result = "buggy"
+    reviewed = r["inspected"] > 0 and not auto
+    k = s["repeat_counts"].get(result, 0) if result in ("clean", "acceptable") else 0
+    factor = b["push"]["repeat_decay"] ** k
+    pts = round(b["push"]["points"][result] * (t["difficulty"] if result in ("clean", "acceptable") else 1) * factor)
+    if result in ("clean", "acceptable"):
+        s["repeat_counts"][result] = k + 1
+    ps_before = process_score(s, content)
+    if reviewed:
+        _log(s, "review_before_push")
+    honest = reviewed and not left
+    pts, extra = _award(s, ev, content, pts, result, t["id"], honest, ps_before)
+    s["shipped"].append({"ticket": t["id"], "result": result, "effect": o["effect"], "sprint": s["sprint"],
+                         "rating": b["push"]["rating"].get(result, 0), **({} if reviewed else {"unreviewed": True})})
+    c["state"], c["returns_s"] = "done", None
+    _emit(s, ev, "pushed", card_id=c["id"], ticket=t["id"], result=result, label=RESULT_LABEL[result], points=pts, cover=0,
+          review=True, unreviewed=not reviewed, **extra)
+    if s.get("x") and result == "clean":
+        _xlog(s, "clean_push")
+
+
+def _h_review_ship(s, ev, content, p):
+    c, r = _review_card(s, content, p)
+    _release_room(s, content)
+    _spend(s, ev, content, "push")
+    _review_ship(s, ev, content, c)
+    _draw_after_push(s, ev, content)
+
+
+def _h_review_send_back(s, ev, content, p):
+    c, r = _review_card(s, content, p)
+    c.pop("review")
+    c["state"] = "delegated"
+    c["hidden_bug"] = draw(s, "delegation_bug") < _bug_chance(s, content) / 2
+    c["returns_s"] = s["clock_s"] + content.balance["delegation"]["return_after_min"] * 30
+    _spend_min(s, ev, content, _O(content, "change_review")["send_back_min"])
+    _emit(s, ev, "card_sent_back", card_id=c["id"], returns_s=c["returns_s"])
+
+
+def _o_public(s: dict, content: Content) -> dict:
+    x, out = s["x"], {}
+    if _orig(content, "action_hand"):
+        A = _O(content, "action_hand")
+        out["hand"] = {"cards": x["hand"], "deck": len(x["deck"]), "discard": len(x["discard"]), "deck_list": x["deck_list"],
+                       "regroup_min": A["regroup_min"], "shop_cards": A["shop_cards"], "add_price": A["add_price"], "remove_price": A["remove_price"]}
+    if _orig(content, "score_multiplier"):
+        out["mult"] = {"next_honest": _multiplier(s, content, True), "next_other": _multiplier(s, content, False), "streak": x["honest_streak"]}
+    if _orig(content, "release_train"):
+        rel = x["release"]
+        out["release"] = {"items": rel, "base": sum(i["points"] for i in rel), "mult": _release_mult(content, len(rel)),
+                          "next_mult": _release_mult(content, len(rel) + 1), "max": _O(content, "release_train")["max_items"],
+                          "ship_min": _O(content, "release_train")["ship_min"]}
+    if _orig(content, "change_review"):
+        R = _O(content, "change_review")
+        out["review"] = {"trust": x["trust"], "trust_max": R["trust_max"], "inspect_min": R["inspect_min"], "ask_min": R["ask_min"],
+                         "fix_min": R["fix_min"]}
+    out["leaderboard"] = _orig(content, "leaderboard")
+    return out
+
+
 def _x_public(s: dict, content: Content) -> dict:
     X, x, b = _X(content), s["x"], content.balance
     costs = {k: round(_cost(s, content, k), 1) for k in b["costs_min"]}
@@ -1319,7 +1678,7 @@ def _x_public(s: dict, content: Content) -> dict:
                        "vague_multiplier": X["bosses"]["demo_day"]["vague_multiplier"] if _x_boss_now(s) == "demo_day" else 1},
             "bug_odds": round(_bug_chance(s, content), 3), "focus_switch_cost": X["focus"]["switch_cost"],
             "standup_timer_s": X["bosses"]["demo_day"]["standup_timer_s"] if _x_boss_now(s) == "demo_day" else None,
-            "seed": s["seed"]}
+            "seed": s["seed"], **_o_public(s, content)}
 
 
 HANDLERS = {"open_card": _h_open_card, "flag_line": _h_flag_line, "select_patch": _h_select_patch,
@@ -1328,8 +1687,12 @@ HANDLERS = {"open_card": _h_open_card, "flag_line": _h_flag_line, "select_patch"
             "reply_standup": _h_reply_standup, "answer_call": _h_answer_call, "watch_tutorial": _h_watch_tutorial,
             "buy_perk": _h_buy_perk, "use_assistant": _h_use_assistant, "advance_stage": _h_advance_stage,
             "tick": _h_tick, "configure": _h_configure, "buy_practice": _h_buy_practice, "reroll_shop": _h_reroll_shop,
-            "lock_offer": _h_lock_offer, "retro": _h_retro, "use_ultimate": _h_use_ultimate}
-EXPERIMENTAL_ONLY = ("configure", "buy_practice", "reroll_shop", "lock_offer", "retro", "use_ultimate")
+            "lock_offer": _h_lock_offer, "retro": _h_retro, "use_ultimate": _h_use_ultimate,
+            "regroup": _h_regroup, "add_card": _h_add_card, "remove_card": _h_remove_card,
+            "review_inspect": _h_review_inspect, "review_fix": _h_review_fix, "review_ship": _h_review_ship,
+            "review_send_back": _h_review_send_back, "ship_release": _h_ship_release}
+EXPERIMENTAL_ONLY = ("configure", "buy_practice", "reroll_shop", "lock_offer", "retro", "use_ultimate", "regroup", "add_card",
+                     "remove_card", "review_inspect", "review_fix", "review_ship", "review_send_back", "ship_release")
 
 
 def apply(state: dict, command: dict, content: Content) -> tuple[dict, list[dict]]:
@@ -1418,6 +1781,7 @@ def public_state(s: dict, content: Content) -> dict:
                       "title": content.tickets[c["ticket"]]["title"] if c["ticket"] else None,
                       "state": c["state"], "escalation": c["escalation"], "payoff": c["payoff"], "penalty": c["penalty"],
                       "deadline_min": None if c["deadline_s"] is None else round(c["deadline_s"] / 60, 1),
+                      **({"review": _review_public(c)} if c.get("review") else {}),
                       **(_x_card_public(s, c) if s.get("x") else {})}
                      for c in s["pile"]],
             **({"x": _x_public(s, content)} if s.get("x") else {})}

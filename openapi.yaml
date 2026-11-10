@@ -303,6 +303,35 @@ paths:
                 $ref: '#/components/schemas/HTTPValidationError'
           description: Validation Error
       summary: Transcript
+  /api/v1/leaderboard:
+    get:
+      description: 'O5 (original M15): public leaderboard of finished runs, optionally
+        for one challenge code.
+
+        Shows display names only. Spec-breaking: leaderboards are out of MVP scope.'
+      operationId: leaderboard_api_v1_leaderboard_get
+      parameters:
+      - in: query
+        name: seed
+        required: false
+        schema:
+          anyOf:
+          - type: integer
+          - type: 'null'
+          title: Seed
+      responses:
+        '200':
+          content:
+            application/json:
+              schema: {}
+          description: Successful Response
+        '422':
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HTTPValidationError'
+          description: Validation Error
+      summary: Leaderboard
   /api/v1/me:
     get:
       operationId: me_api_v1_me_get

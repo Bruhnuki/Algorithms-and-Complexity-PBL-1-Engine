@@ -19,10 +19,24 @@ def content():
     return mvp_content()
 
 
+def _with_originals(on: bool):
+    c = content_mod.get()
+    bal = copy.deepcopy(c.balance)
+    for o in bal["originals"].values():
+        o["enabled"] = on
+    return dataclasses.replace(c, balance=bal)
+
+
 @pytest.fixture(scope="session")
 def xcontent():
-    """Experimental branch content: every engagement mechanic on."""
-    return content_mod.get()
+    """Experimental mechanics on, spec-breaking originals off (the spec-fit versions)."""
+    return _with_originals(False)
+
+
+@pytest.fixture(scope="session")
+def ocontent():
+    """Original-mechanics branch: experimental mechanics and every spec-breaking original on."""
+    return _with_originals(True)
 
 
 def to_build(content, seed=1):

@@ -8,3 +8,6 @@ __pycache__/
 .venv/
 *.db-shm
 *.db-wal
+
+# AI-written content library
+content/generated/

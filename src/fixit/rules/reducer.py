@@ -14,10 +14,10 @@ from .content import Content, run_ticket
 
 COMMANDS = ("open_card", "flag_line", "select_patch", "run_script", "toggle_dod", "push", "hold", "triage_reorder",
             "delegate", "coach", "defer", "reply_standup", "answer_call", "watch_tutorial", "buy_perk",
-            "use_assistant", "advance_stage", "tick", "guide_answer", "guide_next", "help_answer",
+            "use_assistant", "advance_stage", "tick", "guide_answer", "guide_next", "help_answer", "mediate",
             # experimental branch only (rejected when balance.experimental.enabled is false)
-            "configure", "buy_practice", "reroll_shop", "lock_offer", "retro", "use_ultimate")
-SERVER_ONLY = ("configure",)   # issued by the API at run creation; never accepted from a browser
+            "configure", "ai_set", "chat_effect", "debug_skip", "buy_practice", "reroll_shop", "lock_offer", "retro", "use_ultimate")
+SERVER_ONLY = ("configure", "ai_set", "chat_effect")   # issued by the API at run creation; never accepted from a browser
 RESULT_OF = {"correct": "clean", "correct_small_flaw": "acceptable", "wrong_hidden": "buggy", "security_hole": "security_hole"}
 RESULT_LABEL = {"clean": "Clean", "acceptable": "Acceptable", "runtime_error": "Runtime error",
                 "buggy": "Functional but buggy", "security_hole": "Security hole"}
@@ -311,6 +311,10 @@ def _check_end(s: dict, ev: list, content: Content) -> None:
         return
     lim = content.balance["limits"]
     ending = None
+    if s.get("guide") is not None and _g_collapsed(s):   # the team has lost hope: this ends the run in any Sprint
+        s["status"], s["ending"] = "ended", "lose_morale"
+        _emit(s, ev, "run_ended", ending="lose_morale")
+        return
     learning = s.get("guide") is not None   # learning mode: Suspicion and strikes are hidden, so only the app rating can end a run
     if s["meters"]["cover"] >= lim["cover_lose_at"] and not learning:
         ending = "lose_cover"
@@ -396,12 +400,17 @@ def _resolve_review(s: dict, ev: list, content: Content) -> None:
             g["owed"] += g["hidden_items"]
             _g_stat(s, "hidden_surfaced", g["hidden_items"])
             _emit(s, ev, "hidden_problem", points=g["hidden"], delta=0, items=g["hidden_items"], harder=True)
+            _g_blunder(s, ev, "hidden_problem")
         else:
             d = -g["hidden"] * _C(content)["rating_per_point"]   # the last Sprint has no next one: it costs rating instead
             rating += d
             _g_stat(s, "hidden_surfaced", max(1, g["hidden_items"]))
             _emit(s, ev, "hidden_problem", points=g["hidden"], delta=round(d, 4), items=0, harder=False)
+            _g_blunder(s, ev, "hidden_problem")
         g["hidden"], g["hidden_items"] = 0, 0
+    if s.get("x") and s["x"].get("conflict") and g is not None:
+        rating -= 0.2   # users feel a team that is at war with itself
+        _emit(s, ev, "conflict_cost", a=s["x"]["conflict"]["a"], b=s["x"]["conflict"]["b"], rating=-0.2)
     _meter(s, "rating", rating, content)
     _emit(s, ev, "rating_resolved", delta=round(rating, 4), rating=s["meters"]["rating"])
     for sh in s["shipped"]:
@@ -862,6 +871,7 @@ def _h_advance_stage(s, ev, content, p):
     if to == "STANDUP":
         _begin_standup(s, ev, content)
         if guide is not None:
+            _g_silence(s, ev)
             _g_queue(s, ev, content, f"daily_{s['day']}")
     elif to == "BUILD" and guide is not None:
         batch = 1 if s["day"] < 2 else 2
@@ -1274,6 +1284,8 @@ def _x_tick_world(s: dict, ev: list, content: Content) -> None:
 def _x_after_push(s: dict, ev: list, content: Content, c: dict, w: dict, result: str) -> None:
     X = _X(content)
     honest = all(w["dod"].values()) and bool(w["last_run"] and w["last_run"]["all_pass"])
+    if s.get("guide") is not None and not w.get("challenge"):
+        _g_solo(s, ev)
     if result == "clean":
         _xlog(s, "clean_push")
         if c.get("bounty"):
@@ -1358,7 +1370,7 @@ def _x_goal(s: dict, content: Content) -> dict:
     G = _X(content)["sprint_goal"]
     target = G["ship_min"][min(s["sprint"] - 1, len(G["ship_min"]) - 1)]
     if s.get("guide") is not None:
-        target = (_gsprint(content, s["sprint"]) or {}).get("goal_ship_min", target)
+        target = (_gsprint(s, content, s["sprint"]) or {}).get("goal_ship_min", target)
     done = sum(1 for sh in s["shipped"] if sh["sprint"] == s["sprint"] and sh["result"] in ("clean", "acceptable")
                and not sh.get("unreviewed"))
     return {"target": target, "shipped": done, "met": done >= target}
@@ -1419,6 +1431,25 @@ def _x_begin_sprint(s: dict, ev: list, content: Content) -> None:
         _x_open_shop(s, ev, content, free=not had_practices)   # the first shop gives one practice free
 
 
+def _h_debug_skip(s, ev, content, p):
+    """Debug only (the API refuses it unless FIXIT_DEBUG=1): jump forward to the Planning of a later Sprint. Stored as a command, so replay matches."""
+    g, to = s.get("guide"), int(p.get("to", 0))
+    if g is None or s["x"].get("tutorial"):
+        _illegal("skipping works in the real run, not the tutorial")
+    if not s["sprint"] < to <= _X(content)["sprints_total"]:
+        _illegal(f"can only skip forward, to Sprint {s['sprint'] + 1} to {_X(content)['sprints_total']}")
+    s["open_card"] = None
+    while s["sprint"] < to:
+        g["pending"], g["queue"] = None, []
+        _g_end_retro(s, ev, content)
+
+
+def _h_ai_set(s, ev, content, p):
+    """Server-only: AI-written items made for THIS run while it is being played. Stored as a command, so a replay deals the same Sprints.
+    Only later deals read the list; a Sprint already dealt is never changed."""
+    s["x"]["lib"] = list(dict.fromkeys(list(s["x"].get("lib") or []) + [i for i in p.get("ids", []) if isinstance(i, str)]))[:2000]
+
+
 def _h_configure(s, ev, content, p):
     """Server-only: meta unlocks and the chosen Heat modifiers, before anything happens in the run."""
     if not _exp(content):
@@ -1433,7 +1464,9 @@ def _h_configure(s, ev, content, p):
     for h in heat:
         if h not in X["heat"]["modifiers"]:
             _illegal(f"unknown heat modifier {h}")
-    s["x"].update(configured=True, unlocks=unlocks, heat=heat)
+    proj = p.get("project") if isinstance(p.get("project"), dict) else {}
+    s["x"].update(configured=True, unlocks=unlocks, heat=heat, lib=[i for i in p.get("lib", []) if isinstance(i, str)][:2000],
+                  project_n=int(proj.get("n", 1)) if str(proj.get("n", 1)).isdigit() else 1, pack=proj.get("pack") if isinstance(proj.get("pack"), str) else None)
     if p.get("tutorial") and s.get("guide") is not None:
         # the tutorial's practice sprint: the same screens and rules, but no Scrum scenes (those belong to the real Sprint 1)
         s["x"]["tutorial"] = True
@@ -1442,6 +1475,15 @@ def _h_configure(s, ev, content, p):
         s["pile"], s["next_card"], s["x"]["used_tickets"] = [], 1, []   # replace the real Sprint 1 items with the practice ones
         _g_deal_sprint(s, ev, content)
         _x_fire_schedule(s, ev, content)
+    elif p.get("redeal") and s.get("guide") is not None and s["clock_s"] == 0 and (s["x"].get("pack") or s["x"].get("lib")):   # only runs created with this flag: stored older runs replay as they always did
+        # Sprint 1 was dealt and its first scenes queued before this run knew its project and its AI-written items: deal and queue them again from what it will play
+        g = s["guide"]
+        g["help_last"], g["help_used"] = None, []
+        s["pile"], s["next_card"], s["x"]["used_tickets"] = [], 1, []
+        _g_deal_sprint(s, ev, content)
+        _x_fire_schedule(s, ev, content)
+        g["queue"] = [b["id"] for b in _g_beats(s, content, s["sprint"], "planning")]
+        g["pending"] = g["queue"].pop(0) if g["queue"] else None
     if s["x"]["shop"]:   # the free pick can now include practices unlocked in earlier runs
         s["x"]["shop"]["offers"] = _x_offers(s, content, [])
     _emit(s, ev, "run_configured", unlocks=unlocks, heat=heat)
@@ -1562,8 +1604,13 @@ def _safe_sprint(s: dict) -> bool:
     return g is not None and s["sprint"] <= g["safe_sprints"]
 
 
-def _gsprint(content: Content, k: int) -> dict | None:
-    sp = content.guide.get("sprints", {})
+def _guide(s: dict, content: Content) -> dict:
+    """The Scrum guide this run plays: the authored Project 1, or the merged guide of the AI-written project it was configured with."""
+    return content.packs.get((s.get("x") or {}).get("pack") or "", content.guide)
+
+
+def _gsprint(s: dict, content: Content, k: int) -> dict | None:
+    sp = _guide(s, content).get("sprints", {})
     if not sp:
         return None
     return sp.get(str(k)) or sp[max(sp, key=int)]
@@ -1591,6 +1638,318 @@ def _g_init(s: dict, content: Content) -> None:
     s["x"]["grade_penalty"] = 0   # Grade points lost to mistakes (Grade = what you earned minus this)
     s["x"]["team_trust"] = {"dev1": C["trust_start"], "dev2": C["trust_start"]}   # trust % = the chance their work succeeds
     s["x"]["last_offload"] = {}
+    s["x"]["tolerance"] = {"po": 0, "dev1": 0, "dev2": 0}   # 0-10, moved only by the chat (see _h_chat_effect)
+    s["x"]["mood"] = {d: {"morale": MORALE_START, "sanity": SANITY_START} for d in ("po", "dev1", "dev2")}   # 0-100 each, moved by how the player talks to them
+    s["x"]["chat_since"], s["x"]["standups_seen"] = 0, 0
+    s["x"]["rel"] = {"|".join(pr): 10 for pr in PAIRS}   # tension between each pair of teammates, 0-100
+    s["x"]["conflict"], s["x"]["conflicts"] = None, {"started": 0, "resolved": 0, "ignored": 0, "sided": 0}
+    s["x"]["idle"], s["x"]["load"] = {"dev1": 0, "dev2": 0}, {"dev1": 0, "dev2": 0}   # items you finished alone since they last got work / tasks given since the last Daily Scrum
+
+
+TOL_MAX, TOL_STEP, TOL_SUCCESS = 10, 3, 0.03   # tolerance range, biggest change per message, success-rate bonus per level (up to +30 points)
+MORALE_START, SANITY_START, MOOD_FLOOR = 65, 100, 15   # the team is lost when its average morale or sanity falls under the floor, or one teammate reaches 0
+MOOD_WARN = (35, 20)                                    # a teammate speaks up the first time morale or sanity drops under each of these
+SILENCE_MORALE = 5                                      # lost by each teammate at a Daily Scrum when the player has not said a word in chat since the last one
+
+
+def _team_mood(s: dict, key: str) -> float:
+    m = s["x"]["mood"]
+    return sum(v[key] for v in m.values()) / len(m)
+
+
+def _g_collapsed(s: dict) -> bool:
+    m = (s.get("x") or {}).get("mood")
+    return bool(m) and (any(v["morale"] <= 0 or v["sanity"] <= 0 for v in m.values()) or _team_mood(s, "morale") < MOOD_FLOOR or _team_mood(s, "sanity") < MOOD_FLOOR)
+
+
+# Each teammate reacts in their own way. load / idle = morale lost per task given / per extra item you do alone once they feel unused (idle_at = how many items
+# before that starts), pride = morale gained when their work succeeds, praise / harsh = how strongly kind words and criticism land.
+PERSONA = {"dev1": {"load": 3, "idle": 3, "idle_at": 3, "pride": 1, "praise": 0.8, "harsh": 0.8},     # Ines: dry, resilient, hard to flatter, hates being a bystander less
+           "dev2": {"load": 4, "idle": 4, "idle_at": 2, "pride": 3, "praise": 1.4, "harsh": 1.4},     # Tobi: anxious, needs to be needed, takes everything to heart
+           "po": {"load": 0, "idle": 0, "idle_at": 99, "pride": 0, "praise": 1.0, "harsh": 1.0}}      # Marlo: reads the room, feels the board's pressure
+
+
+def _g_mood(s: dict, ev: list, dev: str, d_morale: int, d_sanity: int, why: str, raw: bool = False) -> None:
+    """Change a teammate's morale and sanity. Unless `raw`, their personality scales it: praise lands harder on some, criticism on others."""
+    if not raw:
+        p = PERSONA[dev]
+        d_morale = round(d_morale * (p["praise"] if d_morale > 0 else p["harsh"]))
+        d_sanity = round(d_sanity * (p["praise"] if d_sanity > 0 else p["harsh"]))
+    v = s["x"]["mood"][dev]
+    before = dict(v)
+    v["morale"] = max(0, min(100, v["morale"] + d_morale))
+    v["sanity"] = max(0, min(100, v["sanity"] + d_sanity))
+    if v != before:
+        _emit(s, ev, "mood_changed", dev=dev, morale=v["morale"], sanity=v["sanity"], d_morale=v["morale"] - before["morale"], d_sanity=v["sanity"] - before["sanity"], why=why)
+    for key in ("morale", "sanity"):
+        for lim in MOOD_WARN:
+            if before[key] >= lim > v[key]:
+                _emit(s, ev, "mood_low", dev=dev, what=key, level=lim)
+    if v["morale"] < before["morale"] and v["morale"] < 40 and "rel" in s["x"] and why not in ("conflict", "walkout"):
+        for pr in PAIRS:
+            if dev in pr:
+                _g_rel(s, pr, 3)   # a hurt, low teammate gets short with whoever is around
+
+
+BLUNDER = {"mistake": (3, 1), "put_down": (6, 2), "skipped_checks": (3, 1), "hidden_problem": (5, 2)}   # (morale, sanity) every teammate loses; repeated blunders hurt more
+
+
+def _g_blunder(s: dict, ev: list, why: str) -> None:
+    """Mistakes you push, skipped checks, put-down items and problems that surface at the Review shake the team's confidence: the more of them, the harder it hits."""
+    x = s["x"]
+    if x.get("tutorial") or x.get("mood") is None:
+        return
+    x["blunders"] = x.get("blunders", 0) + 1
+    morale, sanity = BLUNDER[why]
+    morale += min(4, x["blunders"] // 3)
+    sanity += 1 if x["blunders"] >= 6 else 0
+    for d in x["mood"]:
+        _g_mood(s, ev, d, -morale, -sanity, why)
+    _g_maybe_conflict(s, ev)
+
+
+def _h_chat_effect(s, ev, content, p):
+    """Server-only: what a chat message did to a teammate. The model only proposes; every number is clamped here and stored as a command, so replays match.
+    delta = tolerance, morale / sanity = how it landed, msg = 1 when it counts as the player talking to the team."""
+    tol = s["x"].get("tolerance")
+    dev = p.get("dev")
+    if s.get("guide") is None or tol is None or dev not in tol:
+        _illegal("no such teammate")
+    delta = max(-TOL_STEP, min(TOL_STEP, int(p.get("delta", 0))))
+    after = max(0, min(TOL_MAX, tol[dev] + delta))
+    if after != tol[dev]:
+        _emit(s, ev, "tolerance_changed", dev=dev, tolerance=after, delta=after - tol[dev])
+        tol[dev] = after
+    if p.get("msg"):
+        s["x"]["chat_since"] += 1
+    _g_mood(s, ev, dev, max(-15, min(8, int(p.get("morale", 0)))), max(-12, min(4, int(p.get("sanity", 0)))), "chat")
+    if int(p.get("morale", 0)) < 0:
+        for pr in PAIRS:
+            if dev in pr:
+                _g_rel(s, pr, 4)   # being berated makes people short with each other
+    cf = s["x"].get("conflict")
+    peace = max(-8, min(8, int(p.get("peace", 0))))
+    if cf and dev in (cf["a"], cf["b"]) and peace:
+        pr = next(q for q in PAIRS if set(q) == {cf["a"], cf["b"]})
+        _g_rel(s, pr, -peace)
+        if s["x"]["rel"]["|".join(pr)] < 12:
+            _g_conflict_end(s, ev, "chat")   # kind, constructive words from you took the heat out of it
+    _g_maybe_conflict(s, ev)
+
+
+# ---------------------------------------------------------------- internal conflicts
+PAIRS = (("dev1", "dev2"), ("po", "dev1"), ("po", "dev2"))
+TOPICS = {   # what each pair fights about, from their own personalities: (id, label, what it is about)
+    ("dev1", "dev2"): [("handoffs", "Who carries the work", "Ines thinks Tobi keeps leaning on her instead of finishing his own tickets."),
+                       ("bluntness", "Harsh words", "Tobi is hurt by how blunt Ines is, and Ines thinks he takes everything personally.")],
+    ("po", "dev1"): [("scope", "Scope versus quality", "Marlo keeps adding scope to please the board, and Ines will not cut corners to fit it in."),
+                     ("dates", "Promised dates", "Marlo promised the board a date that Ines never agreed to.")],
+    ("po", "dev2"): [("pressure", "Pressure and panic", "Marlo's pressure makes Tobi panic, and Tobi's panic makes Marlo push harder."),
+                     ("reassurance", "Reassurance versus results", "Tobi keeps asking Marlo for reassurance, and Marlo wants results, not questions.")]}
+CONFLICT_AT = 28    # the most tense pair may start a fight from this tension up; at 60 it always does
+ESCALATE = 4        # from this round on, the fighting blocks the pair from taking work
+
+
+def _g_rel(s: dict, pr: tuple, d: int) -> None:
+    k = "|".join(pr)
+    s["x"]["rel"][k] = max(0, min(100, s["x"]["rel"][k] + d))
+
+
+def _g_tension_word(v: int) -> str:
+    return "Calm" if v < 25 else "Tense" if v < 50 else "Heated" if v < 75 else "Explosive"
+
+
+def _g_conflict_start(s: dict, ev: list, pr: tuple) -> None:
+    m = s["x"]["mood"]
+    a, b = sorted(pr, key=lambda d: m[d]["morale"])   # the one in the worse mood starts it
+    topic = TOPICS[pr][int(draw(s, "conflict_topic") * len(TOPICS[pr]))][0]
+    s["x"]["conflict"] = {"a": a, "b": b, "topic": topic, "round": 0}
+    s["x"]["conflicts"]["started"] += 1
+    _emit(s, ev, "conflict_started", a=a, b=b, topic=topic)
+
+
+def _g_maybe_conflict(s: dict, ev: list) -> None:
+    """Low morale breeds tension, and tension turns into a fight between two teammates all by itself, without you saying a word."""
+    x = s["x"]
+    if x.get("conflict") is not None or x.get("tutorial") or "rel" not in x:
+        return
+    pr = max(PAIRS, key=lambda q: x["rel"]["|".join(q)])
+    tension = x["rel"]["|".join(pr)]
+    if tension >= CONFLICT_AT and (tension >= 60 or draw(s, "conflict") < (tension - 20) / 40):
+        _g_conflict_start(s, ev, pr)
+
+
+def _g_tension(s: dict, ev: list) -> None:
+    """At each Daily Scrum: tension builds where both are low, and melts where both are in good spirits."""
+    m = s["x"]["mood"]
+    for pr in PAIRS:
+        avg = (m[pr[0]]["morale"] + m[pr[1]]["morale"]) / 2
+        frayed = min(m[pr[0]]["sanity"], m[pr[1]]["sanity"]) < 50
+        if avg < 55 or frayed:
+            _g_rel(s, pr, round((55 - min(avg, 55)) / 4) + (3 if frayed else 0) + 1)
+        elif avg >= 70:
+            _g_rel(s, pr, -3)
+    _g_maybe_conflict(s, ev)
+
+
+def _g_conflict_tick(s: dict, ev: list, why: str) -> None:
+    """While you work, an unsettled fight goes on: another round, more tension, and everyone involved loses a little morale."""
+    c = s["x"].get("conflict")
+    if c is None or s["x"].get("tutorial"):
+        return
+    if c["round"] >= 6:
+        return
+    c["round"] += 1
+    pr = next(q for q in PAIRS if set(q) == {c["a"], c["b"]})
+    _g_rel(s, pr, 4)
+    for d in pr:
+        _g_mood(s, ev, d, -2, 0, "conflict", raw=True)
+    _emit(s, ev, "conflict_round", a=c["a"], b=c["b"], topic=c["topic"], round=c["round"], speaker=c["a"] if c["round"] % 2 == 0 else c["b"], why=why)
+    if c["round"] == ESCALATE:
+        _emit(s, ev, "conflict_break", dev=min(pr, key=lambda d: s["x"]["mood"][d]["morale"]), a=c["a"], b=c["b"])
+
+
+def _g_conflict_end(s: dict, ev: list, how: str) -> None:
+    c = s["x"]["conflict"]
+    s["x"]["conflict"] = None
+    s["x"]["conflicts"]["sided" if how == "sided" else "resolved"] += 1
+    _emit(s, ev, "conflict_resolved", a=c["a"], b=c["b"], topic=c["topic"], how=how)
+
+
+MEDIATE = {   # the Scrum Master's options: (label, what it does, minimum morale both need for it to work)
+    "listen": ("Hear both sides", "Ask each of them to explain, without interrupting. Works when neither is too upset.", 15),
+    "goal": ("Back to the Sprint Goal", "Remind them what they share and agree one working rule. Needs a little goodwill.", 10),
+    "side_a": ("Back one of them", "Say who is right. Settles it fast, but the other feels betrayed.", 0),
+    "dismiss": ("Tell them to stop", "Order them to quit arguing. It rarely works.", 0)}
+
+
+def _g_conflict_public(s: dict) -> dict | None:
+    c = s["x"].get("conflict")
+    if c is None:
+        return None
+    pr = next(q for q in PAIRS if set(q) == {c["a"], c["b"]})
+    topic = next(t for t in TOPICS[pr] if t[0] == c["topic"])
+    m = s["x"]["mood"]
+    low = min(m[c["a"]]["morale"], m[c["b"]]["morale"])
+    return {"a": c["a"], "b": c["b"], "topic": c["topic"], "label": topic[1], "about": topic[2], "round": c["round"], "tension": s["x"]["rel"]["|".join(pr)], "blocking": c["round"] >= ESCALATE,
+            "choices": [{"id": k, "label": v[0], "hint": v[1], "ready": low >= v[2]} for k, v in MEDIATE.items()]}
+
+
+def _h_mediate(s, ev, content, p):
+    """The player settles a fight. What works depends on how the two of them feel right now."""
+    x, c = s.get("x"), (s.get("x") or {}).get("conflict")
+    if s.get("guide") is None or c is None:
+        _illegal("nobody is fighting")
+    choice = p.get("choice")
+    if choice not in MEDIATE:
+        _illegal("unknown way to settle it")
+    pr = next(q for q in PAIRS if set(q) == {c["a"], c["b"]})
+    low = min(x["mood"][d]["morale"] for d in pr)
+    if choice in ("listen", "goal"):
+        if low < MEDIATE[choice][2]:
+            _g_rel(s, pr, -5)
+            _emit(s, ev, "conflict_unmoved", a=c["a"], b=c["b"], choice=choice)   # too upset to listen: lift their morale first
+            return
+        _g_rel(s, pr, -22 if choice == "goal" else -20)
+        for d in pr:
+            _g_mood(s, ev, d, 3 if choice == "listen" else 2, 1, "mediated", raw=True)
+        return _g_conflict_end(s, ev, choice)
+    if choice == "side_a":
+        fav = p.get("side") if p.get("side") in pr else c["a"]
+        other = c["b"] if fav == c["a"] else c["a"]
+        _g_mood(s, ev, fav, 4, 0, "sided", raw=True)
+        _g_mood(s, ev, other, -8, -2, "sided", raw=True)
+        pair_key = "|".join(pr)
+        x["rel"][pair_key] = max(25, x["rel"][pair_key] - 10)   # settled on the surface, resented underneath
+        return _g_conflict_end(s, ev, "sided")
+    for d in pr:   # dismiss
+        _g_mood(s, ev, d, -4, 0, "dismissed", raw=True)
+    _g_rel(s, pr, 10)
+    x["conflicts"]["ignored"] += 1
+    _emit(s, ev, "conflict_dismissed", a=c["a"], b=c["b"])
+    _g_conflict_tick(s, ev, "dismissed")
+
+
+def _g_assigned(s: dict, ev: list, dev: str, ok: bool) -> None:
+    """Handing someone a task drains them (their own way); finishing it gives some pride back. Being given work also ends feeling unused."""
+    x = s["x"]
+    if x.get("mood") is None or x.get("tutorial") or dev not in PERSONA:
+        return
+    p = PERSONA[dev]
+    _g_conflict_tick(s, ev, "assigned")
+    x["idle"][dev] = 0
+    x["load"][dev] += 1
+    _g_mood(s, ev, dev, -p["load"] - (1 if x["load"][dev] >= 3 else 0), 0, "assigned", raw=True)
+    if ok:
+        _g_mood(s, ev, dev, p["pride"], 0, "finished", raw=True)
+
+
+def _g_solo(s: dict, ev: list) -> None:
+    """You finished an item yourself. A teammate who keeps getting no work starts to feel unproductive and says so."""
+    x = s["x"]
+    if x.get("mood") is None or x.get("tutorial"):
+        return
+    _g_conflict_tick(s, ev, "solo")
+    for dev in ("dev1", "dev2"):
+        p = PERSONA[dev]
+        x["idle"][dev] += 1
+        n = x["idle"][dev]
+        if n >= p["idle_at"] and (n - p["idle_at"]) % 2 == 0:
+            _g_mood(s, ev, dev, -p["idle"], -1, "idle", raw=True)
+            _emit(s, ev, "feels_idle", dev=dev, n=n)
+
+
+def _g_feeling(s: dict, dev: str) -> tuple[str, str]:
+    """How a teammate feels right now, in words: the thing that is bothering them most (or how well they are doing)."""
+    x, v = s["x"], s["x"]["mood"][dev]
+    if v["morale"] <= 20:
+        return "Ready to quit", "They have almost given up."
+    cf = x.get("conflict")
+    if cf and dev in (cf["a"], cf["b"]):
+        return "In a fight", f"Arguing with {NAMES_PLAIN[cf['b'] if dev == cf['a'] else cf['a']]}. Settle it."
+    if dev != "po" and x["idle"][dev] >= PERSONA[dev]["idle_at"]:
+        return "Feels unused", "You keep doing everything yourself, so they feel they are not contributing."
+    if dev != "po" and x["load"][dev] >= 3:
+        return "Overloaded", "Too much has landed on them today."
+    if v["sanity"] < 40:
+        return "Frayed", "They are on edge. Be kind."
+    if v["morale"] < 40:
+        return "Discouraged", "They need encouragement."
+    if v["morale"] >= 75:
+        return "Motivated", "They are fired up."
+    return "Steady", "Doing fine."
+
+
+def _g_peers(s: dict, ev: list) -> None:
+    """At each Daily Scrum the team affects itself: someone in good spirits lifts a struggling colleague, a deeply low one drags the others down, and Marlo feels it all."""
+    m = s["x"]["mood"]
+    lifted = False
+    for a, b in (("dev1", "dev2"), ("dev2", "dev1")):
+        if m[a]["morale"] >= 70 and m[b]["morale"] < 45 and not lifted:
+            _g_mood(s, ev, b, 3, 1, "peer_support", raw=True)
+            _emit(s, ev, "peer_support", dev=a, to=b)
+            lifted = True
+        elif m[a]["morale"] < 25 and m[b]["morale"] >= 25:
+            _g_mood(s, ev, b, -2, 0, "peer_drag", raw=True)
+            _emit(s, ev, "peer_drag", dev=a, to=b)
+    if _team_mood(s, "morale") < 40:
+        _g_mood(s, ev, "po", -2, 0, "board_pressure", raw=True)
+
+
+def _g_silence(s: dict, ev: list) -> None:
+    """A Scrum Master who never talks to the team: at each Daily Scrum after the first, everyone feels unheard."""
+    x = s["x"]
+    if x.get("tutorial") or x.get("mood") is None:
+        return
+    if x["standups_seen"] >= 1 and x["chat_since"] == 0:
+        for d in x["mood"]:
+            _g_mood(s, ev, d, -SILENCE_MORALE, 0, "unheard", raw=True)
+    x["standups_seen"] += 1
+    x["chat_since"] = 0
+    x["load"] = {"dev1": 0, "dev2": 0}   # a new day: the workload resets
+    _g_peers(s, ev)
+    _g_tension(s, ev)
+    _g_conflict_tick(s, ev, "standup")
 
 
 def _g_adjust(s: dict, dev: str) -> float:
@@ -1611,6 +1970,8 @@ def _g_trust(s: dict, ev: list, content: Content, dev: str, delta: int, why: str
 
 def _g_coached(s: dict, ev: list, content: Content, dev: str) -> None:
     _g_trust(s, ev, content, dev, _C(content)["coach_trust"], "coached")
+    if (s.get("x") or {}).get("mood", {}).get(dev) is not None and not s["x"].get("tutorial"):
+        _g_mood(s, ev, dev, 4, 2, "coached", raw=True)   # being helped lifts them
 
 
 def _g_debt(s: dict, ev: list, content: Content, direction: int) -> None:
@@ -1620,6 +1981,11 @@ def _g_debt(s: dict, ev: list, content: Content, direction: int) -> None:
     C = _C(content)
     for dev in ("dev1", "dev2"):
         _g_trust(s, ev, content, dev, -C["dod_skip_trust"] if direction > 0 else C["honest_push_trust"], "skipped_checks" if direction > 0 else "honest_checks")
+    if direction > 0:
+        _g_blunder(s, ev, "skipped_checks")
+    elif s["x"].get("mood") is not None and not s["x"].get("tutorial"):
+        for d in s["x"]["mood"]:
+            _g_mood(s, ev, d, 1, 0, "honest_checks", raw=True)   # honest work steadies the team
 
 
 def _g_penalize(s: dict, ev: list, content: Content, key: str) -> None:
@@ -1631,6 +1997,7 @@ def _g_penalize(s: dict, ev: list, content: Content, key: str) -> None:
     for d in ("dev1", "dev2"):
         _g_trust(s, ev, content, d, -P["trust"], key, quiet=True)
     _emit(s, ev, "penalty", why=key, grade=P["grade"], trust=P["trust"])
+    _g_blunder(s, ev, "mistake")
 
 
 def _g_mistake(s: dict, ev: list, content: Content, key: str, c: dict | None = None, w: dict | None = None) -> None:
@@ -1658,6 +2025,7 @@ def _g_put_down(s: dict, ev: list, content: Content, c: dict) -> None:
     _meter(s, "rating", new - r, content)
     _g_stat(s, "put_down")
     _emit(s, ev, "item_put_down", card_id=c["id"], title=title, grade=P["grade"], trust=P["trust"], rating=round(r - new, 2))
+    _g_blunder(s, ev, "put_down")
 
 
 def _g_unresolved(s: dict, upto_batch: int = 99) -> int:
@@ -1685,8 +2053,11 @@ def _g_next_gap(s: dict, content: Content) -> float:
 def _g_pick_help(s: dict, content: Content) -> str | None:
     """A Help request is a scenario or a coding challenge, never the same kind twice in a row."""
     g = s["guide"]
-    kinds = {"scenario": [h for h in sorted(content.help) if content.help[h]["type"] == "scenario"],
-             "challenge": [h for h in sorted(content.help) if content.help[h]["type"] == "challenge"]}
+    lib = set(s["x"].get("lib") or [])   # AI-written items this run was dealt at its start (frozen, so replays match)
+    ok = lambda h: not content.help[h].get("generated") or (h in lib and content.help[h].get("level", 1) <= s["sprint"]   # noqa: E731
+                                                            and content.help[h].get("ticket") not in s["x"]["used_tickets"])
+    kinds = {"scenario": [h for h in sorted(content.help) if content.help[h]["type"] == "scenario" and ok(h)],
+             "challenge": [h for h in sorted(content.help) if content.help[h]["type"] == "challenge" and ok(h)]}
     options = [k for k in ("scenario", "challenge") if kinds[k] and k != g["help_last"]] or [k for k in kinds if kinds[k]]
     if not options:
         return None
@@ -1742,7 +2113,12 @@ def _h_help_answer(s, ev, content, p):
 def _g_success(s: dict, content: Content, dev: str) -> float:
     if s["x"].get("tutorial"):
         return 1.0   # the practice Sprint always works, so the End the day flow carries on with what you did
-    fail = 1 - s["x"]["team_trust"][dev] / 100
+    mood = s["x"].get("mood", {}).get(dev, {"morale": 60, "sanity": 100})
+    lift = TOL_SUCCESS * s["x"].get("tolerance", {}).get(dev, 0) + (mood["morale"] - 60) * 0.003 - max(0, 60 - mood["sanity"]) * 0.004   # tolerance and morale help, a frayed mind hurts
+    cf = s["x"].get("conflict")
+    if cf and dev in (cf["a"], cf["b"]):
+        lift -= 0.08 + 0.02 * min(5, cf["round"])   # a teammate in the middle of a fight does worse work
+    fail = 1 - max(0.05, min(1.0, s["x"]["team_trust"][dev] / 100 + lift))
     if _has(s, "pair_programming"):
         fail *= _fx(s, content, "pair_programming", "bug_chance_mult")
     if "team_training" in s["perks"]:
@@ -1766,6 +2142,11 @@ def _g_offload(s: dict, ev: list, content: Content, c: dict, p: dict) -> None:
         _illegal(f"{NAMES_PLAIN[dev]} wrote this one and can't take it")
     if dev in c.get("failed_devs", []):
         _illegal(f"{NAMES_PLAIN[dev]} already failed this item")
+    if s["x"].get("mood", {}).get(dev, {}).get("morale", 100) <= 20:
+        _illegal(f"{NAMES_PLAIN[dev]} is too discouraged to take on more work. Talk to them in Slackish first")
+    cf = s["x"].get("conflict")
+    if cf and cf["round"] >= ESCALATE and dev in (cf["a"], cf["b"]):
+        _illegal(f"{NAMES_PLAIN[dev]} is in the middle of a fight and will not take work. Settle it in Slackish first")
     b, C = content.balance, _C(content)
     t = _ticket(content, c["ticket"])
     if s["open_card"] == c["id"]:
@@ -1790,6 +2171,9 @@ def _g_offload(s: dict, ev: list, content: Content, c: dict, p: dict) -> None:
     _spend(s, ev, content, "delegate")
     _emit(s, ev, "offload_result", card_id=c["id"], dev=dev, ok=ok, title=t["title"], points=pts)
     _g_trust(s, ev, content, dev, -C["offload_cost"], "offloaded")
+    _g_assigned(s, ev, dev, ok)
+    if not ok and s["x"].get("mood") is not None and not s["x"].get("tutorial"):
+        _g_mood(s, ev, dev, -3, -1, "offload_failed")   # they hate letting you down
 
 
 def _g_deal_sprint(s: dict, ev: list, content: Content) -> None:
@@ -1799,12 +2183,20 @@ def _g_deal_sprint(s: dict, ev: list, content: Content) -> None:
     tutorial = bool(s["x"].get("tutorial"))
     t0 = s["clock_s"]
     s["x"]["sprint_start_s"] = t0
-    cfg = (content.guide.get("tutorial_sprint") if tutorial else _gsprint(content, k)) or {}
+    cfg = (content.guide.get("tutorial_sprint") if tutorial else _gsprint(s, content, k)) or {}
     picks = [t for t in cfg.get("tickets", []) if t in content.tickets] or content.pool[:3]
     g = s["guide"]
+    swap = int(cfg.get("ai_tickets", 0)) if not tutorial else 0
+    lib = set(s["x"].get("lib") or [])   # AI-written tickets this run was dealt at its start (frozen, so replays match)
+    gen = [t for t in sorted(content.tickets) if content.tickets[t].get("generated") and t in lib and content.tickets[t]["difficulty"] <= k
+           and t not in s["x"]["used_tickets"]]
+    swappable = [i for i, t in enumerate(picks) if content.tickets[t]["kind"] == "fix" and not t.startswith("story_")]
+    for _ in range(min(swap, len(gen), len(swappable))):   # some of this Sprint's authored fix items are replaced by AI-written ones
+        j = swappable.pop(int(draw(s, "ai_swap_pos") * len(swappable)) % len(swappable))
+        picks[j] = gen.pop(int(draw(s, "ai_swap") * len(gen)) % len(gen))
     hard_ids = []
     if g["owed"] and not tutorial:   # hidden problems from last Sprint's Daily Scrums come back as harder items
-        pool = [t for t in content.guide.get("hard_pool", []) if t in content.tickets]
+        pool = [t for t in _guide(s, content).get("hard_pool", []) if t in content.tickets]
         fresh = [t for t in pool if t not in s["x"]["used_tickets"]] or pool
         hard_ids = fresh[:g["owed"]]
         g["owed"] -= len(hard_ids)
@@ -1848,12 +2240,23 @@ def _g_deal_sprint(s: dict, ev: list, content: Content) -> None:
     _emit(s, ev, "sprint_dealt", sprint=k, tickets=picks, boss=None)
 
 
-def _g_beats(content: Content, k: int, when: str) -> list[dict]:
-    return [b for b in content.guide["beats"] if b["sprint"] == k and b["when"] == when]
+def _g_eff(s: dict, content: Content) -> list[dict]:
+    """The beats this run really plays: the guide's, with each quiz swapped for an AI-written one when this run froze one for that slot.
+    The pick is a hash of the run seed and the slot, so it is the same on every call and on replay."""
+    lib = set((s.get("x") or {}).get("lib") or [])
+    out = []
+    for b in _guide(s, content)["beats"]:
+        alts = sorted(a for a, d in content.beats.items() if d.get("for_beat") == b["id"] and a in lib and d.get("level", 1) <= s["sprint"] + 1) if b["kind"] == "quiz" else []
+        out.append(content.beats[random.Random(f"{s['seed']}|{b['id']}").choice(alts)] if alts else b)
+    return out
 
 
-def _g_beat(content: Content, bid: str) -> dict:
-    return next(b for b in content.guide["beats"] if b["id"] == bid)
+def _g_beats(s: dict, content: Content, k: int, when: str) -> list[dict]:
+    return [b for b in _g_eff(s, content) if b["sprint"] == k and b["when"] == when]
+
+
+def _g_beat(s: dict, content: Content, bid: str) -> dict:
+    return next((b for b in _g_eff(s, content) if b["id"] == bid), None) or next(b for b in content.guide["beats"] if b["id"] == bid)
 
 
 def _g_queue(s: dict, ev: list, content: Content, when: str) -> None:
@@ -1861,7 +2264,7 @@ def _g_queue(s: dict, ev: list, content: Content, when: str) -> None:
     if g.get("tutorial"):
         g["queue"], g["pending"] = [], None
         return
-    g["queue"] = [b["id"] for b in _g_beats(content, s["sprint"], when) if b["id"] not in g["done"]]
+    g["queue"] = [b["id"] for b in _g_beats(s, content, s["sprint"], when) if b["id"] not in g["done"]]
     _g_pop(s, ev)
 
 
@@ -1924,7 +2327,7 @@ def _need_beat(s: dict, content: Content) -> tuple[dict, dict]:
     g = s.get("guide")
     if g is None or not g["pending"]:
         _illegal("no scene is waiting")
-    return g, _g_beat(content, g["pending"])
+    return g, _g_beat(s, content, g["pending"])
 
 
 def _h_guide_answer(s, ev, content, p):
@@ -1986,22 +2389,22 @@ def _g_end_retro(s: dict, ev: list, content: Content) -> None:
 
 
 def _g_score(s: dict, content: Content) -> dict:
-    quiz = [b for b in content.guide["beats"] if b["kind"] == "quiz"]
+    quiz = [b for b in _g_eff(s, content) if b["kind"] == "quiz"]
     done = [s["guide"]["done"][b["id"]] for b in quiz if b["id"] in s["guide"]["done"]]
     return {"asked": len(done), "first_try": sum(1 for d in done if d["first_try"]), "of": len(quiz)}
 
 
 def _g_public(s: dict, content: Content) -> dict:
     g, k = s["guide"], s["sprint"]
-    cfg = _gsprint(content, k) or {}
+    cfg = _gsprint(s, content, k) or {}
     committed = not (s["stage"] == "PLANNING" and (g["pending"] or g["queue"]))
     backlog = [{"ticket": t, "title": content.tickets[t]["title"], "in_sprint": True} for t in cfg.get("tickets", []) if t in content.tickets]
     backlog += [{"ticket": t, "title": content.tickets[t]["title"], "in_sprint": True, "harder": True} for t in g["hard_ids"] if t in content.tickets]
     backlog += [{"ticket": t, "title": content.tickets[t]["title"], "in_sprint": False} for t in cfg.get("backlog_more", []) if t in content.tickets]
     pend = None
     if g["pending"]:
-        b = _g_beat(content, g["pending"])
-        same = _g_beats(content, k, b["when"])
+        b = _g_beat(s, content, g["pending"])
+        same = _g_beats(s, content, k, b["when"])
         pend = {"id": b["id"], "speaker": b["speaker"], "concept": b["concept"], "kind": b["kind"], "when": b["when"],
                 "scene": _g_text(s, content, b["scene"]), "list": b.get("list"), "question": b["question"], "resolved": g["resolved"],
                 "step": len(same) - len(g["queue"]), "of": len(same)}
@@ -2010,7 +2413,7 @@ def _g_public(s: dict, content: Content) -> dict:
             pend["choices"] = [{"id": c["id"], "text": c["text"]} for c in b["choices"]]
             pend["tried"] = [{"id": t["id"], "ok": t["ok"], "feedback": fb[t["id"]]} for t in g["tried"]]
         else:
-            opts, hint = content.guide["retro_options"], _g_suggest(s, content)
+            opts, hint = _guide(s, content)["retro_options"], _g_suggest(s, content)
             pool = list(b.get("pool", [])) if g["resolved"] else _g_pool(s, b)
             pend["choices"] = [{"id": pid, "text": opts[pid][0], "detail": opts[pid][1], "suggested": pid in hint} for pid in pool if pid in opts]
             pend["tried"] = [{"id": t["id"], "ok": True, "feedback": opts[t["id"]][1]} for t in g["tried"] if t["id"] in opts]
@@ -2018,7 +2421,7 @@ def _g_public(s: dict, content: Content) -> dict:
             pend["teach"] = b["teach"]
     return {"theme": cfg.get("theme"), "goal": cfg.get("goal"), "committed": committed, "backlog": backlog,
             "pending": pend, "score": _g_score(s, content), "worked": g["worked"],
-            "premise": content.guide["premise"] if k == 1 and not g["done"] else None}
+            "premise": _guide(s, content)["premise"] if k == 1 and not g["done"] else None}
 
 
 def _g_story(s: dict, content: Content) -> list[str]:
@@ -2035,7 +2438,7 @@ def _g_story(s: dict, content: Content) -> list[str]:
         lines.append("You kept the Definition of Done honest, so what you called Done really was.")
     else:
         lines.append("You never finished an item against the Definition of Done, so the team had no Increment to show.")
-    opts = content.guide["retro_options"]
+    opts = _guide(s, content)["retro_options"]
     if g["picks"]:
         lines.append("Your Retrospectives chose: " + ", ".join(opts[p["practice"]][0] for p in g["picks"] if p["practice"] in opts) + ".")
     return lines
@@ -2622,7 +3025,15 @@ def _o_public(s: dict, content: Content) -> dict:
     if _orig(content, "combo"):
         C = _O(content, "combo")
         out["combo"] = {"count": x["combo"], "next_mult": round(1 + min(C["cap"], C["step"] * x["combo"]), 2)}
-    return out
+    if x.get("tolerance") is not None:
+        out["tolerance"] = dict(x["tolerance"])
+    if x.get("rel") is not None:
+        out["rel"] = {k: {"tension": v, "word": _g_tension_word(v)} for k, v in x["rel"].items()}
+        out["conflict"] = _g_conflict_public(s)
+        out["conflicts"] = dict(x["conflicts"])
+    if x.get("mood") is not None:
+        out["mood"] = {d: {**v, "feeling": _g_feeling(s, d)[0], "note": _g_feeling(s, d)[1]} for d, v in x["mood"].items()}
+        out["team_mood"] = {"morale": round(_team_mood(s, "morale")), "sanity": round(_team_mood(s, "sanity")), "floor": MOOD_FLOOR}
     return out
 
 
@@ -2659,8 +3070,10 @@ def _x_public(s: dict, content: Content) -> dict:
     calm = s.get("guide") is not None
     goal = _x_goal(s, content)
     if calm:
-        goal = {**goal, "text": (_gsprint(content, s["sprint"]) or {}).get("goal")}
-    return {"calm": calm, "tutorial": bool(x.get("tutorial")), "grade": _g_grade(s, content) if calm else None,
+        goal = {**goal, "text": (_gsprint(s, content, s["sprint"]) or {}).get("goal")}
+    pk = _guide(s, content) if calm else {}
+    return {"project": {"n": x.get("project_n", 1), "title": (pk.get("premise") or {}).get("title")} if calm else None,
+            "calm": calm, "tutorial": bool(x.get("tutorial")), "grade": _g_grade(s, content) if calm else None,
             "penalties": content.balance["calm"]["penalties"] if calm else None, "todo": {"blocking": _g_blocking(s)} if calm else None,
             "standup_outcomes": ({k: dict(v) for k, v in content.balance["calm"]["standup"].items()} if calm else None),
             "feed": {"left": _g_hidden_left(s), "left_today": _g_pending_today(s)} if calm else None,
@@ -2691,13 +3104,13 @@ HANDLERS = {"help_answer": _h_help_answer, "open_card": _h_open_card, "flag_line
             "triage_reorder": _h_triage_reorder, "delegate": _h_delegate, "coach": _h_coach, "defer": _h_defer,
             "reply_standup": _h_reply_standup, "answer_call": _h_answer_call, "watch_tutorial": _h_watch_tutorial,
             "buy_perk": _h_buy_perk, "use_assistant": _h_use_assistant, "advance_stage": _h_advance_stage,
-            "tick": _h_tick, "configure": _h_configure, "buy_practice": _h_buy_practice, "reroll_shop": _h_reroll_shop,
+            "tick": _h_tick, "configure": _h_configure, "ai_set": _h_ai_set, "chat_effect": _h_chat_effect, "debug_skip": _h_debug_skip, "buy_practice": _h_buy_practice, "reroll_shop": _h_reroll_shop,
             "lock_offer": _h_lock_offer, "retro": _h_retro, "use_ultimate": _h_use_ultimate,
             "regroup": _h_regroup, "add_card": _h_add_card, "remove_card": _h_remove_card,
             "review_inspect": _h_review_inspect, "review_fix": _h_review_fix, "review_ship": _h_review_ship,
             "review_send_back": _h_review_send_back, "ship_release": _h_ship_release, "unblock": _h_unblock,
-            "guide_answer": _h_guide_answer, "guide_next": _h_guide_next}
-EXPERIMENTAL_ONLY = ("help_answer", "guide_answer", "guide_next", "configure", "buy_practice", "reroll_shop", "lock_offer", "retro", "use_ultimate", "regroup", "add_card",
+            "guide_answer": _h_guide_answer, "guide_next": _h_guide_next, "mediate": _h_mediate}
+EXPERIMENTAL_ONLY = ("help_answer", "guide_answer", "guide_next", "mediate", "configure", "ai_set", "chat_effect", "debug_skip", "buy_practice", "reroll_shop", "lock_offer", "retro", "use_ultimate", "regroup", "add_card",
                      "remove_card", "review_inspect", "review_fix", "review_ship", "review_send_back", "ship_release", "unblock")
 
 
@@ -2830,7 +3243,7 @@ def _g_final(s: dict, content: Content) -> dict:
 
 def _g_summary(s: dict, content: Content) -> dict:
     """What the player did wrong, did well and learned, all from this run's own numbers."""
-    T, fin, st = content.guide["summary"], _g_final(s, content), s["guide"]["stats"]
+    T, fin, st = _guide(s, content)["summary"], _g_final(s, content), s["guide"]["stats"]
 
     def fill(tpl: str, n: int) -> str:
         return tpl.format(n=n, s="" if n == 1 else "s", final=fin["final"])
@@ -2850,7 +3263,7 @@ def _g_summary(s: dict, content: Content) -> dict:
     if st["wrong_scene"] == 0:
         well.append(T["well"]["scenes"])
     seen, learned = set(), []
-    for b in content.guide["beats"]:
+    for b in _g_eff(s, content):
         if b["kind"] == "quiz" and b["id"] in s["guide"]["done"] and b["concept"] not in seen:
             seen.add(b["concept"])
             learned.append({"concept": b["concept"], "teach": b["teach"]})
@@ -2862,14 +3275,23 @@ def _g_summary(s: dict, content: Content) -> dict:
         wrong, improve = [], []
     else:
         wrong, improve = wrong, (improve or [T["generic_improve"]])[:3]
+    x = s["x"]
+    cf = x.get("conflicts") or {}
+    team = {"mood": {d: {**v, "feeling": _g_feeling(s, d)[0]} for d, v in x["mood"].items()}, "conflicts": dict(cf), "open_conflict": bool(x.get("conflict")),
+            "rel": {k: {"tension": v, "word": _g_tension_word(v)} for k, v in x["rel"].items()}, "morale": round(_team_mood(s, "morale")), "sanity": round(_team_mood(s, "sanity"))}
+    if cf.get("resolved") and tier != "low":
+        well.append(f"You settled {cf['resolved']} team conflict{'s' if cf['resolved'] != 1 else ''} by listening and finding common ground.")
+    if cf.get("ignored") or x.get("conflict"):
+        wrong.append("Fights between teammates were ignored or left to burn. A Scrum Master helps the team resolve conflict, not shut it down.")
+        improve.append("When two teammates clash, listen to both and bring them back to the Sprint Goal. Lift their morale first if they are too upset to talk.")
     return {"tier": tier, "headline": head["headline"], "intro": fill(head["intro"], 0), "well": well, "wrong": wrong, "improve": improve, "learned": learned,
-            "numbers": fin}
+            "numbers": fin, "team": team}
 
 
 def _g_grade(s: dict, content: Content) -> int:
     """The Grade: Done work as a share of everything the project could earn (0-100)."""
     X = _X(content)
-    top = sum(100 * content.tickets[t]["difficulty"] for k, sp in content.guide["sprints"].items() if int(k) <= X["sprints_total"]
+    top = sum(100 * content.tickets[t]["difficulty"] for k, sp in _guide(s, content)["sprints"].items() if int(k) <= X["sprints_total"]
               for t in sp["tickets"] if t in content.tickets) or 1
     return max(0, min(100, round(100 * s["meters"]["points"] / top) - round(s["x"].get("grade_penalty", 0))))
 

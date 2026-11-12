@@ -50,7 +50,7 @@ def _reaction(e: dict, events: list[dict], state: dict, content: Content) -> tup
         facts = {"done": f["done"], "total": f["total"], "next": sprint + 1, "n_hidden": hidden["items"] if hidden else 0}
         return "po", "react_review_hidden" if hidden else "react_review", facts, None
     if typ == "sprint_dealt" and state.get("guide") is not None:
-        g = reducer._gsprint(content, sprint) or {}
+        g = reducer._gsprint(state, content, sprint) or {}
         return "po", "sprint_open", {"goal": g.get("goal", "ship the checkout fixes"), "n_hidden": len(state["guide"].get("hard_ids", []))}, None
     return None
 
@@ -68,6 +68,11 @@ def requests_for(events: list[dict], state: dict, content: Content, user_key: st
             if trust is not None:
                 facts["trust"] = trust
                 facts["mood"] = "warm" if trust >= 80 else "neutral" if trust >= 60 else "cold"
+            mood = ((state.get("x") or {}).get("mood") or {}).get(tid)
+            if mood:
+                facts["morale"], facts["feeling"] = mood["morale"], reducer._g_feeling(state, tid)[0]
+                if mood["morale"] < 40:
+                    facts["mood"] = "cold"   # a discouraged teammate sounds cold whatever their trust is
             forbidden = [o["text"] for o in content.tickets[tk]["options"] if o["effect"] == "correct"] if tk in content.tickets else []
             counter += 1
             out.append(Request(event_type=et, teammate_id=tid, facts=facts, memory=memory_segments(state, content),

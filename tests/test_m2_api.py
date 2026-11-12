@@ -301,7 +301,7 @@ def test_perf_api_p95_150ms_no_model(env):
 
 def test_healthz_and_model_status(env):
     c = env.signup("a@x.io")
-    assert env.client().get("/healthz").json() == {"ok": True}
+    assert env.client().get("/healthz").json() == {"ok": True, "ai": "off"}
     assert c.get("/api/v1/model/status").json()["enabled"] is False
 
 
@@ -317,3 +317,33 @@ def test_contract_openapi_matches_code():
     for p in ("/api/v1/auth/register", "/api/v1/auth/login", "/api/v1/runs", "/api/v1/runs/{run_id}/commands",
               "/api/v1/runs/{run_id}/tick", "/api/v1/runs/{run_id}/debrief", "/api/v1/instructor/runs/{run_id}/transcript", "/healthz"):
         assert p in committed["paths"], p
+
+
+def test_SESSION_refresh_keeps_the_login_with_a_new_csrf_token(tmp_path):
+    from api_helpers import Env
+    env = Env(tmp_path, content_mod.get() if "content_mod" in globals() else __import__("fixit.rules.content", fromlist=["get"]).get())
+    c = env.signup("keep@x.co")
+    assert c.get("/api/v1/me").status_code == 200
+    old = c.headers["X-CSRF-Token"]
+    new = c.get("/api/v1/auth/csrf").json()["csrf"]                    # what the page does after a refresh
+    assert new != old and c.get("/api/v1/auth/csrf").status_code == 200
+    c.headers["X-CSRF-Token"] = old
+    assert c.post("/api/v1/consent").status_code == 403               # the old token is dead
+    c.headers["X-CSRF-Token"] = c.get("/api/v1/auth/csrf").json()["csrf"]
+    assert c.post("/api/v1/consent").status_code == 200
+    assert env.client().get("/api/v1/auth/csrf").status_code == 401   # no cookie, no token
+
+
+def test_HOST_cookie_is_secure_except_on_loopback_and_tailscale_and_healthz_reports_the_ai(tmp_path):
+    from fastapi.testclient import TestClient
+    from api_helpers import Env
+    from fixit.rules import content as cm
+    env = Env(tmp_path, cm.get())
+    body = {"email": "h@x.co", "password": "correct-horse-battery", "display_name": "H", "role": "student"}
+    for host, secure in (("100.101.102.103", False), ("127.0.0.1", False), ("pc.tail1234.ts.net", False), ("example.com", True), ("192.168.1.9", True)):
+        c = TestClient(env.app, base_url=f"http://{host}")
+        c.post("/api/v1/auth/register", json={**body, "email": f"{secure}{host}@x.co"})
+        r = c.post("/api/v1/auth/login", json={**body, "email": f"{secure}{host}@x.co"})
+        assert ("secure" in r.headers["set-cookie"].lower()) is secure, host
+    assert TestClient(env.app).get("/healthz").json() == {"ok": True, "ai": "off"}
+    

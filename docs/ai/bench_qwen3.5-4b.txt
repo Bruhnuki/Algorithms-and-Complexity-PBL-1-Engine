@@ -1,0 +1,75 @@
+{
+ "model": "qwen3.5:4b",
+ "cold_load_s": 31.03,
+ "engine_load_ms": 11364,
+ "vram_model_mb": 2995,
+ "vram_gpu_before_mb": 3781.0,
+ "ram_system_before_mb": 26035,
+ "http_rtt_ms": {
+  "p50": 5.0,
+  "p95": 21.2
+ },
+ "wall_s": 186.9,
+ "model_calls": 59,
+ "per_kind": {
+  "scenario": {
+   "requests": 20,
+   "accepted": 18,
+   "accept_rate": 0.9,
+   "json_invalid": 0,
+   "server_errors": 0,
+   "rejected_by": {
+    "dev2_says:language": 1,
+    "judge_disagrees": 1
+   },
+   "item_time_s": {
+    "median": 4.25,
+    "p95": 4.74
+   }
+  },
+  "challenge": {
+   "requests": 20,
+   "accepted": 8,
+   "accept_rate": 0.4,
+   "json_invalid": 0,
+   "server_errors": 0,
+   "rejected_by": {
+    "wrong_option_not_wrong": 3,
+    "function_shape": 3,
+    "bug_line": 1,
+    "correct_code_fails": 1,
+    "lines_not_distinct": 4
+   },
+   "item_time_s": {
+    "median": 4.03,
+    "p95": 11.29
+   }
+  }
+ },
+ "call_latency_ms": {
+  "median": 3312,
+  "p95": 4375
+ },
+ "tokens_per_s": {
+  "median": 70.8,
+  "min": 30.1
+ },
+ "tokens_per_call_avg": 170.2,
+ "vram_used_mb": {
+  "max": 7574.0
+ },
+ "gpu_util_pct": {
+  "mean": 70.4,
+  "max": 84.0
+ },
+ "cpu_util_pct": {
+  "mean": 97.9,
+  "max": 99.4
+ },
+ "engine_ram_mb": {
+  "max": 130
+ },
+ "system_ram_after_mb": 28787,
+ "accepted_total": 26,
+ "requests_total": 40
+}

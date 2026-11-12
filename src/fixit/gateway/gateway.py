@@ -97,9 +97,9 @@ class ModelError(Exception):
 class HttpModelClient:
     """OpenAI-compatible chat endpoint (llama.cpp llama-server), localhost only."""
 
-    def __init__(self, base_url: str, model: str, transport: httpx.BaseTransport | None = None):
+    def __init__(self, base_url: str, model: str, transport: httpx.BaseTransport | None = None, token: str | None = None):
         self.model = model
-        self.http = httpx.Client(base_url=base_url, transport=transport, timeout=None)
+        self.http = httpx.Client(base_url=base_url, transport=transport, timeout=None, headers={"Authorization": f"Bearer {token}"} if token else {})
 
     def complete(self, messages: list[dict]) -> dict:
         try:
@@ -217,7 +217,7 @@ class Gateway:
 
     def _fallback(self, req: Request, latency: int, reason: str) -> Line:
         p = self.persona(req.teammate_id)
-        low = req.facts.get("trust", 100) < LOW_TRUST
+        low = req.facts.get("trust", 100) < LOW_TRUST or req.facts.get("morale", 100) < 40
         pool = None
         if req.event_type in REACTION_TYPES:
             pool = (p.get("reactions_low", {}).get(req.event_type) if low else None) or p.get("reactions", {}).get(req.event_type)

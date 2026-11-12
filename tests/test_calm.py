@@ -15,8 +15,8 @@ def calm():
     return c
 
 
-def correct_choice(content, beat_id):
-    b = next(x for x in content.guide["beats"] if x["id"] == beat_id)
+def correct_choice(content, beat_id, s=None):
+    b = reducer._g_beat(s, content, beat_id) if s is not None else next(x for x in content.guide["beats"] if x["id"] == beat_id)
     if b["kind"] == "pick":
         return None
     return next(c["id"] for c in b["choices"] if c.get("correct"))
@@ -26,7 +26,7 @@ def clear_scenes(s, content, mistakes=False):
     """Answer every open scene correctly (optionally after one wrong try) and continue."""
     while s["guide"]["pending"]:
         bid = s["guide"]["pending"]
-        b = next(x for x in content.guide["beats"] if x["id"] == bid)
+        b = reducer._g_beat(s, content, bid)
         if b["kind"] == "pick":
             pub = reducer.public_state(s, content)["guide"]["pending"]
             s, _ = run(s, content, "guide_answer", choice_id=pub["choices"][0]["id"])
@@ -34,7 +34,7 @@ def clear_scenes(s, content, mistakes=False):
             if mistakes:
                 wrong = next(c["id"] for c in b["choices"] if not c.get("correct"))
                 s, _ = run(s, content, "guide_answer", choice_id=wrong)
-            s, _ = run(s, content, "guide_answer", choice_id=correct_choice(content, bid))
+            s, _ = run(s, content, "guide_answer", choice_id=correct_choice(content, bid, s))
         s, _ = run(s, content, "guide_next")
     return s
 

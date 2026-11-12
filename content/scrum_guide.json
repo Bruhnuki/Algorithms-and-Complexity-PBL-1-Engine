@@ -39,6 +39,7 @@
    ],
    "backlog_more": [],
    "goal_ship_min": 2,
+   "ai_tickets": 1,
    "help_calls": 1
   },
   "2": {
@@ -55,6 +56,7 @@
     "stock_status"
    ],
    "goal_ship_min": 2,
+   "ai_tickets": 2,
    "help_calls": 1
   },
   "3": {
@@ -69,6 +71,7 @@
    ],
    "backlog_more": [],
    "goal_ship_min": 2,
+   "ai_tickets": 2,
    "help_calls": 1
   }
  },
@@ -172,8 +175,8 @@
    "choices": [
     {
      "id": "a",
-     "text": "Marlo, because she owns the backlog",
-     "feedback": "Marlo decides what matters most, but she cannot force a workload on people who know how long the work takes."
+     "text": "Marlo, because he owns the backlog",
+     "feedback": "Marlo decides what matters most, but he cannot force a workload on people who know how long the work takes."
     },
     {
      "id": "b",
@@ -521,7 +524,7 @@
     },
     {
      "id": "b",
-     "text": "Show Marlo what is Done and what is not, and let her decide with the facts",
+     "text": "Show Marlo what is Done and what is not, and let him decide with the facts",
      "correct": true,
      "feedback": "Yes. Transparency lets the Product Owner decide with the real picture, and the Definition of Done is not quietly dropped."
     }

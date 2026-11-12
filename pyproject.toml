@@ -4,7 +4,7 @@ version = "0.1.0"
 requires-python = ">=3.11"
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = [".", "src"]
 testpaths = ["tests"]
 addopts = "-m 'not load'"
 markers = ["load: 10-player load test (timing-sensitive); run with: pytest -m load or python tools/load_test.py"]

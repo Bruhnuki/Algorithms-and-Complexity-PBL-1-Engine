@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AI console</title>
+<style>
+  :root { --bg:#f4f7fb; --card:#fff; --ink:#1f2a37; --muted:#6b7686; --line:#dfe6ef; --ok:#1e8a4c; --bad:#c43d3d; --blue:#1c8fe8; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#10151c; --card:#18202a; --ink:#e8eef6; --muted:#98a4b5; --line:#2a3544; } }
+  body { margin:0; background:var(--bg); color:var(--ink); font:16px/1.5 system-ui, sans-serif; }
+  main { max-width:720px; margin:0 auto; padding:20px 16px 40px; display:grid; gap:16px; }
+  h1 { font-size:22px; margin:6px 0 0; } .sub { color:var(--muted); margin:0; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:14px; padding:16px; }
+  .row { display:flex; gap:10px; flex-wrap:wrap; align-items:center; }
+  input, textarea { width:100%; box-sizing:border-box; padding:10px 12px; border-radius:10px; border:1px solid var(--line); background:transparent; color:inherit; font:inherit; }
+  button { padding:10px 18px; border:0; border-radius:10px; background:var(--blue); color:#fff; font:600 15px system-ui; cursor:pointer; }
+  button:disabled { opacity:.5; cursor:wait; }
+  .pill { display:inline-flex; align-items:center; gap:8px; padding:6px 14px; border-radius:999px; font-weight:700; background:var(--line); }
+  .pill i { width:10px; height:10px; border-radius:50%; background:var(--muted); } .pill.ok i { background:var(--ok); } .pill.bad i { background:var(--bad); }
+  dl { display:grid; grid-template-columns:max-content 1fr; gap:4px 16px; margin:12px 0 0; } dt { color:var(--muted); } dd { margin:0; }
+  #answer { white-space:pre-wrap; margin:12px 0 0; } .meta { color:var(--muted); font-size:14px; margin-top:6px; } .err { color:var(--bad); }
+</style>
+</head>
+<body>
+<main>
+  <div><h1>AI console</h1><p class="sub">Check that the local AI is running and ask it a test question.</p></div>
+
+  <section class="card" aria-label="Access token">
+    <label for="tok"><b>Access token</b> (kept only in this browser tab)</label>
+    <div class="row" style="margin-top:8px"><input id="tok" type="password" autocomplete="off" placeholder="paste the token"><button id="save">Use token</button></div>
+  </section>
+
+  <section class="card" aria-label="Status">
+    <div class="row"><span id="pill" class="pill"><i></i><span id="pilltxt">checking...</span></span><span class="sub" id="when"></span></div>
+    <dl id="facts"></dl>
+  </section>
+
+  <section class="card" aria-label="Ask">
+    <label for="q"><b>Ask the AI something</b></label>
+    <textarea id="q" rows="3" maxlength="500" placeholder="For example: Explain what a Sprint is in two sentences.">Explain what a Sprint is in two sentences.</textarea>
+    <div class="row" style="margin-top:10px"><select id="mdl" aria-label="Model"></select><button id="ask">Ask</button><button id="both">Ask every model</button><span id="busy" class="sub"></span></div>
+    <p id="answer"></p><p id="meta" class="meta"></p>
+  </section>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+let token = ""; try { token = sessionStorage.getItem("aiToken") || ""; } catch (_) {}
+$("tok").value = token;
+$("save").onclick = () => { token = $("tok").value.trim(); try { sessionStorage.setItem("aiToken", token); } catch (_) {} refresh(); };
+const api = async (path, body) => {
+  const r = await fetch(path, { method: body ? "POST" : "GET", headers: { "Content-Type": "application/json", Authorization: "Bearer " + token }, body: body ? JSON.stringify(body) : undefined });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(j.detail || j.code || r.statusText), { code: j.code, status: r.status });
+  return j;
+};
+function show(ok, text) { $("pill").className = "pill " + (ok ? "ok" : "bad"); $("pilltxt").textContent = text; }
+async function refresh() {
+  try { await fetch("/healthz").then((r) => r.json()); } catch (_) { show(false, "server not reachable"); $("facts").replaceChildren(); return; }
+  if (!token) { show(true, "server is up (enter the token to see more)"); return; }
+  try {
+    const s = await api("/v1/status");
+    const m = (s.loaded || [])[0];
+    const sel = $("mdl"); if (!sel.options.length) (s.allowed_models || [s.model]).forEach((n) => sel.add(new Option(n, n)));
+    show(s.engine_up && s.model_installed, s.engine_up ? (s.model_installed ? "AI is running" : "engine is up, model missing") : "engine is down");
+    const rows = [["Models", (s.allowed_models || [s.model]).map((n) => { const l = (s.loaded || []).find((x) => String(x.name || x.model || "").startsWith(n)); return n + (l ? " (in GPU memory: " + Math.round((l.vram_mb || 0) / 102.4) / 10 + " GB)" : " (not loaded)"); }).join(", ")],
+      ["Engine", s.engine_up ? "up, version " + s.engine_version : "not reachable"], ["Queue", s.queue.running + " running, " + (s.queue.waiting_interactive + s.queue.waiting_background) + " waiting"],
+      ["Requests served", s.requests + " (" + s.errors + " errors, " + (s.output_retries || 0) + " retries)"], ["Last answer took", s.last_total_ms == null ? "n/a" : (s.last_total_ms / 1000).toFixed(1) + " s"],
+      ["Up for", Math.round(s.uptime_s / 60) + " min"]];
+    $("facts").replaceChildren(...rows.flatMap(([k, v]) => { const a = document.createElement("dt"), b = document.createElement("dd"); a.textContent = k; b.textContent = v; return [a, b]; }));
+    $("when").textContent = "updated " + new Date().toLocaleTimeString();
+  } catch (e) { show(false, e.status === 401 ? "wrong or missing token" : e.message); }
+}
+async function askOne(model) {
+  const r = await api("/v1/ask", { question: $("q").value.trim(), model });
+  return { answer: r.answer, meta: r.model + " · " + (r.total_ms / 1000).toFixed(1) + " s · " + (r.tokens_per_s || "?") + " tokens per second" };
+}
+async function run(models) {
+  const q = $("q").value.trim(); if (!q) return;
+  $("ask").disabled = $("both").disabled = true; $("busy").textContent = "thinking..."; $("answer").textContent = ""; $("answer").className = ""; $("meta").textContent = "";
+  try {
+    const out = [];
+    for (const m of models) { const r = await askOne(m); out.push(models.length > 1 ? m + ": " + r.answer : r.answer); $("meta").textContent += r.meta + "\n"; $("answer").textContent = out.join("\n\n"); }
+  } catch (e) { $("answer").className = "err"; $("answer").textContent = e.status === 401 ? "Wrong or missing access token: paste the whole token and press Use token." : e.message; }
+  $("ask").disabled = $("both").disabled = false; $("busy").textContent = ""; refresh();
+}
+$("ask").onclick = () => run([$("mdl").value || undefined]);
+$("both").onclick = () => run([...$("mdl").options].map((o) => o.value));
+refresh(); setInterval(refresh, 5000);
+</script>
+</body>
+</html>

@@ -1,0 +1,776 @@
+{
+ "summary": {
+  "model": "qwen3.5:9b",
+  "cold_load_s": 13.19,
+  "engine_load_ms": 12822,
+  "vram_model_mb": 5289,
+  "vram_gpu_before_mb": 4019.0,
+  "ram_system_before_mb": 25374,
+  "http_rtt_ms": {
+   "p50": 8.0,
+   "p95": 45.4
+  },
+  "wall_s": 363.5,
+  "model_calls": 56,
+  "per_kind": {
+   "scenario": {
+    "requests": 20,
+    "accepted": 16,
+    "accept_rate": 0.8,
+    "json_invalid": 0,
+    "server_errors": 0,
+    "rejected_by": {
+     "harmful.feedback:mechanics_claim": 1,
+     "weak.text:length": 1,
+     "dev2_says:length": 1,
+     "best.text:length": 1
+    },
+    "item_time_s": {
+     "median": 9.45,
+     "p95": 25.62
+    }
+   },
+   "challenge": {
+    "requests": 20,
+    "accepted": 13,
+    "accept_rate": 0.65,
+    "json_invalid": 0,
+    "server_errors": 0,
+    "rejected_by": {
+     "correct_code_fails": 3,
+     "bug_line": 2,
+     "too_long_or_short_for_level": 2
+    },
+    "item_time_s": {
+     "median": 7.57,
+     "p95": 9.66
+    }
+   }
+  },
+  "call_latency_ms": {
+   "median": 6594,
+   "p95": 9000
+  },
+  "tokens_per_s": {
+   "median": 46.3,
+   "min": 37.0
+  },
+  "tokens_per_call_avg": 225.0,
+  "vram_used_mb": {
+   "max": 10526.0
+  },
+  "gpu_util_pct": {
+   "mean": 71.2,
+   "max": 88.0
+  },
+  "cpu_util_pct": {
+   "mean": 98.7,
+   "max": 100.0
+  },
+  "engine_ram_mb": {
+   "max": 58
+  },
+  "system_ram_after_mb": 24715,
+  "accepted_total": 29,
+  "requests_total": 40
+ },
+ "samples": [
+  {
+   "id": "hr_scenario_gen_99c3d338",
+   "type": "scenario",
+   "title": "Stakeholder Wants Fast Stock Fix",
+   "prompts": {
+    "dev1": "I don't have data on current stock numbers, but Marlo says we need to drop low items instantly without checking our records first.",
+    "dev2": "Marlo is asking us to remove specific products from the app right now because he thinks it will boost sales, even though I haven't verified the numbers yet."
+   },
+   "answers": [
+    {
+     "id": "a",
+     "text": "Okay, I will delete those products immediately to please Marlo right now.",
+     "trust": -5,
+     "feedback": "Removing items without evidence can ruin sales and damage the team."
+    },
+    {
+     "id": "b",
+     "text": "We can remove the items Marlo asked for, but we should warn him to wait for real data next time.",
+     "trust": -1,
+     "feedback": "Making changes without proof risks breaking the app and hurting trust."
+    },
+    {
+     "id": "c",
+     "text": "Let's check our inventory logs before making any changes based on a guess.",
+     "trust": 3,
+     "feedback": "Data guides good decisions instead of just following pressure.",
+     "best": true
+    }
+   ],
+   "generated": true,
+   "concept": "Choose one improvement",
+   "level": 2
+  },
+  {
+   "id": "hr_scenario_gen_5662d7d9",
+   "type": "scenario",
+   "title": "Wish Lists Without Planning",
+   "prompts": {
+    "dev1": "I promised the Product Owner that Ines and I added three new categories to the wish list feature today without telling anyone. She says we broke our promise. What do you say?",
+    "dev2": "Oh no, I am so sorry! We spent all morning coding new wish list sections but forgot to check if it matches the plan. The Product Owner is upset because she did not agree to this work. What should we tell her?"
+   },
+   "answers": [
+    {
+     "id": "a",
+     "text": "Tell the Product Owner to ignore her complaints since we already finished the code.",
+     "trust": -5,
+     "feedback": "Ignoring feedback damages trust and breaks the cycle of inspection and adaptation needed for good software."
+    },
+    {
+     "id": "b",
+     "text": "Let us finish coding these features now so they can be used tomorrow.",
+     "trust": -1,
+     "feedback": "Finishing more work without checking first means we might build something that does not help the team or the user."
+    },
+    {
+     "id": "c",
+     "text": "We need to stop and talk about what changed before we do anything else.",
+     "trust": 3,
+     "feedback": "This answer uses transparency to share what happened and inspection to check if the new work fits the goal.",
+     "best": true
+    }
+   ],
+   "generated": true,
+   "concept": "The three pillars of Scrum",
+   "level": 3
+  },
+  {
+   "id": "hr_scenario_gen_1b38998d",
+   "type": "scenario",
+   "title": "Unclear Return Rules Confuse Us",
+   "prompts": {
+    "dev1": "Marlo sent an email about the new return policy but forgot to tell us if we should refund from the main account or a special one. I am scared to ask because she might think we are lazy.",
+    "dev2": "Hey, can you help me? Marlo said the rules for handling returns changed today but did not say how we pay customers back. I feel terrible about making mistakes if I guess wrong."
+   },
+   "answers": [
+    {
+     "id": "a",
+     "text": "I will put all refunds into the main account even though Marlo said the rules changed yesterday.",
+     "trust": -5,
+     "feedback": "Doing this ignores the new instructions and could cause money issues for customers who expect a different result."
+    },
+    {
+     "id": "b",
+     "text": "I will ask Marlo exactly which account she wants us to use for these refunds right now.",
+     "trust": 3,
+     "feedback": "You show courage by asking directly and transparency by stating the missing fact, so the team can work safely.",
+     "best": true
+    },
+    {
+     "id": "c",
+     "text": "I will keep working on my own code until Marlo replies to her email tomorrow.",
+     "trust": -1,
+     "feedback": "Waiting delays the project and hides the problem because you are not telling anyone that you do not know what to do."
+    }
+   ],
+   "generated": true,
+   "concept": "Courage and transparency",
+   "level": 3
+  },
+  {
+   "id": "hr_scenario_gen_9eefae12",
+   "type": "scenario",
+   "title": "Blocked Delivery Slots",
+   "prompts": {
+    "dev1": "Hey, the delivery slots are stuck. We found the bug causing it. Do we fix this one first, or wait for the new login feature?",
+    "dev2": "I am worried our progress is slow because of these blocked slots. Should I focus on fixing them now so customers can shop, or save that for later to finish my other tasks?"
+   },
+   "answers": [
+    {
+     "id": "a",
+     "text": "We can ignore the big bug and fix only the small parts of the delivery slots.",
+     "trust": -1,
+     "feedback": "Ignoring a major problem while fixing small parts does not solve the real issue blocking us."
+    },
+    {
+     "id": "b",
+     "text": "Let us pick one improvement based on the data showing how much time we lost.",
+     "trust": 3,
+     "feedback": "Choosing an improvement from clear evidence helps the team move forward effectively.",
+     "best": true
+    },
+    {
+     "id": "c",
+     "text": "Let us skip fixing the blocked slots completely until we finish everything else.",
+     "trust": -5,
+     "feedback": "Skipping a known blockage causes more delays and hurts customer trust in the app."
+    }
+   ],
+   "generated": true,
+   "concept": "Choose one improvement",
+   "level": 2
+  },
+  {
+   "id": "hr_scenario_gen_94c0f59f",
+   "type": "scenario",
+   "title": "Hidden Checkout Promise",
+   "prompts": {
+    "dev1": "We told the user we would accept digital coins at checkout yesterday, but nobody in this room agreed to that plan. It feels weird to me since I did not sign off on it.",
+    "dev2": "I am worried because someone promised new payment options without telling us first. If we keep pretending everything is fine while the rule changes behind our backs, we might break trust with customers."
+   },
+   "answers": [
+    {
+     "id": "a",
+     "text": "Let us stop what we are doing now and write down exactly what was promised so everyone can decide if we want to keep it or change it.",
+     "trust": 3,
+     "feedback": "This builds courage by admitting the uncomfortable truth and transparency by making sure the whole team sees the real situation before acting.",
+     "best": true
+    },
+    {
+     "id": "b",
+     "text": "Let me just go to the office manager and ask them to approve our secret plan so no one else needs to worry about this anymore.",
+     "trust": -5,
+     "feedback": "Bypassing the team to fix a rule without their input breaks trust and hides the real issue from everyone who needs to know."
+    },
+    {
+     "id": "c",
+     "text": "We should just ignore the fact that we made a promise without asking because people will think we are slow if we talk about it too much.",
+     "trust": -1,
+     "feedback": "Hiding the problem creates confusion later and prevents the team from fixing the mistake before customers notice something is wrong."
+    }
+   ],
+   "generated": true,
+   "concept": "Courage and transparency",
+   "level": 3
+  },
+  {
+   "id": "hr_scenario_gen_1786a399",
+   "type": "scenario",
+   "title": "Coupons Block the Sprint Goal",
+   "prompts": {
+    "dev1": "Look, we are halfway through our sprint and building the checkout flow. My idea is to add instant coupon generation right now because it's cool. But Ines says no because it changes our goal. What do you think?",
+    "dev2": "Tobi is worried too. He says adding coupons now might break our progress on the checkout page. He wants to keep working on what we planned without distractions. Do you agree with keeping our focus or taking a risk?"
+   },
+   "answers": [
+    {
+     "id": "a",
+     "text": "Let's stop everything and build the coupons right now because they are important.",
+     "trust": -5,
+     "feedback": "Stopping current work for new ideas hurts the sprint goal and delays planned features."
+    },
+    {
+     "id": "b",
+     "text": "Let's finish our current goal first and save the coupon idea for later.",
+     "trust": 3,
+     "feedback": "This protects the sprint by finishing planned work before adding new ideas to the backlog.",
+     "best": true
+    },
+    {
+     "id": "c",
+     "text": "We can try to add coupons quickly without breaking anything.",
+     "trust": -1,
+     "feedback": "Trying to fit new changes in is risky and might distract the team from their goal."
+    }
+   ],
+   "generated": true,
+   "concept": "Protecting the Sprint",
+   "level": 2
+  },
+  {
+   "id": "hr_scenario_gen_a326cca1",
+   "type": "scenario",
+   "title": "Checkout Page Team Disagreement",
+   "prompts": {
+    "dev1": "We are stuck on the checkout page. Marlo wants this done by Friday. I think we should finish the shipping address form first because it is easier. Tobi says we should do the payment button instead. Should we just pick one task and ignore the other?",
+    "dev2": "Hey, sorry to bother you with my worry. We need to finish the checkout page before Friday as Marlo said. I am nervous about shipping addresses because they might fail validation. Maybe we should focus only on the payment button instead? Is that okay?"
+   },
+   "answers": [
+    {
+     "id": "a",
+     "text": "I will just build the shipping part myself without asking Tobi or Marlo what they think.",
+     "trust": -5,
+     "feedback": "Working alone ignores the team and changes the plan without discussion, which creates conflict."
+    },
+    {
+     "id": "b",
+     "text": "Let us split the page into two parts and try to finish both before Friday ends.",
+     "trust": -1,
+     "feedback": "Trying to do too much often leads to unfinished work and breaks the single goal we agreed on."
+    },
+    {
+     "id": "c",
+     "text": "We must agree on one single goal for this week and stick to it together.",
+     "trust": 3,
+     "feedback": "This keeps the team focused on one clear purpose and prevents confusion during the Sprint.",
+     "best": true
+    }
+   ],
+   "generated": true,
+   "concept": "Sprint and Sprint Goal",
+   "level": 1
+  },
+  {
+   "id": "hr_scenario_gen_a4a9bd60",
+   "type": "scenario",
+   "title": "Order Tracking Work Is Unclear",
+   "prompts": {
+    "dev1": "Look, I don't know where the missing packages are. It just happened, and nobody told us why.",
+    "dev2": "I am so worried because we cannot see the orders moving correctly. Something went wrong without anyone checking first."
+   },
+   "answers": [
+    {
+     "id": "a",
+     "text": "We should just guess where the orders are and keep working as fast as possible.",
+     "trust": -1,
+     "feedback": "Guessing hides the real issue and skips the necessary check so mistakes keep happening."
+    },
+    {
+     "id": "b",
+     "text": "Ignore what we do not know and blame the person who made a small mistake earlier.",
+     "trust": -5,
+     "feedback": "This hides the truth instead of looking at it, which stops the team from learning or improving their process."
+    },
+    {
+     "id": "c",
+     "text": "Let's stop and talk about exactly what happened before we try to fix it again.",
+     "trust": 3,
+     "feedback": "This uses inspection to make the problem clear, which allows the team to adapt their work safely.",
+     "best": true
+    }
+   ],
+   "generated": true,
+   "concept": "The three pillars of Scrum",
+   "level": 3
+  },
+  {
+   "id": "hr_scenario_gen_6f168971",
+   "type": "scenario",
+   "title": "Stakeholder Wants Faster Refunds",
+   "prompts": {
+    "dev1": "Hey, Marlo just told us to speed up the refund process before our next demo. They want it done by tomorrow because it looks bad if customers wait too long.",
+    "dev2": "Oh no, I am so worried. Marlo says we must change how refunds work right now because a big client is asking about it urgently and they are very upset."
+   },
+   "answers": [
+    {
+     "id": "a",
+     "text": "I will change the system immediately so Marlo stops complaining about our slow work.",
+     "trust": -5,
+     "feedback": "This action damages trust by ignoring the Retrospective process and making changes without inspecting how the team actually works together."
+    },
+    {
+     "id": "b",
+     "text": "We should talk in the Retrospective to decide if this change fits our plan for next week.",
+     "trust": 3,
+     "feedback": "This answer respects the Sprint Retrospective by inspecting how work went and planning improvements together before acting on outside pressure.",
+     "best": true
+    },
+    {
+     "id": "c",
+     "text": "We can try to speed it up a little bit, but we need to check if it breaks our current code first.",
+     "trust": -1,
+     "feedback": "This is a tempting half-measure because it tries to please the stakeholder without stopping to inspect the team process or agree on a real improvement plan."
+    }
+   ],
+   "generated": true,
+   "concept": "Sprint Retrospective",
+   "level": 1
+  },
+  {
+   "id": "hr_scenario_gen_a591255e",
+   "type": "scenario",
+   "title": "Payment Feature Team Disagreement",
+   "prompts": {
+    "dev1": "Hey, we are stuck on card payments. Ines says we should finish the login check first, then the card validation later. Tobi wants to do the whole payment flow at once because he fears users will get frustrated if it takes too long. What shall we do?",
+    "dev2": "Oh no, we have a problem with the card payments feature. Ines prefers breaking this into small separate steps for login and validation. I am worried that splitting it up might confuse users who just want to buy something quickly. Should we split the work or keep it together?"
+   },
+   "answers": [
+    {
+     "id": "a",
+     "text": "Let us ignore what users need and just build whatever features we feel like doing so we can argue less.",
+     "trust": -5,
+     "feedback": "Building without a clear user outcome wastes time and creates confusion. A team must always focus on delivering value to people."
+    },
+    {
+     "id": "b",
+     "text": "Let us focus on a clear outcome for users by choosing one specific thing they can do with their new card during this sprint.",
+     "trust": 3,
+     "feedback": "A Sprint Goal describes what users will be able to achieve, not just which tasks to complete. This helps everyone agree on value.",
+     "best": true
+    },
+    {
+     "id": "c",
+     "text": "We can try to fit both the login check and card validation into one big task so we finish faster.",
+     "trust": -1,
+     "feedback": "This mixes multiple user outcomes into one vague goal, making it hard to see if the work is done correctly or if it helps users."
+    }
+   ],
+   "generated": true,
+   "concept": "Sprint Goal",
+   "level": 2
+  },
+  {
+   "id": "hr_scenario_gen_56eb7272",
+   "type": "scenario",
+   "title": "The Checkout Shortcut Dilemma",
+   "prompts": {
+    "dev1": "I found a quick way to make the checkout button appear on all screens instantly. It skips the proper database check though. Do we try it just because it is fast, or do we wait for the hard way?",
+    "dev2": "Oh no, I was so worried I kept looking at the slow code until I saw this secret shortcut. The app feels faster right now but my stomach hurts thinking about what might break later. Should we keep using this trick or tell Marlo immediately?"
+   },
+   "answers": [
+    {
+     "id": "a",
+     "text": "Let us stick to the proper way. It is safe and honest even if it takes longer.",
+     "trust": 3,
+     "feedback": "This choice shows courage by admitting the shortcut is risky and transparency by refusing to hide the potential problem from the team.",
+     "best": true
+    },
+    {
+     "id": "b",
+     "text": "I will use the shortcut without telling anyone since it makes the store look great right now.",
+     "trust": -5,
+     "feedback": "Hiding the truth breaks trust and allows a mistake to ruin the shopping experience for everyone who buys something."
+    },
+    {
+     "id": "c",
+     "text": "We can use the shortcut for today but fix the real code later when we are free.",
+     "trust": -1,
+     "feedback": "Delaying the fix creates a false sense of safety while letting the hidden risk grow bigger inside the app."
+    }
+   ],
+   "generated": true,
+   "concept": "Courage and transparency",
+   "level": 3
+  },
+  {
+   "id": "hr_scenario_gen_8c17a5ad",
+   "type": "scenario",
+   "title": "Coupons Blocked by Bug",
+   "prompts": {
+    "dev1": "Marlo wants the coupon feature live today but we found a bug in the discount calculation. Ines says, 'Look at that messy code and tell me how to handle this block without breaking our rules.'",
+    "dev2": "The team inspected the coupon logic and realized it does not match the transparency rule because the numbers are wrong. Tobi says, 'We need to adapt quickly. Please choose what to do so we can fix the inspection failure.'"
+   },
+   "answers": [
+    {
+     "id": "a",
+     "text": "We will hide the bug details until tomorrow. We can continue coding other parts while waiting for a quick fix later.",
+     "trust": -1,
+     "feedback": "Hiding the problem breaks transparency, and ignoring the current block means we fail to inspect or adapt until it is too late."
+    },
+    {
+     "id": "b",
+     "text": "Ignore the bug completely. Ship the app now so Marlo gets her goal met today even if discounts are wrong.",
+     "trust": -5,
+     "feedback": "Releasing broken code damages trust and violates transparency because we pretend the problem does not exist while ignoring inspection."
+    },
+    {
+     "id": "c",
+     "text": "Stop all work on coupons now. Show Marlo the bug clearly. Fix the code together so our next check shows truth and learning.",
+     "trust": 3,
+     "feedback": "This answer stops harm by making the problem clear, then uses inspection and adaptation to correct the error before proceeding.",
+     "best": true
+    }
+   ],
+   "generated": true,
+   "concept": "The three pillars of Scrum",
+   "level": 3
+  },
+  {
+   "id": "hr_scenario_gen_f6b08596",
+   "type": "scenario",
+   "title": "Shortcut on the Checkout Page",
+   "prompts": {
+    "dev1": "Hey, I found a way to skip the hard part of the checkout code. It makes testing faster right now. But someone else warned me it might break later. What should we do about this?",
+    "dev2": "I was scared to touch the checkout page because I made a mistake yesterday. Now another trick appears that seems easy to fix things quickly. I don't want to hurt our work. Please tell us what you think."
+   },
+   "answers": [
+    {
+     "id": "a",
+     "text": "We will use the shortcut now because it feels easy to fix.",
+     "trust": -5,
+     "feedback": "Skipping hard parts creates new issues that hurt the team later on."
+    },
+    {
+     "id": "b",
+     "text": "Let us try the shortcut just for today and see if anything breaks.",
+     "trust": -1,
+     "feedback": "Testing one day at a time hides hidden problems until they grow too big."
+    },
+    {
+     "id": "c",
+     "text": "We will wait and discuss this shortcut tomorrow during our daily check-in.",
+     "trust": 3,
+     "feedback": "The Daily Scrum is the right time to ask for help when progress looks shaky.",
+     "best": true
+    }
+   ],
+   "generated": true,
+   "concept": "Daily Scrum",
+   "level": 1
+  },
+  {
+   "id": "hr_scenario_gen_012094fe",
+   "type": "scenario",
+   "title": "The Unapproved Feature Plan",
+   "prompts": {
+    "dev1": "Marlo asked me to build a live chat bubble for the shopping app because he thinks it will boost sales. I told him we need more time for payment testing, but he said no and ignored me. What should I do?",
+    "dev2": "Hey, Marlo promised a new feature today without telling us or checking if we have enough time left. He is worried about missing the deadline now that we found a bug. Should we tell him the truth?"
+   },
+   "answers": [
+    {
+     "id": "a",
+     "text": "I will pretend the chat bubble is not a real feature and tell Marlo we will try our best.",
+     "trust": -1,
+     "feedback": "This answer avoids conflict but hides the real problem, which leads to confusion and wasted work later on."
+    },
+    {
+     "id": "b",
+     "text": "I will tell Marlo gently that the promise was made without team input and we cannot build it safely right now.",
+     "trust": 3,
+     "feedback": "This answer uses courage to speak the uncomfortable truth about the unapproved plan while showing transparency by explaining why the current state is risky.",
+     "best": true
+    },
+    {
+     "id": "c",
+     "text": "I will agree to build the chat bubble immediately even though it breaks our testing schedule.",
+     "trust": -5,
+     "feedback": "This answer ignores the truth about the risk to the project stability and harms the team by accepting a bad promise."
+    }
+   ],
+   "generated": true,
+   "concept": "Courage and transparency",
+   "level": 3
+  },
+  {
+   "id": "hr_scenario_gen_c6c3f7a6",
+   "type": "scenario",
+   "title": "Stock Levels Promise Made Without Asking",
+   "prompts": {
+    "dev1": "Ines leans back and sighs. She says the inventory numbers look wrong because I promised to fix them today without telling anyone else first. What do you think we should do?",
+    "dev2": "Tobi looks nervous and stammers that he was worried about the stock report but found out a change was made secretly by me. He asks if it is okay to keep going as planned or if we need to stop."
+   },
+   "answers": [
+    {
+     "id": "a",
+     "text": "We will try to hide this mistake and hope nobody notices until the next big check.",
+     "trust": -1,
+     "feedback": "Hiding problems only makes them bigger and costs more time later."
+    },
+    {
+     "id": "b",
+     "text": "You should lie to the boss and say everything is perfect because nobody wants to see errors.",
+     "trust": -5,
+     "feedback": "Lying breaks trust and makes it impossible to deliver real value to customers."
+    },
+    {
+     "id": "c",
+     "text": "Let us show what is really true now so we can fix it together before more time is wasted.",
+     "trust": 3,
+     "feedback": "This stops hiding work and lets the team finish properly in a future Sprint.",
+     "best": true
+    }
+   ],
+   "generated": true,
+   "concept": "Definition of Done",
+   "level": 2
+  },
+  {
+   "id": "hr_scenario_gen_28574f6f",
+   "type": "scenario",
+   "title": "We Are Stuck On Gift Cards",
+   "prompts": {
+    "dev1": "Look, we are supposed to finish the gift card checkout by Friday, but I found a bug in the tax logic. If I fix this now, it might change how we finish the whole thing. What do you think?",
+    "dev2": "Hey! I was worried about our goal for the next week. We promised ourselves to make gift cards work perfectly. Now there is a problem with the money calculation. Should we just stop and fix only this one part, or keep going as planned?"
+   },
+   "answers": [
+    {
+     "id": "a",
+     "text": "We should ignore the tax bug for now and finish the gift cards, then fix the money later without telling anyone.",
+     "trust": -5,
+     "feedback": "Ignoring a known bug creates debt that will cause bigger problems when you try to launch your app."
+    },
+    {
+     "id": "b",
+     "text": "We will fix the bug carefully but keep our plan to finish the gift card feature by Friday.",
+     "trust": 3,
+     "feedback": "A Sprint Goal stays fixed during the sprint so the team can work together without changing direction.",
+     "best": true
+    },
+    {
+     "id": "c",
+     "text": "Let us just delay the deadline and spend more time on the tax bug instead of the main goal.",
+     "trust": -1,
+     "feedback": "Changing the goal mid-sprint makes it hard for everyone to focus on one clear objective together."
+    }
+   ],
+   "generated": true,
+   "concept": "Sprint and Sprint Goal",
+   "level": 1
+  },
+  {
+   "id": "hr_challenge_gen_0624241e",
+   "type": "challenge",
+   "ticket": "help_gen_7c1fa966",
+   "title": "Stock count check",
+   "intros": {
+    "dev1": "Ines: I have a product that is actually in stock but the label says sold out. Fix the logic so it matches reality.",
+    "dev2": "Tobi: Um, hello. My code keeps saying everything is sold out even when there is one item left. Please help me fix this."
+   },
+   "generated": true,
+   "concept": "conditions",
+   "level": 1
+  },
+  {
+   "id": "hr_challenge_gen_88038542",
+   "type": "challenge",
+   "ticket": "help_gen_9502d75c",
+   "title": "Discount logic broken",
+   "intros": {
+    "dev1": "Ines: Look at this discount code. It subtracts ten dollars for everyone. That is not how the rules work.",
+    "dev2": "Tobi: I tried to fix it but I am worried I made a mistake. Please tell me what line is wrong."
+   },
+   "generated": true,
+   "concept": "conditions",
+   "level": 2
+  },
+  {
+   "id": "hr_challenge_gen_0cae62b2",
+   "type": "challenge",
+   "ticket": "help_gen_f358474a",
+   "title": "VIP Discount Logic",
+   "intros": {
+    "dev1": "Ines: I wrote this but it never deducts anything. The VIP flag is ignored completely. Please fix the logic.",
+    "dev2": "Tobi: Oh no, I broke the discount code. It always returns the full price. Can you help me find the error?"
+   },
+   "generated": true,
+   "concept": "conditions",
+   "level": 2
+  },
+  {
+   "id": "hr_challenge_gen_102753ec",
+   "type": "challenge",
+   "ticket": "help_gen_ae1ff89d",
+   "title": "Express vs Standard",
+   "intros": {
+    "dev1": "Ines: This shipping logic is stubbornly boring. It ignores the express flag entirely. Fix it so we can actually ship fast.",
+    "dev2": "Tobi: I tried to check the flag but I got the order wrong. The code says standard even when we want fast. Please help?"
+   },
+   "generated": true,
+   "concept": "conditions",
+   "level": 1
+  },
+  {
+   "id": "hr_challenge_gen_d449ae1d",
+   "type": "challenge",
+   "ticket": "help_gen_aab24556",
+   "title": "Stock label confusion",
+   "intros": {
+    "dev1": "Ines: The label says sold out for one item. I am done guessing what the logic is.",
+    "dev2": "Tobi: Oh no, the code returns wrong answers sometimes. Please help me fix this mistake today."
+   },
+   "generated": true,
+   "concept": "conditions",
+   "level": 1
+  },
+  {
+   "id": "hr_challenge_gen_303ad191",
+   "type": "challenge",
+   "ticket": "help_gen_811baa73",
+   "title": "Double the loyalty points",
+   "intros": {
+    "dev1": "I told you, the math is wrong. It doubles everything regardless of the bonus flag. Fix it already.",
+    "dev2": "Oh no, I think the logic is broken. The function returns double when it should just give the original amount sometimes."
+   },
+   "generated": true,
+   "concept": "conditions",
+   "level": 1
+  },
+  {
+   "id": "hr_challenge_gen_a514f022",
+   "type": "challenge",
+   "ticket": "help_gen_f1414caf",
+   "title": "Express shipping speed",
+   "intros": {
+    "dev1": "Ines: This code claims every package is standard speed. It ignores the express flag entirely.",
+    "dev2": "Tobi: I tried fixing it but got confused by the logic. Please help me find the error."
+   },
+   "generated": true,
+   "concept": "conditions",
+   "level": 1
+  },
+  {
+   "id": "hr_challenge_gen_1d1c94b5",
+   "type": "challenge",
+   "ticket": "help_gen_bef8ae78",
+   "title": "Age check fails",
+   "intros": {
+    "dev1": "Ines: This gate blocks everyone. I am tired of fixing your silly logic errors.",
+    "dev2": "Tobi: Oh no, the age check is broken again. I tried so hard but I cannot fix it."
+   },
+   "generated": true,
+   "concept": "conditions",
+   "level": 1
+  },
+  {
+   "id": "hr_challenge_gen_deb86ebc",
+   "type": "challenge",
+   "ticket": "help_gen_ea39fdce",
+   "title": "Discount logic fails",
+   "intros": {
+    "dev1": "Ines: I am reviewing the discount code and it looks very wrong. VIPs are getting less off than regular people with a coupon.",
+    "dev2": "Tobi: Oh no, I think I broke something again. The math is clearly not adding up for our special customers today."
+   },
+   "generated": true,
+   "concept": "conditions",
+   "level": 2
+  },
+  {
+   "id": "hr_challenge_gen_855f681d",
+   "type": "challenge",
+   "ticket": "help_gen_915185fb",
+   "title": "Order status logic fix",
+   "intros": {
+    "dev1": "I found the bug where shipped items say unpaid. My logic is fine but I need your help.",
+    "dev2": "Oh no, the code gives wrong answers sometimes. I am so sorry for my mistake in writing this."
+   },
+   "generated": true,
+   "concept": "conditions",
+   "level": 3
+  },
+  {
+   "id": "hr_challenge_gen_d1d176f6",
+   "type": "challenge",
+   "ticket": "help_gen_79c57953",
+   "title": "Gift wrap cost check",
+   "intros": {
+    "dev1": "I checked the code and found a silly mistake. The fee is wrong for free wrap. Can you fix it?",
+    "dev2": "Oh no, I broke the logic again. Please help me so we do not charge too much for nothing."
+   },
+   "generated": true,
+   "concept": "conditions",
+   "level": 1
+  },
+  {
+   "id": "hr_challenge_gen_a514f022",
+   "type": "challenge",
+   "ticket": "help_gen_f1414caf",
+   "title": "Express shipping speed",
+   "intros": {
+    "dev1": "I cannot believe this code thinks express shipping is slow. It returns standard for a one.",
+    "dev2": "Oh no, the function says standard for express one. I am so sorry. Please fix it."
+   },
+   "generated": true,
+   "concept": "conditions",
+   "level": 1
+  },
+  {
+   "id": "hr_challenge_gen_a37a74f5",
+   "type": "challenge",
+   "ticket": "help_gen_5c0f4ce9",
+   "title": "VIP discount logic",
+   "intros": {
+    "dev1": "I am done watching this discount function ignore VIPs. It is time to fix it before we lose more sales.",
+    "dev2": "Oh no, the discount code is broken and I feel terrible about it. Please help us make it work again."
+   },
+   "generated": true,
+   "concept": "conditions",
+   "level": 2
+  }
+ ]
+}

@@ -23,6 +23,8 @@ class Content:
     version: str = "content-1"
     guide: dict = field(default_factory=dict)   # guided Scrum scenes (content/scrum_guide.json)
     help: dict = field(default_factory=dict)    # Help requests: scenarios and coding challenges (content/help_requests)
+    beats: dict = field(default_factory=dict)   # AI-written quiz questions, by id (each says which authored question it stands in for)
+    packs: dict = field(default_factory=dict)   # AI-written projects: pack id -> the full guide that project plays (see ai/library.py)
 
     @property
     def pool(self) -> list[str]:

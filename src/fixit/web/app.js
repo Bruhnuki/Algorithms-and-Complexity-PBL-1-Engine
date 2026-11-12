@@ -1,5 +1,8 @@
 import { runWelcome, flowChart, SPRINT_NODES } from "/welcome.js";
 import { TERMS, CONCEPTS } from "/guide.js";
+TERMS.morale = ["Team morale", "How the team feels, from 0 to 100. Kind, honest messages and coaching lift it. Insults, mistakes and silence lower it. Low morale makes their work fail more, and if it falls too low the team gives up and the game is over. The chat has each teammate's morale and sanity."];
+import { simulationTab } from "/sim.js";
+import { enginesTab } from "/engines.js";
 // Front end: draws server state, sends commands. No game rules live here (scores, costs, results all come from the server).
 const root = document.getElementById("root");
 const nav = document.getElementById("nav");
@@ -85,12 +88,18 @@ function avatar(who, tone) {
   return svg;
 }
 
-async function api(path, method = "GET", body) {
+// The session cookie is HttpOnly and lasts 8 hours; the CSRF token is kept in localStorage so a refresh (or a second tab) stays signed in.
+const saveCsrf = (v) => { csrf = v || ""; try { if (csrf) localStorage.setItem("csrf", csrf); else localStorage.removeItem("csrf"); } catch (_) { /* storage can be blocked: a refresh then asks the server for a new token */ } };
+async function api(path, method = "GET", body, retried = false) {
   const opt = { method, headers: { "Content-Type": "application/json" }, credentials: "same-origin" };
   if (csrf) opt.headers["X-CSRF-Token"] = csrf;
   if (body !== undefined) opt.body = JSON.stringify(body);
   const r = await fetch(path, opt);
   const data = await r.json().catch(() => ({}));
+  if (r.status === 403 && data.code === "CSRF_FAILED" && !retried && path !== "/api/v1/auth/csrf") {   // another tab rotated it
+    saveCsrf((await api("/api/v1/auth/csrf")).csrf);
+    return api(path, method, body, true);
+  }
   if (!r.ok) throw Object.assign(new Error(data.detail || data.code || r.statusText), { code: data.code, status: r.status });
   return data;
 }
@@ -113,7 +122,7 @@ function authScreen() {
         if (r.join_code) alert("Your cohort join code: " + r.join_code);
       }
       const l = await api("/api/v1/auth/login", "POST", { email: f.email.value, password: f.password.value });
-      csrf = l.csrf;
+      saveCsrf(l.csrf);
       await start();
     } catch (e) { err.textContent = e.message; }
   };
@@ -138,7 +147,7 @@ const welcomeKey = () => "welcomed:" + me.id;
 const welcomed = () => { try { return localStorage.getItem(welcomeKey()) === "1"; } catch (_) { return false; } };   // storage can be blocked: then the intro just shows again
 const markWelcomed = () => { try { localStorage.setItem(welcomeKey(), "1"); } catch (_) { /* storage can be blocked */ } };
 
-async function logout() { try { await api("/api/v1/auth/logout", "POST", {}); } catch (_) {} csrf = ""; me = null; authScreen(); }
+async function logout() { try { await api("/api/v1/auth/logout", "POST", {}); } catch (_) {} saveCsrf(""); me = null; authScreen(); }
 
 function consentScreen() {
   mount(h("section", { class: "card narrow" }, h("h2", {}, "Before you play"),
@@ -161,22 +170,55 @@ function mainSprintScreen() {
 // Experimental: after a first win a run can take Heat modifiers.
 const HEAT_TEXT = { no_assistant: "No AI Assistant", one_warning: "One warning ends the run", short_days: "Shorter working days",
   po_pressure: "Marlo wants extra status updates", harsh_reviews: "Reviewers go viral more often" };
+// One card per project. Project 1 is authored; Projects 2 and 3 are written by the local AI while you play, and open after the one before is finished.
+// The page's security policy blocks style="..." attributes, so the width is set through the element's style object instead.
+const fillBar = (pct) => { const i = h("i"); i.style.width = pct + "%"; return i; };
+
+function projectCard(p, start) {
+  const state = p.n === 1 || p.status === "open" ? "open" : p.status === "locked" ? "locked" : "busy";
+  const made = p.ai && p.ai.target ? Math.round(100 * p.ai.made / p.ai.target) : 0;
+  const note = p.status === "locked" ? `Finish Project ${p.n - 1} to unlock it.`
+    : state === "busy" ? (!p.ai ? "It is written for you by the local AI while you play Project 1." : p.ai.status === "failed" ? "The AI could not finish this one yet. It will try again." : `The AI is writing it for you… ${made}%`) : null;
+  return h("div", { class: "pcard " + state }, h("small", {}, `Project ${p.n} · ${p.level}`),
+    h("b", {}, p.title || (p.status === "locked" ? "A new project, written for you" : "Your new project")),
+    p.themes && p.themes.length ? h("ol", { class: "pthemes" }, p.themes.map((t, i) => h("li", {}, h("i", {}, String(i + 1)), t))) : null,
+    p.n > 1 && p.title ? h("span", { class: "pchip ai" }, "Written by the local AI") : null,
+    state === "busy" && p.ai ? h("div", { class: "pbar", role: "progressbar", "aria-valuenow": String(made), "aria-valuemin": "0", "aria-valuemax": "100" }, fillBar(made)) : null,
+    note ? h("p", { class: "muted" }, note) : null,
+    state === "open" ? h("button", { class: "primary", onclick: () => start(p) }, p.n === 1 ? "Start the run" : `Start Project ${p.n}`) : null);
+}
+
+// Developer shortcut (server started with FIXIT_DEBUG=1): throw away Projects 2 and 3 and watch the AI write new ones.
+async function resetProjects() {
+  try { await api("/api/v1/debug/projects/reset", "POST", {}); if (run) run.projAt = 0; } catch (e) { toast("warn", e.message); }
+}
+
+function projectPicker(start) {
+  const box = h("div", { class: "pgrid", "aria-live": "polite" });
+  let seen = false;
+  const refresh = async () => {
+    try { box.replaceChildren(...(await api("/api/v1/me/projects")).projects.map((p) => projectCard(p, start))); } catch (e) { if (!box.children.length) box.replaceChildren(h("p", { class: "err", role: "alert" }, "Could not load the projects: " + e.message)); }   // otherwise it just keeps what it shows
+  };
+  refresh();
+  const t = setInterval(() => { if (box.isConnected) { seen = true; refresh(); } else if (seen) clearInterval(t); }, 4000);
+  return box;
+}
+
 async function setupRun() {
   let un = { unlocks: [], heat: [] };
   try { un = await api("/api/v1/me/unlocks"); } catch (_) { return newRun(); }
-  const picked = new Set();
   const err = h("div", { class: "err", role: "alert" });
+  const start = (p) => {
+    const opts = { heat: [], project: p.n };
+    ((p.n === 1 && !tutorialDone()) ? startTutorial(opts, false) : newRun(opts)).catch((e) => { err.textContent = e.message; });   // first time: the tutorial comes first
+  };
   mount(h("section", { class: "card wide newrun" }, h("h2", {}, ic("flag"), " New run"),
     h("div", { class: "nr-team" }, [["po", "Marlo", "Product Owner"], ["dev1", "Ines", "Developer"], ["dev2", "Tobi", "Developer"]].map(([id, n, r]) =>
       h("div", { class: "nr-mate" }, avatar(id, "calm"), h("b", {}, n), h("small", {}, r)))),
-    h("ol", { class: "nr-path", "aria-label": "Three Sprints" }, [["1", "Checkout"], ["2", "Rewards"], ["3", "Privacy"]].map(([n, l]) =>
-      h("li", { class: "nr-stop" }, h("span", { class: "nr-dot" }, n), h("b", {}, "Sprint " + n), h("small", {}, l))), h("li", { class: "nr-finish", "aria-label": "Finish" }, ic("flag"))),
+    projectPicker(start),
+    me && me.debug ? h("div", { class: "rdebug" }, h("small", {}, "Debug"), h("div", {}, h("button", { class: "dbg", onclick: resetProjects }, "Reset Projects 2 and 3 and write new ones"))) : null,
     un.unlocks.length ? h("p", { class: "muted" }, "Unlocked from earlier runs: " + un.unlocks.filter((u) => u !== "heat").map(practiceName).join(", ")) : null,
-    err, h("div", { class: "row" }, h("button", { class: "primary", onclick: () => {
-      const opts = { heat: [] };
-      (tutorialDone() ? newRun(opts) : startTutorial(opts, false)).catch((e) => { err.textContent = e.message; });   // first time: the tutorial comes first
-    } }, "Start the run"),
-      tutorialDone() ? h("button", { onclick: () => startTutorial({ heat: [] }, true).catch((e) => { err.textContent = e.message; }) }, "Replay the tutorial") : null)));
+    err, tutorialDone() ? h("div", { class: "row" }, h("button", { onclick: () => startTutorial({ heat: [] }, true).catch((e) => { err.textContent = e.message; }) }, "Replay the tutorial")) : null));
 }
 
 // ------------------------------------------------------------ game
@@ -197,6 +239,14 @@ function showTip(anchor, t) {
   tipEl.style.left = Math.max(8, Math.min(innerWidth - tw - 8, r.left)) + "px";
   const below = r.bottom + 8, th = tipEl.offsetHeight;
   tipEl.style.top = (below + th > innerHeight - 8 ? Math.max(8, r.top - th - 8) : below) + "px";
+}
+// A small "?" opens the explanation. The words themselves are plain text, so they never get in the way of a click (a "?" can sit in a corner of a button).
+function help(key, label, corner = false) {
+  const t = TERMS[key];
+  if (!t) return null;
+  const open = (e) => { e.stopPropagation(); e.preventDefault(); showTip(e.currentTarget, t); };
+  return h("span", { class: "term-q" + (corner ? " corner" : ""), tabindex: "0", role: "button", "aria-label": `What does "${label || t[0]}" mean?`, title: "What does this mean?", onclick: open,
+    onkeydown: (e) => { if (e.key === "Enter" || e.key === " ") open(e); } }, "?");
 }
 function term(key, label) {
   const t = TERMS[key];
@@ -276,10 +326,16 @@ async function poll() {
     const r = await api(`/api/v1/runs/${run.id}/state?since=${run.lastSeq}&since_line=${run.lastLine}`);
     run.lastSeq = r.seq; run.state = r.state;
     if (run.chatSprint != null && r.state.sprint !== run.chatSprint) { run.lines = []; run.chatSprint = r.state.sprint; }   // a new Sprint starts with an empty chat, and its first lines still arrive
-    for (const l of r.lines) { run.lines.push(l); run.lastLine = l.id; }
+    for (const l of r.lines) {
+      run.lines.push(l); run.lastLine = l.id;
+      if (run.chatBusy && l.speaker !== "you" && --run.chatBusy.left <= 0) run.chatBusy = null;   // every addressed teammate has answered
+    }
+    if (run.chatBusy && Date.now() >= run.chatBusy.until) run.chatBusy = null;
     collect(r.events);
+    if (r.state.status === "ended") { finishRun(); return; }
+    if (Date.now() - (run.projAt || 0) > ((me && me.debug) ? 4000 : 10000)) { run.projAt = Date.now(); api("/api/v1/me/projects").then((pr) => { run.projects = pr.projects; }).catch(() => {}); }
     render();
-  } catch (e) { if (e.status === 401) authScreen(); }
+  } catch (e) { if (e.status === 401) authScreen(); else console.error("poll/render failed:", e); }
 }
 
 async function tick() {
@@ -291,6 +347,8 @@ async function tick() {
   try { await api(`/api/v1/runs/${run.id}/tick`, "POST", { real_ms: ms }); } catch (_) {}
 }
 
+const MOOD_WHY = { mistake: "A mistake rattled the team", put_down: "Dropping an item hurt the team", skipped_checks: "Skipped checks worry the team", hidden_problem: "A hidden problem surfaced at the Review",
+  offload_failed: "Letting you down hurts", assigned: "A new task weighs on them", finished: "Finishing it felt good", idle: "Being left out hurts", peer_support: "A teammate checked in", peer_drag: "A teammate's gloom rubbed off", board_pressure: "The board is leaning on Marlo", coached: "Being coached helped", honest_checks: "Honest work steadies the team" };
 // experimental mechanics: what each new event says when it happens
 const XTOAST = {
   penalty: (e) => ["bad", `Mistake: Grade −${e.grade}, trust −${e.trust} for the whole team`],
@@ -315,6 +373,17 @@ const XTOAST = {
   sprint_goal: (e) => e.met ? ["good", `Sprint goal met: ${e.shipped} of ${e.target} sent (+${e.points} pts)`]
     : ["bad", `Sprint goal missed: ${e.shipped} of ${e.target} sent. A strike and Suspicion +${e.cover}`],
   release_shipped: (e) => e.failed ? ["bad", `Release shipped with a bug inside: bonus lost (${e.points} pts)`] : ["good", `Release shipped: ${e.base} × ${e.mult} = ${e.points} pts`],
+  mood_changed: (e) => MOOD_WHY[e.why] ? [e.d_morale < 0 || e.d_sanity < 0 ? "bad" : "good", `${MOOD_WHY[e.why]}: ${who(e.dev)}'s morale ${e.d_morale > 0 ? "+" : ""}${e.d_morale}${e.d_sanity < 0 ? `, sanity ${e.d_sanity}` : ""}`] : e.why === "unheard" ? ["warn", `${who(e.dev)} feels unheard: nobody talked to them since the last Daily Scrum (morale ${e.d_morale})`]
+    : e.d_morale < 0 || e.d_sanity < 0 ? ["bad", `${who(e.dev)}: ${[e.d_morale < 0 ? `morale ${e.d_morale}` : "", e.d_sanity < 0 ? `sanity ${e.d_sanity}` : ""].filter(Boolean).join(", ")}`]
+    : e.d_morale > 0 ? ["good", `${who(e.dev)}'s morale +${e.d_morale}`] : null,
+  conflict_started: (e) => ["bad", `${who(e.a)} and ${who(e.b)} are arguing in Slackish. Settle it before it spreads.`],
+  conflict_break: (e) => ["bad", `${who(e.dev)} stormed off: their work is blocked until you settle the argument`],
+  conflict_resolved: (e) => ["good", `${who(e.a)} and ${who(e.b)} settled it ${HOW[e.how] || ""}`],
+  conflict_unmoved: () => ["warn", "They are too upset to listen. Lift their morale in the chat first."],
+  conflict_dismissed: () => ["bad", "Telling them to stop made it worse"],
+  conflict_cost: () => ["bad", "Users can feel a team at war with itself: rating −0.2"],
+  mood_low: (e) => ["warn", `${who(e.dev)}'s ${e.what} is getting low. Talk to them in Slackish.`],
+  tolerance_changed: (e) => [e.delta > 0 ? "good" : "warn", `${who(e.dev)}'s tolerance ${e.delta > 0 ? "+" : "−"}${Math.abs(e.delta)}`],
   trust_changed: (e) => e.delta ? [e.delta > 0 ? "good" : "warn", `${who(e.dev)}'s trust ${e.delta > 0 ? "+" : "−"}${Math.abs(e.delta)}%`] : null,   // only when something you did changed it
   offload_result: (e) => [e.ok ? "good" : "bad", e.ok ? `${who(e.dev)} finished “${e.title}”` : `${who(e.dev)} couldn't finish “${e.title}”. It's back with you`],
   hidden_problem: (e) => e.harder ? ["warn", `A hidden problem came out: ${e.items} harder item${e.items > 1 ? "s" : ""} will be in your next Sprint`] : ["bad", "A problem you hid in the Daily Scrum came out and cost you rating"],
@@ -373,7 +442,7 @@ function react(e) {
 }
 
 async function cmd(type, payload = {}) {
-  if (type !== "run_script") run.runs = null;   // test results show only until the player does anything else
+  if (type !== "run_script" && type !== "toggle_dod") run.runs = null;   // test results show until the player changes the fix; ticking the Done checklist keeps them
   run.busy = true;
   seqCounter = Math.max(seqCounter + 1, Date.now());
   try {
@@ -383,13 +452,31 @@ async function cmd(type, payload = {}) {
   } catch (e) { run.error = e.message; }
   run.busy = false;
   await poll();
-  if (run.state.status === "ended") return debrief();
+  if (run.state.status === "ended") return finishRun();
+}
+
+// A run can end from a command or from the chat (the team gives up): show the right ending once.
+function finishRun() {
+  if (run.endShown) return;
+  run.endShown = true;
+  if (run.state.ending === "lose_morale") { timers.forEach(clearInterval); return moraleOver(); }
+  return debrief();
+}
+function moraleOver() {
+  for (const layer of [sceneLayer, conceptLayer, confirmLayer]) { layer.hidden = true; layer.replaceChildren(); }   // nothing from the lost run stays on top
+  run.modal = null;
+  const close = () => document.getElementById("gameover")?.remove();
+  document.body.append(h("div", { id: "gameover", class: "gameover", role: "alertdialog", "aria-modal": "true", "aria-labelledby": "go-title", "aria-describedby": "go-text" },
+    h("div", { class: "gocard" }, h("div", { class: "hero", "aria-hidden": "true" }, ic("c-heron-oops")), h("h2", { id: "go-title" }, "Team Morale Is Too Low!"),
+      h("p", { id: "go-text" }, "Your team has lost hope and can no longer continue. Restart the game to try again."),
+      h("div", { class: "row" }, h("button", { class: "primary", id: "go-restart", onclick: () => { close(); setupRun(); } }, "Restart the game"), h("button", { onclick: () => { close(); debrief(); } }, "See what happened")))));
+  document.getElementById("go-restart").focus();
 }
 
 // The status meters are built ONCE. After that only their numbers, bars and colours change, in place,
 // so icons never flash and nothing is re-created when you click something.
 const METER_DEFS = [["Rating", "rating", "star", "sky", false], ["Points", "points", "coin", "yellow", false], ["Cover", "suspicion", "search", "lav", true],
-  ["Focus", "energy", "bolt", "mint", true], ["Warnings", "strikes", "warn", "coral", false], ["Clock", "clock", "clock", "white", false]];
+  ["Focus", "energy", "bolt", "mint", true], ["Warnings", "strikes", "warn", "coral", false], ["Clock", "clock", "clock", "white", false], ["Morale", "morale", "chat", "mint", true]];
 function buildMeters() {
   return h("div", { id: "meters", role: "group", "aria-label": "Your status" }, METER_DEFS.map(([k, termKey, icon, tone, bar]) =>
     h("div", { class: `meter t-${tone}`, "data-k": k }, h("span", { class: "lbl", "aria-hidden": "true" }, ic(icon)), h("span", { class: "mname" }, term(termKey)), h("b", {}),
@@ -428,6 +515,15 @@ function syncMeters(s) {
   tile("Cover").hidden = calmMode;   // the fake-résumé idea is not part of learning mode
   const w = tile("Warnings"); w.hidden = calmMode || !s.warnings; w.classList.add("low"); w.querySelector("b").textContent = String(s.warnings);
   tile("Clock").hidden = calmMode;   // nothing is timed in learning mode, so no clock
+  const mo = tile("Morale"), tm = s.x && s.x.team_mood;   // the team's morale is always in view: it decides whether the game can continue
+  mo.hidden = !tm || !!s.x.tutorial;
+  if (tm) {
+    const lowest = Math.min(tm.morale, tm.sanity);
+    mo.querySelector("b").textContent = String(tm.morale);
+    mo.querySelector(".bar i").style.width = Math.max(2, tm.morale) + "%";
+    mo.classList.toggle("low", lowest < 35); mo.title = `Team morale ${tm.morale}, sanity ${tm.sanity}. The team gives up under ${tm.floor}.`;
+    mo.dataset.tone = lowest >= 60 ? "good" : lowest >= 35 ? "mid" : "bad";
+  }
   const clk = tile("Clock").querySelector("b"), ct = s.clock_min + " min";
   if (!calmMode && clk.textContent !== ct) clk.textContent = ct;
 }
@@ -669,8 +765,8 @@ function codeDesk(s) {
     w.challenge ? null : h("h3", {}, term("dod")),
     w.challenge ? null : h("div", { "data-guide": "dod" }, ["tests", "matches_doc", "no_security"].map((b) => h("label", { class: "check" }, h("input", { type: "checkbox", checked: w.dod[b], onchange: () => cmd("toggle_dod", { box: b }) }), h("span", {}, box[b])))),
     s.x && !w.challenge ? pushDeal(s, w) : null,
-    w.challenge ? null : h("div", { class: "row" }, h("button", { class: "primary", "data-guide": "push", title: "Put your fix into the live app", onclick: () => cmd("push"),
-      disabled: !w.selected || (s.x && s.x.boss_live && s.x.boss === "friday_deploy" && !Object.values(w.dod).every(Boolean)) }, ic("rocket"), " ", term("ship")), w.challenge ? null : h("button", { onclick: () => confirmPutDown(s) }, "Put it down")));
+    w.challenge ? null : h("div", { class: "row" }, h("span", { class: "tipwrap" }, h("button", { class: "primary has-tip", "data-guide": "push", title: "Put your fix into the live app", onclick: () => cmd("push"),
+      disabled: !w.selected || (s.x && s.x.boss_live && s.x.boss === "friday_deploy" && !Object.values(w.dod).every(Boolean)) }, ic("rocket"), " ", h("span", { class: "term-text" }, TERMS.ship[0])), help("ship", TERMS.ship[0], true)), w.challenge ? null : h("button", { onclick: () => confirmPutDown(s) }, "Put it down")));
 }
 
 
@@ -718,28 +814,34 @@ function syncScene(s) {
     return;
   }
   const first = run.sceneId !== p.id;
+  const sceneSig = JSON.stringify([p, g.premise && g.premise.title, run.error || ""]);
+  if (!first && sceneSig === run.sceneSig && !sceneLayer.hidden) return;
+  run.sceneSig = sceneSig;
   run.sceneId = p.id; run.modal = "scene";
   if (conceptLayer && !conceptLayer.hidden) { conceptLayer.hidden = true; conceptLayer.replaceChildren(); }
   const tried = new Map(p.tried.map((t) => [t.id, t]));
-  const choice = (c) => {
+  const choice = (c, i) => {
     const t = tried.get(c.id), wrong = t && !t.ok, right = t && t.ok;
     return h("button", { class: "scene-choice" + (wrong ? " wrong" : "") + (right ? " right" : "") + (c.suggested ? " hint" : ""), disabled: p.resolved || !!t,
       onclick: () => cmd("guide_answer", { choice_id: c.id }) },
-      h("span", { class: "ci", "aria-hidden": "true" }, right ? ic("check") : wrong ? ic("cross") : null),
+      h("span", { class: "ci", "aria-hidden": "true" }, right ? ic("check") : wrong ? ic("cross") : String.fromCharCode(65 + i)),
       h("span", { class: "ct" }, h("b", {}, c.text), c.detail ? h("small", {}, c.detail) : null, c.suggested && !t ? h("small", { class: "evid" }, "The evidence from this Sprint points here") : null));
   };
   const last = p.tried[p.tried.length - 1];
-  const prem = g.premise && p.step === 1 && p.when === "planning" ? h("div", { class: "premise" }, h("b", {}, g.premise.title), g.premise.lines.map((l) => h("p", {}, l))) : null;
-  const card = h("div", { class: "scene-card", role: "dialog", "aria-modal": "true", "aria-labelledby": "scene-title" },
-    h("div", { class: "scene-head" }, speakerAvatar(p.speaker),
-      h("div", {}, h("small", { class: "newidea" }, `${WHEN_LABEL[p.when] || p.when} · scene ${p.step} of ${p.of}`), h("h2", { id: "scene-title" }, p.concept))),
-    prem, h("p", { class: "scene-text" }, p.scene), p.list ? h("ol", { class: "scene-list" }, p.list.map((x) => h("li", {}, x))) : null,
+  const prem = g.premise && p.step === 1 && p.when === "planning" ? h("div", { class: "premise" }, h("small", { class: "kicker" }, "Project brief"), h("b", {}, g.premise.title), g.premise.lines.map((l) => h("p", {}, l))) : null;
+  const head = h("div", { class: "scene-head" }, speakerAvatar(p.speaker),
+      h("div", {}, h("small", { class: "newidea" }, `${WHEN_LABEL[p.when] || p.when} · scene ${p.step} of ${p.of}`), h("h2", { id: "scene-title" }, p.concept)));
+  const body = [
+    h("p", { class: "scene-text" }, p.scene), p.list ? h("ol", { class: "scene-list" }, p.list.map((x) => h("li", {}, x))) : null,
     h("h3", { class: "scene-q" }, p.question),
-    h("div", { class: "scene-choices" }, p.choices.map(choice)),
+    h("div", { class: "scene-choices" }, p.choices.map((c, i) => choice(c, i))),
     last ? h("div", { class: "scene-fb " + (last.ok ? "ok" : "no"), role: "status" }, h("b", {}, last.ok ? (p.kind === "pick" ? "Decision made. " : "Right. ") : "Not quite. "), last.feedback) : null,
     p.resolved ? h("div", { class: "scene-teach" }, ic("bulb"), h("div", {}, h("small", {}, "Scrum idea"), p.teach)) : null,
     p.resolved ? h("div", { class: "row" }, h("button", { class: "primary", "data-guide": "scene-next", onclick: () => cmd("guide_next") }, "Continue")) : (p.tried.length ? h("p", { class: "muted small" }, "Read why, then pick another answer.") : null),
-    run.error ? h("div", { class: "err", role: "alert" }, run.error) : null);
+    run.error ? h("div", { class: "err", role: "alert" }, run.error) : null];
+  const card = prem
+    ? h("div", { class: "scene-card brief", role: "dialog", "aria-modal": "true", "aria-labelledby": "scene-title" }, h("div", { class: "scene-col" }, head, prem), h("div", { class: "scene-col" }, ...body))
+    : h("div", { class: "scene-card", role: "dialog", "aria-modal": "true", "aria-labelledby": "scene-title" }, head, ...body);
   const keep = sceneLayer.querySelector(".scene-card");
   const top = keep ? keep.scrollTop : 0;
   sceneLayer.replaceChildren(card);
@@ -757,6 +859,15 @@ const endWhy = (s, to) => todoLeft(s) > 0 ? `${todoLeft(s)} item${todoLeft(s) > 
 const endNote = (s, to) => todoLeft(s) > 0 ? h("p", { class: "cost risk endnote" }, endWhy(s, to)) : null;
 const confirmLayer = h("div", { id: "confirm", hidden: true });
 document.body.append(confirmLayer);
+confirmLayer.addEventListener("keydown", (e) => {   // a dialog must be usable from the keyboard alone: Escape backs out, Tab never leaves it
+  if (e.key === "Escape") { const c = confirmLayer.querySelector("[data-cancel]"); if (c) { e.preventDefault(); c.click(); } }
+  if (e.key === "Tab") {
+    const b = [...confirmLayer.querySelectorAll("button:not([disabled])")];
+    if (!b.length) return;
+    const i = b.indexOf(document.activeElement);
+    if (e.shiftKey && i <= 0) { e.preventDefault(); b[b.length - 1].focus(); } else if (!e.shiftKey && i === b.length - 1) { e.preventDefault(); b[0].focus(); }
+  }
+});
 function helpCard(s) {
   const hp = s.help;
   return h("section", { class: "card helpcard", "aria-label": "Help request" }, h("h2", {}, avatar(hp.dev, "calm"), " " + hp.title),
@@ -768,14 +879,17 @@ function helpCard(s) {
 function confirmPutDown(s) {
   const P = s.x.penalties.put_down;
   const close = () => { confirmLayer.hidden = true; confirmLayer.replaceChildren(); run.modal = null; };
+  const tile = (icon, value, what, note) => h("li", { class: "ptile" }, h("span", { class: "pic", "aria-hidden": "true" }, ic(icon)),
+    h("b", { class: "pval" }, value), h("span", { class: "pwhat" }, what), h("small", {}, note));
   run.modal = "confirm";
-  confirmLayer.replaceChildren(h("div", { class: "scene-card", role: "dialog", "aria-modal": "true", "aria-labelledby": "confirm-title" },
-    h("h2", { id: "confirm-title" }, "Put this item down?"),
-    h("p", {}, "The item is removed and counts as finished, but it costs the whole team:"),
-    h("ul", { class: "penlist" }, h("li", {}, `Grade −${P.grade}`), h("li", {}, `Trust −${P.trust} for Ines and Tobi`), h("li", {}, `App rating −${P.rating} stars (never below ${P.rating_floor})`)),
-    h("div", { class: "row" }, h("button", { class: "primary", onclick: () => { close(); cmd("hold"); } }, "Yes, put it down"), h("button", { onclick: () => { close(); run.sig = null; render(); } }, "Keep working on it"))));
+  confirmLayer.replaceChildren(h("div", { class: "scene-card confirm", role: "dialog", "aria-modal": "true", "aria-labelledby": "confirm-title" },
+    h("div", { class: "confirm-head" }, h("span", { class: "confirm-ic", "aria-hidden": "true" }, ic("warn")),
+      h("div", {}, h("h2", { id: "confirm-title" }, "Put this item down?"), h("p", { class: "confirm-sub" }, "It is removed and counts as finished, but the whole team pays for it."))),
+    h("ul", { class: "penlist" }, tile("clipboard", `−${P.grade}`, "Grade", "the whole team"), tile("chat", `−${P.trust}`, "Trust", "Ines and Tobi"), tile("star", `−${P.rating}`, "Stars", `never below ${P.rating_floor}`)),
+    h("div", { class: "row confirm-actions" }, h("button", { class: "primary", onclick: () => { close(); run.sig = null; render(); } }, "Keep working on it"),
+      h("button", { class: "danger", onclick: () => { close(); cmd("hold"); } }, "Yes, put it down"))));
   confirmLayer.hidden = false;
-  confirmLayer.querySelector("button.primary").focus();
+  confirmLayer.querySelector("button.primary").focus();   // the safe choice has the focus
 }
 
 function endStage(s, to) {
@@ -785,12 +899,12 @@ function endStage(s, to) {
   const done = items.filter((c) => c.state === "done"), team = items.filter((c) => c.state === "delegated" || c.state === "returned"), todo = items.filter((c) => c.state === "pile" || c.state === "open");
   const close = () => { confirmLayer.hidden = true; confirmLayer.replaceChildren(); run.modal = null; };
   run.modal = "confirm";
-  confirmLayer.replaceChildren(h("div", { class: "scene-card", role: "dialog", "aria-modal": "true", "aria-labelledby": "confirm-title" },
+  confirmLayer.replaceChildren(h("div", { class: "scene-card", role: "alertdialog", "aria-modal": "true", "aria-labelledby": "confirm-title" },
     h("h2", { id: "confirm-title" }, "Finish the Sprint?"),
     h("p", {}, "The Sprint ends and users see what was sent. Here is where your Sprint Backlog stands:"),
     group("Sent to users", "ok", done), group("With the team, not checked yet. It goes out unchecked", "warn", team), group("Not finished: back to the Product Backlog", "no", todo),
     h("p", { class: "muted small" }, "Only work that meets the Definition of Done counts toward the Increment."),
-    h("div", { class: "row" }, h("button", { class: "primary", onclick: () => { close(); cmd("advance_stage", { to }); } }, "Finish the Sprint"), h("button", { onclick: () => { close(); run.sig = null; render(); } }, "Keep working"))));
+    h("div", { class: "row" }, h("button", { class: "primary", onclick: () => { close(); cmd("advance_stage", { to }); } }, "Finish the Sprint"), h("button", { "data-cancel": "1", onclick: () => { close(); run.sig = null; render(); } }, "Keep working"))));
   confirmLayer.hidden = false;
   confirmLayer.querySelector("button.primary").focus();
 }
@@ -828,7 +942,7 @@ const TUT = [
   { id: "planning", at: () => ".stagecard", act: () => "[data-guide=start-sprint]", spot: () => "[data-guide=start-sprint]", done: (s) => s.stage !== "PLANNING",
     say: ["This is Sprint Planning. It's where the team decides why this Sprint matters, what to work on, and how to get started.",
       MARLO("Team! Quick sync! I've groomed the backlog and aligned it to our checkout KPIs. We need to move the needle, like, yesterday!"),
-      "That's Marlo, our Product Owner. She's always in a hurry, but she owns the order of the list. The Sprint Goal is the one thing we're all aiming for.",
+      "That's Marlo, our Product Owner. He's always in a hurry, but he owns the order of the list. The Sprint Goal is the one thing we're all aiming for.",
       "Everything looks good to me. Let's begin the Sprint with the green button."],
     todo: () => "Press “Begin the Sprint: Daily Scrum”." },
   { id: "slackGo", at: () => "[data-guide='tab:slack']", act: () => "[data-guide='tab:slack']", click: true,
@@ -1146,14 +1260,108 @@ function callCard(s) {
 const CHAT_LINE = { accurate: "Honestly, here's where it stands.", vague: "Um... it's going fine, I think.", wrong: "All good, no problems at all!" };
 function replyInChat(ans) { if (run) run.lines.push({ id: -(run.lines.length + 1), speaker: "you", tone: "mine", name: me.display_name, text: CHAT_LINE[ans] || ans }); }
 
+// Tolerance: how much patience a teammate has with you (0 to 10, starts at 0). It rises when you talk things through and makes their work succeed more often.
+function vbar(label, v, max, tone, extra = {}) {
+  const pct = Math.round((v / max) * 100), fill = h("i", { class: tone });
+  fill.style.height = Math.max(4, pct) + "%";
+  const tag = extra.tag || "button";
+  return h(tag, { class: "vbar", "aria-label": `${label} ${v} of ${max}` + (extra.tip ? ". What is this?" : ""), title: `${label} ${v}/${max}`, ...(extra.tip ? { onclick: (e) => { e.stopPropagation(); showTip(e.currentTarget, extra.tip); } } : {}) },
+    h("span", { class: "vtrack" }, fill, h("b", {}, String(v))), h("small", {}, label));
+}
+// Tolerance: how much patience a teammate has with you (0 to 10, starts at 0). It rises when you talk things through and makes their work succeed more often.
+function tolBar(id, v) {
+  return vbar("Patience", v, 10, v >= 4 ? "good" : "mid", { tip: ["Tolerance", `How much patience ${who(id)} has with you, from 0 to 10. It starts at 0. Acknowledge their worries, give a reason, offer a plan: it goes up. Insults and pressure lower it. The higher it is, the more their work succeeds, and from 4 you can ask in chat for them to take an item.`] });
+}
+
+// Morale and sanity (0 to 100): how the team feels about how you talk to them. Low values hurt their work; at the floor the team gives up.
+const moodTone = (v) => (v >= 60 ? "good" : v >= 35 ? "mid" : "bad");
+function moodBar(label, v) {
+  return vbar(label, v, 100, moodTone(v), { tag: "span" });
+}
+function teamMood(s) {
+  const m = s.x.team_mood, tone = moodTone(Math.min(m.morale, m.sanity)), word = { good: "Together", mid: "Shaky", bad: "Falling apart" }[tone];
+  return h("div", { class: "teammood t-" + tone, "data-teammood": tone }, vbar("Team", m.morale, 100, tone, { tag: "span" }),
+    h("div", { class: "tmtxt" }, h("b", {}, "Team morale"), h("span", { class: "tmword" }, word), h("small", {}, tone === "bad" ? "They are about to give up. Talk to them now." : tone === "mid" ? "Encourage them in the chat." : "Keep talking: silence wears it down.")));
+}
+
+// ---- Team dynamics: arguments between teammates, which you settle as the Scrum Master
+const HOW = { listen: "by listening to both", goal: "by going back to the Sprint Goal", chat: "by talking it out", sided: "by backing one of them" };
+function conflictCard(s) {
+  const c = s.x && s.x.conflict;
+  if (!c || !s.x.mood) return null;
+  const face = (id) => h("div", { class: "cside" }, h("span", { class: "avring r-bad" }, avatar(id, id === "dev2" ? "panicked" : "pushy")), h("b", {}, who(id)), h("small", {}, s.x.mood[id].feeling));
+  const btn = (id, label, hint, ready, extra = {}) => h("button", { class: "mchoice" + (ready ? "" : " notready") + (id === "dismiss" ? " quiet-choice" : ""), "data-mediate": id + (extra.side ? ":" + extra.side : ""), disabled: !!run.busy,
+    title: ready ? hint : "They are too upset for this yet. Lift their morale in the chat first.", onclick: () => cmd("mediate", { choice: id, ...extra }) }, h("b", {}, label), h("small", {}, ready ? hint : "Too upset: lift their morale first"));
+  const by = Object.fromEntries(c.choices.map((x) => [x.id, x]));
+  return h("section", { class: "conflict" + (c.blocking ? " blocking" : ""), role: "alert", "aria-label": "Argument between teammates" },
+    h("div", { class: "chead" }, ic("warn"), h("b", {}, `Argument: ${c.label}`), c.blocking ? h("span", { class: "cblock" }, "Their work is blocked") : null),
+    h("p", { class: "cabout" }, c.about + " Left alone it spreads, hurts their work and costs you rating."),
+    h("div", { class: "cvs" }, face(c.a), h("div", { class: "cmid" }, vbar("Tension", c.tension, 100, c.tension >= 60 ? "bad" : c.tension >= 35 ? "mid" : "good", { tag: "span" }), h("span", { class: "vsb" }, "VS")), face(c.b)),
+    h("div", { class: "cchoices" }, btn("listen", by.listen.label, by.listen.hint, by.listen.ready), btn("goal", by.goal.label, by.goal.hint, by.goal.ready),
+      btn("side_a", "Back " + who(c.a), "Say " + who(c.a) + " is right. " + who(c.b) + " will feel betrayed.", true, { side: c.a }), btn("side_a", "Back " + who(c.b), "Say " + who(c.b) + " is right. " + who(c.a) + " will feel betrayed.", true, { side: c.b }),
+      btn("dismiss", by.dismiss.label, by.dismiss.hint, true)),
+    h("p", { class: "muted small" }, "Or talk to both of them in the chat below: kind, constructive words cool it down, cruel ones feed it."));
+}
+function bondsEl(s) {
+  const rel = s.x.rel;
+  if (!rel) return null;
+  return h("div", { class: "bonds" }, h("b", {}, "Team bonds"), Object.entries(rel).map(([k, r]) => { const [p, q] = k.split("|"); return h("span", { class: "bond b-" + r.word.toLowerCase(), title: `Tension ${r.tension}` }, `${who(p)} & ${who(q)}`, h("em", {}, r.word)); }));
+}
+// One chat line: the avatar's ring shows how that person feels right now; arguments are grouped into a "heated discussion" thread.
+function chatLine(s, l) {
+  const sp = l.speaker, heated = l.tone === "heated", m = s.x && s.x.mood && s.x.mood[sp], ring = m ? moodTone(m.morale) : "";
+  const role = sp === "you" ? "" : String(NAMES[sp] || "").split(" (")[1]?.replace(")", "") || "";
+  return h("div", { class: "msg " + (heated ? "heated" : l.tone) + " sp-" + sp + (l.id > run.freshAfter ? " new" : "") },
+    h("span", { class: "avring" + (ring ? " r-" + ring : "") }, avatar(sp, heated ? (sp === "dev2" ? "panicked" : "pushy") : l.tone)),
+    h("div", { class: "bub" }, h("b", {}, l.name || (sp === "you" ? me.display_name : String(NAMES[sp] || sp).split(" (")[0]), role ? h("em", { class: "role" }, role) : null), h("div", { class: "txt" }, l.text)));
+}
+function chatList(s, msgs) {
+  const out = [];
+  let grp = null;
+  for (const l of msgs) {
+    if (l.tone === "heated") { if (!grp) { grp = h("div", { class: "thread" }, h("div", { class: "thead" }, ic("warn"), h("span", {}, "Heated discussion"))); out.push(grp); } grp.append(chatLine(s, l)); }
+    else { grp = null; out.push(chatLine(s, l)); }
+  }
+  return out;
+}
+
+// One message box for the whole session: it keeps its text and focus while the page around it is rebuilt.
+function chatForm(s) {
+  const d = run.chatDraft || (run.chatDraft = { text: "", focus: false });
+  const busy = !!run.chatBusy && Date.now() < run.chatBusy.until;
+  const input = h("input", { type: "text", id: "chatbox", maxlength: "300", autocomplete: "off", placeholder: "Message the team. Write @Ines, @Tobi or @Marlo to talk to one of them.", "aria-label": "Message the team", value: d.text });
+  input.addEventListener("input", () => { d.text = input.value; });
+  input.addEventListener("focus", () => { d.focus = true; });
+  input.addEventListener("blur", () => { if (input.isConnected) d.focus = false; });
+  if (d.focus) requestAnimationFrame(() => { input.focus(); input.setSelectionRange(input.value.length, input.value.length); });
+  const send = h("button", { class: "primary", type: "submit", disabled: busy || s.status !== "active" }, busy ? "Waiting…" : "Send");
+  return h("form", { class: "chatform", onsubmit: (e) => { e.preventDefault(); sendChat(d.text); } }, input, send);
+}
+async function sendChat(text) {
+  const t = String(text || "").trim();
+  if (!t || !run || (run.chatBusy && Date.now() < run.chatBusy.until)) return;
+  run.chatDraft.text = ""; run.chatStick = true;
+  try {
+    const r = await api(`/api/v1/runs/${run.id}/chat`, "POST", { text: t });
+    run.chatBusy = { left: r.to.length, until: Date.now() + 45000 };
+  } catch (e) { toast("bad", e.status === 429 ? "Slow down a little: give the team a minute." : "That message did not send."); run.chatDraft.text = t; }
+  run.sig = null; poll();
+}
+
 function slackApp(s) {
-  const msgs = run.lines.slice(-12);
+  const msgs = run.lines.slice(-12), T = s.x && s.x.tolerance;
+  const chatting = T && !s.x.tutorial && !run.tut;
+  const typing = chatting && run.chatBusy && Date.now() < run.chatBusy.until;
   return h("div", { class: "slack" },
-    h("aside", { class: "side" }, h("h3", {}, "# team-chat"), ["po", "dev1", "dev2"].map((id) => h("div", { class: "member" }, avatar(id), h("span", {}, NAMES[id])))),
-    h("div", { class: "main" }, s.stage === "STANDUP" ? codeDesk(s) : null,
-      h("section", { class: "card", "aria-label": "Team chat" }, h("h2", {}, "# team-chat"), h("p", { class: "sub" }, "What your team is saying."),
-        msgs.length ? h("div", { class: "chat" }, msgs.map((l) => h("div", { class: "msg " + l.tone + (l.id > run.freshAfter ? " new" : "") }, avatar(l.speaker, l.tone), h("div", { class: "bub" }, h("b", {}, l.name || NAMES[l.speaker] || l.speaker), h("div", {}, l.text)))))
-          : h("p", { class: "muted" }, "No messages yet. Enjoy the quiet while it lasts."))));
+    h("aside", { class: "side", "aria-label": "Team members" },
+      h("h3", {}, h("span", { class: "hash" }, "#"), "team-chat"), h("p", { class: "online" }, h("i", {}), "3 teammates online"), chatting ? teamMood(s) : null, chatting ? bondsEl(s) : null,
+      ["po", "dev1", "dev2"].map((id) => { const [nm, role] = String(NAMES[id]).replace(")", "").split(" ("); return h("div", { class: "member" }, h("span", { class: "avw" }, avatar(id), h("i", { class: "dot" })), h("span", { class: "who" }, h("b", {}, nm), role ? h("small", {}, role) : null), chatting ? h("span", { class: "feel f-" + moodTone(s.x.mood[id].morale), title: s.x.mood[id].note }, s.x.mood[id].feeling) : null, chatting ? h("span", { class: "vbars" }, moodBar("Morale", s.x.mood[id].morale), moodBar("Sanity", s.x.mood[id].sanity), tolBar(id, T[id] || 0)) : null); })),
+    h("div", { class: "main" }, s.stage === "STANDUP" ? codeDesk(s) : null, chatting ? conflictCard(s) : null,
+      h("section", { class: "card chatcard", "aria-label": "Team chat" }, h("h2", {}, "# team-chat"), h("p", { class: "sub" }, "What your team is saying."),
+        msgs.length ? h("div", { class: "chat" }, chatList(s, msgs))
+          : h("p", { class: "muted" }, "No messages yet. Enjoy the quiet while it lasts."),
+        typing ? h("p", { class: "typing muted small", role: "status" }, "Your team is typing…") : null,
+        chatting ? chatForm(s) : null)));
 }
 
 // ---- The live team board: drag a request onto a person (or use the buttons). Teammates work in real time.
@@ -1418,7 +1626,7 @@ function reviewDesk(s, c) {
           perks ? h("button", { disabled: !hasCard(s, "assist"), title: "AI Assistant: wrong 1 time in 5" + needs(s, "assist"), onclick: () => cmd("review_inspect", { card_id: c.id, index: i, tool: "assistant" }) }, "AI") : null)))),
     h("p", { class: "muted small" }, `Found ${found}, fixed ${fixed}.` + (trust != null ? ` ${NAMES[r.assignee || "dev1"]} trust: ${trust} of ${R.trust_max}. Low trust means more bugs from them.` : "")),
     h("div", { class: "row" },
-      h("button", { class: "primary", "data-guide": "review-ship", onclick: () => { run.reviewing = null; cmd("review_ship", { card_id: c.id }); } }, ic("rocket"), " Send to users"),
+      h("span", { class: "tipwrap" }, h("button", { class: "primary", "data-guide": "review-ship", onclick: () => { run.reviewing = null; cmd("review_ship", { card_id: c.id }); } }, ic("rocket"), " ", TERMS.ship[0]), help("ship", TERMS.ship[0], true)),
       h("button", { onclick: () => { run.reviewing = null; cmd("review_send_back", { card_id: c.id }); } }, "Send it back"),
       h("button", { onclick: () => { run.reviewing = null; run.sig = null; render(); } }, "Close")));
 }
@@ -1521,9 +1729,21 @@ function pathIndex(s) {
 const railPref = () => { try { const v = localStorage.getItem("railOpen"); if (v === "1" || v === "0") return v === "1"; } catch (_) { /* storage can be blocked */ } return innerWidth >= 1100; };
 const railSave = (open) => { try { localStorage.setItem("railOpen", open ? "1" : "0"); } catch (_) { /* storage can be blocked */ } };
 
+// Developer shortcut: only when the server runs with FIXIT_DEBUG=1 (the server also refuses the command otherwise).
+function debugSkip(s) {
+  if (!me || !me.debug || !s.x || s.x.tutorial) return null;
+  const to = [2, 3].filter((n) => n > s.sprint && n <= (s.x.sprints_total || 3));
+  const jump = (n) => newRun({ heat: [], project: n }).catch((e) => toast("warn", e.code === "PROJECT_NOT_READY" ? "The AI is still writing that project. Try again in a minute." : e.message));
+  return h("div", { class: "rdebug" }, h("small", {}, "Debug: skip ahead"),
+    to.length ? h("div", {}, to.map((n) => h("button", { class: "dbg", onclick: () => cmd("debug_skip", { to: n }) }, "Sprint " + n))) : null,
+    h("div", {}, [2, 3].map((n) => h("button", { class: "dbg", onclick: () => jump(n) }, "Project " + n))),
+    h("div", {}, h("button", { class: "dbg", onclick: resetProjects }, "Reset 2 + 3")));
+}
+
 function roadmap(s) {
   if (run.railOpen == null) run.railOpen = railPref();
-  const at = pathIndex(s), doneCards = s.pile.filter((c) => c.state === "done").length, proj = PROJECTS[0];
+  const at = pathIndex(s), doneCards = s.pile.filter((c) => c.state === "done").length;
+  const pn = (s.x && s.x.project && s.x.project.n) || 1, proj = { ...PROJECTS[pn - 1], title: pn === 1 ? PROJECTS[0].title : (s.x.project.title || PROJECTS[pn - 1].title) };
   const go = (n) => { if (isNote(n.app)) { pingNote(n.app); run.sig = null; render(); } else openApp(n.app); };
   const nav = h("nav", { class: "rail" + (run.railOpen ? "" : " collapsed"), "aria-label": "Project roadmap", "data-region": "rail" });
   const toggle = h("button", { class: "railtoggle", "aria-expanded": String(run.railOpen), "aria-controls": "railbody", title: run.railOpen ? "Hide roadmap" : "Show roadmap", onclick: () => {
@@ -1531,7 +1751,7 @@ function roadmap(s) {
     nav.classList.toggle("collapsed", !run.railOpen); toggle.setAttribute("aria-expanded", String(run.railOpen)); toggle.title = run.railOpen ? "Hide roadmap" : "Show roadmap";
   } }, ic("map"), h("span", { class: "rt" }, "Roadmap"), ic("chev-l", "chev-open"));
   nav.append(toggle, h("div", { class: "railbody", id: "railbody" },
-    h("div", { class: "projhead" }, h("small", {}, `Project 1 · ${proj.level}` + (s.x ? ` · sprint ${s.sprint} of ${s.x.sprints_total}` : "")), h("b", {}, proj.title)),
+    h("div", { class: "projhead" }, h("small", {}, `Project ${pn} · ${proj.level}` + (s.x ? ` · sprint ${s.sprint} of ${s.x.sprints_total}` : "")), h("b", {}, proj.title)),
     h("ol", { class: "rnodes" }, PATH_NODES.map((n, i) => {
       const state = i < at ? "done" : i === at ? "now" : "locked", chest = i === PATH_NODES.length - 1;
       const sub = state === "now" && n.label.startsWith("Work") ? `${doneCards} of ${s.pile.length} done` : "";
@@ -1541,7 +1761,14 @@ function roadmap(s) {
           ic(state === "done" ? "check" : state === "locked" && !chest ? "lock" : n.icon)),
         h("span", { class: "rlab" }, n.label, sub ? h("small", {}, sub) : null));
     })),
-    h("ul", { class: "rmore" }, PROJECTS.slice(1).map((p, i) => h("li", {}, ic("lock"), h("span", {}, `Project ${i + 2} · ${p.level}`))))));
+    debugSkip(s),
+    h("ul", { class: "rmore" }, [1, 2, 3].filter((n) => n !== pn).map((n) => {
+      const p = (run.projects || []).find((x) => x.n === n), open = p && (n === 1 || p.status === "open"), busy = p && p.status === "building";
+      const pct = busy && p.ai && p.ai.target ? Math.round(100 * p.ai.made / p.ai.target) : 0;
+      return h("li", { class: open ? "ok" : "" }, ic(open ? "check" : "lock"), h("span", {}, `Project ${n} · ${PROJECTS[n - 1].level}`,
+        h("small", {}, open ? (p.title ? `Ready: ${p.title}` : "Open") : busy && p.ai ? `Being written ${pct}%` : p && p.status === "waiting" ? "Waiting for the AI" : "Locked"),
+        busy && p.ai ? h("div", { class: "pbar thin", role: "progressbar", "aria-valuenow": String(pct), "aria-valuemin": "0", "aria-valuemax": "100" }, fillBar(pct)) : null));
+    }))));
   return nav;
 }
 
@@ -1747,10 +1974,11 @@ function syncPages(s) {
     const sig = JSON.stringify(PAGE_DEPS[a.id](s));
     if (sig === run.pageSigs[a.id]) continue;
     run.pageSigs[a.id] = sig;
-    const keep = el.scrollTop, inner = [...el.querySelectorAll(".chat")].map((c) => c.scrollTop);
+    const keep = el.scrollTop, inner = [...el.querySelectorAll(".chat")].map((c) => [c.scrollTop, c.scrollTop + c.clientHeight >= c.scrollHeight - 60]);
     el.replaceChildren(PAGES[a.id](s));
     el.scrollTop = keep;
-    el.querySelectorAll(".chat").forEach((c, i) => { if (inner[i] != null) c.scrollTop = inner[i]; });
+    el.querySelectorAll(".chat").forEach((c, i) => { c.scrollTo({ top: !inner[i] || inner[i][1] || run.chatStick ? c.scrollHeight : inner[i][0], behavior: "instant" }); });   // instant: the chat's smooth scrolling would visibly slide it from the top   // a chat stays at the newest message unless you scrolled up
+    run.chatStick = false;
   }
 }
 const activePage = () => document.querySelector(`#browser .page[data-app="${run.app}"]`);
@@ -1773,9 +2001,10 @@ function syncNotes(s) {
     else if (badge) badge.remove();
     if (sig !== n.sig) {
       n.sig = sig;
-      const body = el.querySelector(".note-body"), keep = body.scrollTop;
+      const body = el.querySelector(".note-body"), keep = body.scrollTop, inner = [...body.querySelectorAll(".chat")].map((c) => [c.scrollTop, c.scrollTop + c.clientHeight >= c.scrollHeight - 60]);
       body.replaceChildren(PAGES[n.id](s));
       body.scrollTop = keep;
+      body.querySelectorAll(".chat").forEach((c, i) => c.scrollTo({ top: !inner[i] || inner[i][1] || run.chatStick ? c.scrollHeight : inner[i][0], behavior: "instant" }));
     }
   }
 }
@@ -1786,7 +2015,7 @@ function browserFrame(s) {
 
 // what each page actually draws; a page is rebuilt only when this changes
 const PAGE_DEPS = {
-  slack: (s) => [run.lines.slice(-12).map((l) => l.id), s.stage, s.standup, s.x ? [s.x.standup_timer_s, s.x.prices] : null],
+  slack: (s) => [run.lines.slice(-12).map((l) => l.id), s.stage, s.standup, s.x ? [s.x.standup_timer_s, s.x.prices, s.x.tolerance, s.x.mood, s.x.conflict, s.x.rel] : null, !!run.chatBusy, run.busy],
   github: (s) => [s.pile, s.stage, s.guide && [s.guide.backlog, s.guide.committed, s.guide.goal], s.x && [s.x.skill, s.x.debt, s.x.team && Object.values(s.x.team).map((m) => m.bug_chance)],
     s.work && { ...s.work, speed: s.work.speed && s.work.speed.misses }, s.open_card, s.day, s.perks, run.runs, s.standup,
     s.x ? [s.x.shop, s.x.intents.map((i) => [i.text, i.kind]), s.x.move_costs, s.x.retro_left, s.x.next_clean_factor, s.x.practices, s.meters.points, s.x.goal,
@@ -1801,7 +2030,7 @@ const REGIONS = {
     s.x.protected_min, s.x.momentum, s.x.practices.map((p) => [p.id, p.level]), s.x.boss_live, s.x.goal, s.x.mult, s.x.release && s.x.release.items.length, s.x.wave] : null), build: hudEl },
   hand: { sig: (s) => JSON.stringify(s.x && s.x.hand ? [s.x.hand, s.stage] : null), build: handEl },
   call: { sig: (s) => JSON.stringify(s.call || null) + "|" + (run.error || "") + "|" + hasCard(s, "call"), build: callEl },
-  rail: { sig: (s) => [pathIndex(s), s.sprint, s.pile.filter((c) => c.state === "done").length, s.pile.length].join(), build: roadmap },
+  rail: { sig: (s) => [pathIndex(s), s.sprint, s.pile.filter((c) => c.state === "done").length, s.pile.length, s.x && s.x.project ? s.x.project.n + s.x.project.title : "", (run.projects || []).map((p) => p.status + (p.ai ? p.ai.made : "")).join()].join(), build: roadmap },
 };
 const scrollables = () => [...document.querySelectorAll(".note-body")];
 
@@ -1838,7 +2067,7 @@ function render() {
     if (run.chatSprint != null) { run.lines = []; run.slackSeen = run.lastLine; }
     run.chatSprint = s.sprint;
   }
-  const sig = JSON.stringify({ ...s, clock_min: 0, day_used_min: 0 }) + run.lines.length + run.wall.length + JSON.stringify(run.runs || null) + (run.error || "");
+  const sig = JSON.stringify({ ...s, ai: null, clock_min: 0, day_used_min: 0 }) + (run.projects || []).map((p) => p.status + (p.ai ? p.ai.made : "")).join() + run.lines.length + !!run.chatBusy + run.wall.length + JSON.stringify(run.runs || null) + (run.error || "");
   if (sig === run.sig && document.getElementById("meters")) { syncMeters(s); syncLive(s); return; }  // nothing changed but the clock
   run.sig = sig;
   // a new stage opens the app where that stage happens (or nudges its note if you pulled it out)
@@ -1866,7 +2095,7 @@ function render() {
 async function debrief() {
   timers.forEach(clearInterval);
   const d = await api(`/api/v1/runs/${run.id}/debrief`);
-  const names = { win: d.x && d.x.scrum ? "You ran all " + d.x.sprints_played + " Sprints" : d.x ? "You survived all " + d.x.sprints_played + " sprints" : "You survived the sprint", lose_rating: "Fired: Rating fell below 2.0", lose_cover: "Exposed: Cover hit 100", lose_warnings: "Demoted twice" };
+  const names = { win: d.x && d.x.scrum ? "You ran all " + d.x.sprints_played + " Sprints" : d.x ? "You survived all " + d.x.sprints_played + " sprints" : "You survived the sprint", lose_rating: "Fired: Rating fell below 2.0", lose_cover: "Exposed: Cover hit 100", lose_warnings: "Demoted twice", lose_morale: "The team lost hope" };
   mount(h("section", { class: "card narrow" }, h("div", { class: "hero", "aria-hidden": "true" }, ic(d.ending === "win" ? "c-heron-cheer" : "c-heron-oops")), h("h2", {}, names[d.ending] || d.ending),
     h("table", {}, (d.x && d.x.scrum ? (d.x.final ? [["App rating", Number(d.rating).toFixed(1)], ["Grade", d.x.final.grade], ["Final Grade", d.x.final.final + " / 100"]] : [["App rating", Number(d.rating).toFixed(1)], ["Grade", d.points]])
       : [["Rating", Number(d.rating).toFixed(2)], ["Cover", d.cover], ["Points", d.points], ["Process score", d.process_score], ["Gap (rating % minus process)", d.gap]]).map(([k, v]) => h("tr", {}, h("th", {}, k), h("td", {}, v)))),
@@ -1877,27 +2106,40 @@ async function debrief() {
   if (d.ending === "win") { lastPt = null; burst(40); setTimeout(() => burst(30), 350); }
 }
 
+function teamReport(t) {
+  const names = { po: "Marlo", dev1: "Ines", dev2: "Tobi" };
+  const card = (id) => { const v = t.mood[id], tone = moodTone(v.morale);
+    return h("div", { class: "tcard t-" + tone }, h("span", { class: "avring r-" + tone }, avatar(id, tone === "bad" ? (id === "dev2" ? "panicked" : "pushy") : "calm")), h("b", {}, names[id]), h("span", { class: "feel f-" + tone }, v.feeling),
+      h("span", { class: "vbars" }, vbar("Morale", v.morale, 100, tone, { tag: "span" }), vbar("Sanity", v.sanity, 100, moodTone(v.sanity), { tag: "span" }))); };
+  const stat = (n, l, cls = "") => h("div", { class: "tstat " + cls }, h("b", {}, String(n)), h("small", {}, l));
+  return h("div", { class: "teamreport" }, h("h3", {}, "How the team ended up"), h("div", { class: "tcards" }, ["po", "dev1", "dev2"].map(card)),
+    h("div", { class: "bonds" }, h("b", {}, "Team bonds"), Object.entries(t.rel).map(([k, r]) => { const [p, q] = k.split("|"); return h("span", { class: "bond b-" + r.word.toLowerCase() }, `${names[p]} & ${names[q]}`, h("em", {}, r.word)); })),
+    h("div", { class: "tstats" }, stat(t.morale, "Team morale", moodTone(t.morale)), stat(t.conflicts.resolved + t.conflicts.sided, "Fights settled", "good"), stat(t.conflicts.ignored, "Fights ignored", t.conflicts.ignored ? "bad" : ""),
+      t.open_conflict ? stat("!", "Left unsettled", "bad") : null));
+}
+const storyBubbles = (lines) => lines.map((l, i) => { const id = ["po", "dev1", "dev2"][i % 3]; return h("div", { class: "sbub sp-" + id }, h("span", { class: "avring" }, avatar(id, "calm")), h("p", {}, l)); });
+
 function summaryEl(m) {
   const list = (title, items, cls) => items && items.length ? h("div", { class: "sumblock " + cls }, h("h3", {}, title), h("ul", {}, items.map((i) => h("li", {}, i)))) : null;
   return h("div", { class: "summary tier-" + m.tier },
-    h("h3", {}, m.headline), h("p", {}, m.intro),
+    h("h3", {}, m.headline), h("p", {}, m.intro), m.team ? teamReport(m.team) : null,
     list("What you did well", m.well, "ok"), list("What went wrong", m.wrong, "no"), list("How to do better", m.improve, "tip"),
     m.learned.length ? h("div", { class: "sumblock learned" }, h("h3", {}, "What you learned"), h("ul", {}, m.learned.map((l) => h("li", {}, h("b", {}, l.concept + ": "), l.teach)))) : null);
 }
 
 function endingScreen() {
   mount(h("section", { class: "card narrow ending" }, h("div", { class: "cheer", "aria-hidden": "true" }, ["po", "dev1", "dev2"].map((id) => avatar(id, "calm")), ic("c-heron-cheer")),
-    h("h2", {}, "The prototype ends here"),
+    h("h2", {}, "Project finished"),
     h("p", {}, "You ran three Sprints with Marlo, Ines, Tobi and Herb. Thank you for playing."),
-    h("p", { class: "muted" }, "Coming soon: Heat, timers and the other New run modifiers."),
-    h("div", { class: "row" }, h("button", { class: "primary", onclick: setupRun }, "Play again"))));
+    h("p", { class: "muted" }, "The next project is written by the local AI and opens when it is ready."),
+    h("div", { class: "row" }, h("button", { class: "primary", onclick: setupRun }, "Choose your next project"))));
   lastPt = null; burst(40); setTimeout(() => burst(30), 350);
 }
 
 function xDebrief(x) {
   if (x.scrum) return h("div", { class: "xdeb" },
     h("div", { class: "row" }, h("span", { class: "chip good" }, ic("check"), ` Scrum questions right first try: ${x.scrum.first_try} of ${x.scrum.asked}`)),
-    h("h3", {}, "What the team says"), x.story.map((l) => h("p", { class: "story" }, l)),
+    h("h3", {}, "What the team says"), h("div", { class: "story-thread" }, storyBubbles(x.story)),
     x.practices.length ? h("p", { class: "muted" }, "Practices: " + x.practices.map(practiceName).join(", ")) : null,
     null);
   return h("div", { class: "xdeb" },
@@ -1907,15 +2149,19 @@ function xDebrief(x) {
       h("span", { class: "chip" + (x.near_miss ? " danger" : "") }, ic("search"), ` Highest Cover ${x.max_cover}` + (x.near_miss ? " · close call" : "")),
       x.clutches ? h("span", { class: "chip good" }, ic("check"), ` ${x.clutches} clutch save${x.clutches > 1 ? "s" : ""}`) : null,
       x.goals.length ? h("span", { class: "chip" }, ic("flag"), " Goals " + x.goals.map((g) => g.met ? "met" : "missed").join(" · ")) : null),
-    h("h3", {}, "What the team says"), x.story.map((l) => h("p", { class: "story" }, l)),
+    h("h3", {}, "What the team says"), h("div", { class: "story-thread" }, storyBubbles(x.story)),
     x.practices.length ? h("p", { class: "muted" }, "Practices: " + x.practices.map(practiceName).join(", ")) : null,
     null);
 }
 
 // ------------------------------------------------------------ instructor
-async function instructorScreen() {
+async function instructorScreen(tab = "cohort") {
+  const tabs = h("div", { class: "admintabs", role: "tablist", "aria-label": "Admin sections" },
+    [["cohort", "Cohort"], ["sim", "Simulation"], ["engines", "Engines"]].map(([id, label]) => h("button", { role: "tab", class: tab === id ? "on" : "", "aria-selected": String(tab === id), onclick: () => instructorScreen(id) }, label)));
+  if (tab === "sim") return mount(h("section", { class: "card wide admin" }, tabs, simulationTab({ h, api, toast })));
+  if (tab === "engines") return mount(h("section", { class: "card wide admin" }, tabs, enginesTab({ h, api, toast })));
   const list = h("div", {});
-  mount(h("section", { class: "card" }, h("h2", {}, "Your cohort"), list));
+  mount(h("section", { class: "card admin" }, tabs, h("h2", {}, "Your cohort"), list));
   try {
     const r = await api(`/api/v1/instructor/cohorts/${me.cohort_id}/runs`);
     list.replaceChildren(h("table", {}, h("tr", {}, ["Student", "Status", "Ending", "Process", "Gain", ""].map((x) => h("th", {}, x))),
@@ -1931,4 +2177,12 @@ async function transcript(id) {
     h("h3", {}, "Events"), h("pre", { class: "code" }, t.events.map((e) => JSON.stringify(e)).join("\n"))));
 }
 
-authScreen();
+// Boot: a valid session cookie means the player is still signed in after a refresh.
+(async () => {
+  try {
+    try { csrf = localStorage.getItem("csrf") || ""; } catch (_) { csrf = ""; }
+    await api("/api/v1/me");
+    if (!csrf) saveCsrf((await api("/api/v1/auth/csrf")).csrf);
+    await start();
+  } catch (_) { authScreen(); }
+})();

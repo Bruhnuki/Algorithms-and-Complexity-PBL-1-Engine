@@ -677,7 +677,7 @@ html.tour-lock, html.tour-lock body { overflow:hidden !important; }
 .herbsays .hero { text-align:center; } .herbsays .w-bubble { margin:10px 0 16px; }
 
 /* ---- Round 3: readable terms, back button, scene list ---- */
-.term-rating { color:#8A5A00; font-weight:800; } .term-trust { color:#1B6E3A; font-weight:800; } .term-hidden { color:#B3261E; font-weight:800; }
+.term-rating { color:#8A5A00; font-weight:800; } .term-trust { color:#1B6E3A; font-weight:800; } .term-hidden { color:#B3261E; font-weight:800; } .term-morale { color:#1B6E3A; font-weight:800; } .term-sanity { color:#5B3FA0; font-weight:800; }
 .deal small .term-rating, .deal small .term-trust, .deal small .term-hidden { font-weight:800; }
 .tbox button.back { background:#fff; color:var(--text); border-color:var(--line); }
 .tbox .row { align-items:center; }
@@ -1000,3 +1000,150 @@ button.vbar { cursor:help; }
 @media (max-width:560px) { .tcards { grid-template-columns:1fr; } .cchoices { grid-template-columns:1fr; } }
 
 .side .member .who { flex:1 1 92px; } .side .member .feel { white-space:nowrap; flex:0 0 auto; margin-left:auto; }
+
+/* ---- Slackish sidebar, light version: a white card like the rest of the game, one compact card per teammate */
+.slack .side { background:var(--panel); color:var(--text); border:var(--bw) solid var(--line); box-shadow:0 4px 0 var(--line); padding:12px 12px 6px; width:auto; }
+.slack .side h3 { color:var(--text); } .slack .side .hash { background:var(--blue); color:#fff; }
+.slack .side .online { color:var(--muted); border-bottom:1px solid var(--line); opacity:1; margin-bottom:10px; padding-bottom:10px; }
+.slack .side .online i, .slack .side .dot { box-shadow:0 0 0 2px #fff; }
+.slack .side .teammood { background:#f3f6fc; color:var(--text); border:2px solid var(--line); margin:0 0 8px; padding:8px 10px; } .slack .side .teammood.t-bad { background:var(--red-soft); border-color:var(--red); }
+.slack .side .teammood .vbar, .slack .side .vbar { color:var(--muted); } .slack .side .tmtxt b { color:var(--text); } .slack .side .teammood small { opacity:1; color:var(--muted); }
+.slack .side .tmword { color:var(--text); }
+.slack .side .bonds { margin:0 0 10px; gap:4px; } .slack .side .bonds > b { color:var(--muted); opacity:1; }
+.slack .side .bond { background:#eef1f7; color:var(--text); font-size:10.5px; padding:2px 8px; } .slack .side .bond.b-tense { background:#ffe2a8; color:#5a3b00; } .slack .side .bond.b-heated { background:#ffc2a3; color:#5a1d00; } .slack .side .bond.b-explosive { background:var(--red); color:#fff; } .slack .side .bond.b-calm { background:#d9f5de; color:#14521f; }
+.slack .side .member { display:grid; grid-template-columns:auto minmax(0,1fr) auto; align-items:center; gap:2px 8px; margin:0 0 8px; padding:8px; border-radius:16px; background:#f6f8fc; border:2px solid var(--line); }
+.slack .side .member:hover { background:#f6f8fc; } .slack .side .member .avw .av { width:34px; height:34px; } .slack .side .member .who { min-width:0; } .slack .side .member .who b { color:var(--text); } .slack .side .member .who small { color:var(--muted); }
+.slack .side .member .feel { margin:0; justify-self:end; } .slack .side .member .vbars { grid-column:1 / -1; margin:6px 0 0; gap:8px; }
+.slack .side .vbar small { color:var(--muted); font-weight:800; font-size:10px; opacity:1; }
+.slack .side .vtrack { background:#e3e8f2; height:46px; border-radius:10px; max-width:none; } .slack .side .teammood .vtrack { height:56px; max-width:40px; }
+.slack .side .vtrack i.good { background:#4cc764; } .slack .side .vtrack i.mid { background:#ffb02e; } .slack .side .vtrack i.bad { background:#ff5a52; }
+.slack .side .vtrack b { color:#1d1233; text-shadow:none; font-size:11px; }
+.slack .side .member .vbar:nth-child(2) .vtrack i.good { background:#3aa0f0; } .slack .side .member .vbar:nth-child(3) .vtrack i { background:#9a6cf2; }
+.slack .side .feel { font-size:10.5px; padding:2px 8px; } .slack .side .feel.f-good { background:#d9f5de; color:#14521f; } .slack .side .feel.f-mid { background:#ffe2a8; color:#5a3b00; } .slack .side .feel.f-bad { background:#ffd1ce; color:#8a1a14; }
+
+/* heated threads read as a fast back-and-forth: tight, compact bubbles */
+.thread .msg { margin:0 0 5px; } .thread .bub { padding:7px 12px; } .thread .txt { font-size:14px; line-height:1.35; } .thread .avring .av { width:32px; height:32px; }
+.thread .msg.new { animation:chatIn .18s both; }
+
+/* ---- the argument as a floating, draggable window */
+.cwin { position:fixed; z-index:900; width:min(380px, calc(100vw - 24px)); max-height:78vh; overflow:auto; border-radius:22px; box-shadow:0 14px 40px rgba(60,10,5,.4); animation:conflictin .3s both; }
+.cwin .conflict { margin:0; animation:none; } .cwin .chead { cursor:grab; user-select:none; touch-action:none; } .cwin[data-drag] .chead { cursor:grabbing; }
+.cwin .cchoices { grid-template-columns:1fr; } .cwin .cside .avring .av { width:46px; height:46px; }
+.cwin .cwmin { margin-left:auto; width:30px; height:30px; padding:0; border-radius:10px; background:rgba(255,255,255,.9); color:#a3180f; border-bottom-width:3px; font:900 18px var(--font-head); line-height:1; }
+.cwin .cblock.calm { background:#1d5c2a; }
+.cwin.min { width:auto; max-height:none; overflow:visible; }
+.cwpill { display:flex; align-items:center; gap:8px; padding:9px 16px 9px 12px; border-radius:999px; cursor:grab; user-select:none; touch-action:none; color:#fff; background:linear-gradient(135deg,#d63a2b,#ff7a3d); box-shadow:0 8px 20px rgba(214,58,43,.4); font:800 13px var(--font-head); animation:ringpulse 1.6s ease-in-out infinite; }
+.cwpill .ic { width:18px; height:18px; } .cwpill span { font:700 12px var(--font-body); opacity:.95; }
+
+.cwin .cchoices { grid-template-columns:repeat(2,minmax(0,1fr)); } .cwin .mchoice { padding:8px 10px; } .cwin .mchoice small { font-size:10.5px; } .cwin .cabout { font-size:13px; margin:4px 0 8px; } .cwin .quiet-choice { grid-column:1 / -1; }
+
+/* ---- the argument window, plain: a white card like the rest of the game, one red accent */
+.cwin { width:min(340px, calc(100vw - 24px)); background:var(--panel); border:var(--bw) solid var(--line); border-top:5px solid var(--red); border-radius:16px; box-shadow:0 10px 28px rgba(20,24,48,.28); animation:none; }
+.cwin .conflict, .cwin .conflict.blocking { background:none; color:var(--text); box-shadow:none; padding:10px 12px 12px; border-radius:0; }
+.cwin .chead { gap:8px; font:800 15px var(--font-head); color:var(--text); padding-bottom:8px; border-bottom:2px solid var(--line); flex-wrap:nowrap; }
+.cwin .chead .ic { width:20px; height:20px; flex:none; color:var(--red); } .cwin .chead b { min-width:0; flex:1; line-height:1.2; }
+.cwin .cblock { background:var(--red-soft); color:var(--red-d); font:800 10.5px var(--font-body); padding:2px 8px; white-space:nowrap; } .cwin .cblock.calm { background:#d9f5de; color:#14521f; }
+.cwin .cwmin { margin-left:0; flex:none; background:#eef1f7; color:var(--muted); border:0; box-shadow:none; width:28px; height:28px; }
+.cwin .cabout { color:var(--muted); font:600 12.5px/1.4 var(--font-body); margin:8px 0 8px; }
+.cwin .cvs { gap:14px; margin:4px 0 10px; padding:8px; border-radius:14px; background:#f6f8fc; border:2px solid var(--line); }
+.cwin .cside b { color:var(--text); font-size:13px; } .cwin .cside small { color:var(--red-d); font-weight:800; } .cwin .cside .avring .av { width:42px; height:42px; }
+.cwin .vbar { color:var(--muted); } .cwin .vtrack { background:#e3e8f2; height:48px; } .cwin .vsb { color:var(--muted); font-size:13px; }
+.cwin .cchoices { grid-template-columns:1fr; gap:6px; }
+.cwin .mchoice { display:block; width:100%; padding:7px 11px; background:#fff; color:var(--text); border:2px solid var(--line); border-bottom-width:4px; border-radius:12px; text-align:left; }
+.cwin .mchoice:hover:not(:disabled) { background:#f3f6fc; border-color:var(--blue); }
+.cwin .mchoice b { display:block; font:800 13px var(--font-head); color:var(--text); } .cwin .mchoice small { display:block; margin-top:1px; color:var(--muted); font:600 11px/1.3 var(--font-body); }
+.cwin .mchoice.notready { background:#fafbfd; border-style:dashed; } .cwin .mchoice.notready b { color:var(--muted); }
+.cwin .quiet-choice { grid-column:auto; border-color:var(--red); } .cwin .quiet-choice b { color:var(--red-d); }
+.cwin .conflict > .muted { color:var(--muted); margin:8px 0 0; font-size:11.5px; }
+.cwpill { background:var(--panel); color:var(--red-d); border:2px solid var(--red); box-shadow:0 8px 22px rgba(20,24,48,.25); animation:none; } .cwpill .ic { color:var(--red); } .cwpill span { color:var(--muted); }
+
+/* notifications stay readable above scenes, confirms and the dim layers (tour stays on top) */
+#toasts { z-index:150; }
+#scene ~ #toasts, body:has(#scene) #toasts { right:18px; bottom:18px; width:min(300px, calc(100vw - 36px)); }
+.toast { box-shadow:0 8px 22px rgba(10,30,60,.28); }
+
+/* ---- channels */
+.chtabs { display:flex; gap:8px; margin:0 0 6px; } .chtab { position:relative; padding:7px 16px; border-radius:999px; background:#eef1f7; color:var(--muted); border:2px solid transparent; font:800 14px var(--font-head); text-transform:none; letter-spacing:0; }
+.chtab.on { background:var(--blue); color:#fff; border-color:var(--blue-d); } .chtab.hot:not(.on) { background:var(--red-soft); color:var(--red-d); border-color:var(--red); animation:ringpulse 1.6s ease-in-out infinite; }
+.chbadge { display:inline-block; margin-left:7px; min-width:18px; padding:1px 6px; border-radius:999px; background:var(--red); color:#fff; font:800 11px var(--font-body); text-align:center; }
+.msg.banter .bub { background:#f1f9f3; border-color:#7ee787; } .msg.banter .bub::before { border-color:#7ee787; } .msg.banter .bub b::after { content:"TEAM TALK"; display:inline-block; margin-left:6px; padding:1px 7px; border-radius:999px; font:800 10px var(--font-body); background:#d9f5de; color:#14521f; vertical-align:1px; }
+.listen { margin:8px 4px 0; }
+
+/* the message box stays put at the bottom of the screen while the page and the chat scroll */
+.chatcard .chatform { position:sticky; bottom:0; z-index:5; margin:10px -4px 0; padding:10px 4px 6px; background:var(--panel); box-shadow:0 -8px 10px -6px rgba(30,40,70,.12); border-radius:0 0 16px 16px; }
+.msg.talk .bub { background:#fff; }
+
+.cwin .chearing { margin:8px 0 0; padding:8px 10px; border-radius:12px; background:#fff6d6; border:2px solid #ffc83d; color:#5a3b00; font:700 12.5px/1.4 var(--font-body); }
+
+/* ===== team sidebar: calm cards, sideways bars with the value on the right ===== */
+.slack .side { padding:16px 14px 10px; border-radius:22px; }
+.slack .side h3 { font-size:18px; margin:0 0 6px; }
+.slack .side .online { margin-bottom:12px; padding-bottom:12px; font-weight:800; }
+.slack .side .online i { background:#3ddc84; }
+
+.slack .side .vbars { display:flex; flex-direction:column; gap:7px; margin:8px 0 2px; }
+.slack .side .vbar, .slack .side .vbar:hover:not(:disabled), .slack .side .vbar:active:not(:disabled) { display:grid; grid-template-columns:52px minmax(0,1fr) 26px; align-items:center; gap:8px; flex:none; color:var(--muted); }
+.slack .side .vbar small { grid-column:1; grid-row:1; justify-self:start; font:800 11px var(--font-body); color:var(--muted); opacity:1; }
+.slack .side .vbar .vtrack { grid-column:2; grid-row:1; display:block; height:9px; max-width:none; border-radius:999px; background:#e6ebf4; overflow:hidden; }
+.slack .side .vbar .vtrack i { display:block; height:100% !important; width:var(--p, 50%); border-radius:999px; transition:width .5s; }
+.slack .side .vbar .vtrack b { display:none; }
+.slack .side .vbar::after { content:attr(data-v); grid-column:3; grid-row:1; justify-self:end; font:900 12px var(--font-head); color:var(--text); }
+
+.slack .side .teammood { display:flex; flex-direction:column; gap:8px; margin:0 0 12px; padding:12px; border-radius:18px; background:#f3f6fc; border:2px solid var(--line); box-shadow:0 2px 0 var(--line); }
+.slack .side .teammood .tmtxt { order:0; display:grid; grid-template-columns:minmax(0,1fr) auto; align-items:center; gap:3px 8px; }
+.slack .side .teammood .tmtxt b { font:900 14px var(--font-head); }
+.slack .side .teammood .tmword { justify-self:end; padding:2px 10px; border-radius:999px; font:800 11px var(--font-body); background:#d9f5de; color:#14521f; }
+.slack .side .teammood.t-mid .tmword { background:#ffe2a8; color:#5a3b00; }
+.slack .side .teammood.t-bad .tmword { background:#ffd1ce; color:#8a1a14; }
+.slack .side .teammood .tmtxt small { grid-column:1 / -1; font:600 11.5px var(--font-body); color:var(--muted); line-height:1.35; }
+.slack .side .teammood .vbar { order:1; grid-template-columns:minmax(0,1fr) 30px; }
+.slack .side .teammood .vbar small { display:none; }
+.slack .side .teammood .vbar .vtrack { grid-column:1; height:12px; }
+.slack .side .teammood .vbar::after { grid-column:2; font-size:14px; }
+
+.slack .side .bonds { margin:0 0 12px; gap:5px; }
+.slack .side .bonds > b { font:900 10.5px var(--font-body); letter-spacing:.6px; color:var(--muted); }
+.slack .side .bond { gap:6px; padding:3px 10px; background:#eef1f7; font-size:11px; }
+.slack .side .bond::before { content:""; width:7px; height:7px; border-radius:50%; background:#4cc764; flex:none; }
+.slack .side .bond.b-tense::before { background:#ffb02e; } .slack .side .bond.b-heated::before, .slack .side .bond.b-explosive::before { background:#ff5a52; }
+.slack .side .bond.b-explosive::before { background:#fff; }
+
+.slack .side .member { padding:11px 12px 12px; margin:0 0 10px; border-radius:18px; background:#fff; border:2px solid var(--line); box-shadow:0 2px 0 var(--line); gap:2px 10px; }
+.slack .side .member:hover { background:#fff; }
+.slack .side .member .avw .av { width:40px; height:40px; }
+.slack .side .member .who b { font:900 15px var(--font-head); }
+.slack .side .member .who small { font:700 11px var(--font-body); }
+.slack .side .member .vbars { margin:10px 0 0; padding-top:10px; border-top:2px dashed var(--line); }
+.slack .side .member .feel { font-size:10.5px; padding:3px 10px; }
+.slack { grid-template-columns:244px minmax(0,1fr); }
+.slack .side .vbar, .slack .side .vbar:hover:not(:disabled), .slack .side .vbar:active:not(:disabled) { width:100%; grid-template-columns:48px minmax(0,1fr) 24px; }
+.slack .side .teammood .vbar, .slack .side .teammood .vbar:hover:not(:disabled) { width:100%; flex:none; grid-template-columns:minmax(0,1fr) 28px; }
+
+/* compact team sidebar: everyone's morale fits on one screen */
+.slack .side { padding:10px 10px 4px; max-height:calc(100vh - 28px); overflow-y:auto; scrollbar-width:thin; }
+.slack .side h3 { font-size:16px; margin:0 0 2px; }
+.slack .side .online { margin-bottom:8px; padding-bottom:8px; font-size:11px; }
+.slack .side .teammood { gap:5px; margin:0 0 8px; padding:8px 10px; border-radius:14px; }
+.slack .side .teammood .tmtxt small { display:none; }
+.slack .side .teammood .tmtxt b { font-size:13px; }
+.slack .side .teammood .vbar .vtrack { height:9px; }
+.slack .side .bonds { margin:0 0 8px; gap:4px; }
+.slack .side .bonds > b { display:none; }
+.slack .side .bond { padding:2px 7px; font-size:10px; gap:4px; }
+.slack .side .bond::before { width:6px; height:6px; }
+.slack .side .member { padding:7px 9px 8px; margin:0 0 7px; border-radius:14px; gap:0 8px; }
+.slack .side .member .avw .av { width:30px; height:30px; }
+.slack .side .member .who b { font-size:13.5px; }
+.slack .side .member .who small { font-size:10px; }
+.slack .side .member .feel { font-size:9.5px; padding:2px 8px; }
+.slack .side .member .vbars { gap:3px; margin:6px 0 0; padding-top:0; border-top:0; }
+.slack .side .vbar .vtrack, .slack .side .member .vbar .vtrack { height:7px; }
+.slack .side .vbar small { font-size:10px; }
+.slack .side .vbar::after { font-size:11px; }
+
+/* phones: the channel tabs stay on one line and the chat keeps a usable height */
+@media (max-width:560px) {
+  .chtabs { gap:6px; flex-wrap:nowrap; } .chtab { padding:6px 10px; font-size:12px; white-space:nowrap; } .chbadge { margin-left:4px; padding:0 5px; font-size:10px; }
+  .chatcard .chat { max-height:none; min-height:240px; } .chatform input { padding:9px 10px; font-size:14px; } .chatform button { padding:8px 12px; }
+  .cwin { left:12px !important; right:12px !important; width:auto; max-height:70vh; }
+}

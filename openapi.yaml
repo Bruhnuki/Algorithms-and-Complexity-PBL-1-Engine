@@ -2,6 +2,11 @@ components:
   schemas:
     ChatIn:
       properties:
+        channel:
+          default: team
+          pattern: ^(team|mates)$
+          title: Channel
+          type: string
         text:
           maxLength: 300
           minLength: 1

@@ -14,10 +14,10 @@ from .content import Content, run_ticket
 
 COMMANDS = ("open_card", "flag_line", "select_patch", "run_script", "toggle_dod", "push", "hold", "triage_reorder",
             "delegate", "coach", "defer", "reply_standup", "answer_call", "watch_tutorial", "buy_perk",
-            "use_assistant", "advance_stage", "tick", "guide_answer", "guide_next", "help_answer", "mediate",
+            "use_assistant", "advance_stage", "tick", "guide_answer", "guide_next", "help_answer", "mediate", "conflict_tick", "hearing_reply",
             # experimental branch only (rejected when balance.experimental.enabled is false)
             "configure", "ai_set", "chat_effect", "debug_skip", "buy_practice", "reroll_shop", "lock_offer", "retro", "use_ultimate")
-SERVER_ONLY = ("configure", "ai_set", "chat_effect")   # issued by the API at run creation; never accepted from a browser
+SERVER_ONLY = ("configure", "ai_set", "chat_effect", "conflict_tick", "hearing_reply")   # issued by the API at run creation; never accepted from a browser
 RESULT_OF = {"correct": "clean", "correct_small_flaw": "acceptable", "wrong_hidden": "buggy", "security_hole": "security_hole"}
 RESULT_LABEL = {"clean": "Clean", "acceptable": "Acceptable", "runtime_error": "Runtime error",
                 "buggy": "Functional but buggy", "security_hole": "Security hole"}
@@ -1642,6 +1642,7 @@ def _g_init(s: dict, content: Content) -> None:
     s["x"]["mood"] = {d: {"morale": MORALE_START, "sanity": SANITY_START} for d in ("po", "dev1", "dev2")}   # 0-100 each, moved by how the player talks to them
     s["x"]["chat_since"], s["x"]["standups_seen"] = 0, 0
     s["x"]["rel"] = {"|".join(pr): 10 for pr in PAIRS}   # tension between each pair of teammates, 0-100
+    s["x"]["rel_why"] = {}                                 # what last raised each pair's tension (shown to the player, and what the argument is really about)
     s["x"]["conflict"], s["x"]["conflicts"] = None, {"started": 0, "resolved": 0, "ignored": 0, "sided": 0}
     s["x"]["idle"], s["x"]["load"] = {"dev1": 0, "dev2": 0}, {"dev1": 0, "dev2": 0}   # items you finished alone since they last got work / tasks given since the last Daily Scrum
 
@@ -1688,10 +1689,10 @@ def _g_mood(s: dict, ev: list, dev: str, d_morale: int, d_sanity: int, why: str,
     if v["morale"] < before["morale"] and v["morale"] < 40 and "rel" in s["x"] and why not in ("conflict", "walkout"):
         for pr in PAIRS:
             if dev in pr:
-                _g_rel(s, pr, 3)   # a hurt, low teammate gets short with whoever is around
+                _g_rel(s, pr, 3, "low")   # a hurt, low teammate gets short with whoever is around
 
 
-BLUNDER = {"mistake": (3, 1), "put_down": (6, 2), "skipped_checks": (3, 1), "hidden_problem": (5, 2)}   # (morale, sanity) every teammate loses; repeated blunders hurt more
+BLUNDER = {"mistake": (3, 2), "put_down": (6, 3), "skipped_checks": (3, 2), "hidden_problem": (5, 3)}   # (morale, sanity) every teammate loses; repeated blunders hurt more
 
 
 def _g_blunder(s: dict, ev: list, why: str) -> None:
@@ -1722,13 +1723,23 @@ def _h_chat_effect(s, ev, content, p):
         tol[dev] = after
     if p.get("msg"):
         s["x"]["chat_since"] += 1
-    _g_mood(s, ev, dev, max(-15, min(8, int(p.get("morale", 0)))), max(-12, min(4, int(p.get("sanity", 0)))), "chat")
+    practice = bool(s["x"].get("tutorial"))   # the tutorial lets you try the chat, but nothing you type there can hurt the team
+    _g_mood(s, ev, dev, max(0 if practice else -15, min(8, int(p.get("morale", 0)))), max(0 if practice else -12, min(4, int(p.get("sanity", 0)))), "chat")
+    if practice:
+        return
     if int(p.get("morale", 0)) < 0:
         for pr in PAIRS:
             if dev in pr:
-                _g_rel(s, pr, 4)   # being berated makes people short with each other
+                _g_rel(s, pr, 4, "berated")   # being berated makes people short with each other
+    elif int(p.get("morale", 0)) > 0:
+        for pr in PAIRS:
+            if dev in pr:
+                _g_rel(s, pr, -2)   # kind words ease the tension around them
     cf = s["x"].get("conflict")
     peace = max(-8, min(8, int(p.get("peace", 0))))
+    if cf and dev in (cf["a"], cf["b"]) and p.get("calm"):
+        cf["hush"] = max(cf.get("hush", 0), 6)   # "stop it" works for a while: it quietens them, it does not settle anything
+        peace = max(peace, 3)
     if cf and dev in (cf["a"], cf["b"]) and peace:
         pr = next(q for q in PAIRS if set(q) == {cf["a"], cf["b"]})
         _g_rel(s, pr, -peace)
@@ -1741,18 +1752,28 @@ def _h_chat_effect(s, ev, content, p):
 PAIRS = (("dev1", "dev2"), ("po", "dev1"), ("po", "dev2"))
 TOPICS = {   # what each pair fights about, from their own personalities: (id, label, what it is about)
     ("dev1", "dev2"): [("handoffs", "Who carries the work", "Ines thinks Tobi keeps leaning on her instead of finishing his own tickets."),
-                       ("bluntness", "Harsh words", "Tobi is hurt by how blunt Ines is, and Ines thinks he takes everything personally.")],
+                       ("bluntness", "Harsh words", "Tobi is hurt by how blunt Ines is, and Ines thinks he takes everything personally."),
+                       ("venting", "Taking it out on each other", "The Scrum Master's harsh words have them both on edge, and they are snapping at each other instead.")],
     ("po", "dev1"): [("scope", "Scope versus quality", "Marlo keeps adding scope to please the board, and Ines will not cut corners to fit it in."),
-                     ("dates", "Promised dates", "Marlo promised the board a date that Ines never agreed to.")],
+                     ("dates", "Promised dates", "Marlo promised the board a date that Ines never agreed to."),
+                     ("venting", "Taking it out on each other", "The Scrum Master's harsh words have them both on edge, and they are snapping at each other instead.")],
     ("po", "dev2"): [("pressure", "Pressure and panic", "Marlo's pressure makes Tobi panic, and Tobi's panic makes Marlo push harder."),
-                     ("reassurance", "Reassurance versus results", "Tobi keeps asking Marlo for reassurance, and Marlo wants results, not questions.")]}
+                     ("reassurance", "Reassurance versus results", "Tobi keeps asking Marlo for reassurance, and Marlo wants results, not questions."),
+                     ("venting", "Taking it out on each other", "The Scrum Master's harsh words have them both on edge, and they are snapping at each other instead.")]}
 CONFLICT_AT = 28    # the most tense pair may start a fight from this tension up; at 60 it always does
 ESCALATE = 4        # from this round on, the fighting blocks the pair from taking work
 
 
-def _g_rel(s: dict, pr: tuple, d: int) -> None:
+CAUSES = {"berated": "The Scrum Master's harsh words have everyone on edge, and they are taking it out on each other.",
+          "low": "Morale is low, so they are short with each other.", "frayed": "They are worn out and snapping at each other.",
+          "fight": "The argument keeps feeding itself."}
+
+
+def _g_rel(s: dict, pr: tuple, d: int, why: str | None = None) -> None:
     k = "|".join(pr)
     s["x"]["rel"][k] = max(0, min(100, s["x"]["rel"][k] + d))
+    if why and d > 0:
+        s["x"].setdefault("rel_why", {})[k] = why
 
 
 def _g_tension_word(v: int) -> str:
@@ -1762,7 +1783,8 @@ def _g_tension_word(v: int) -> str:
 def _g_conflict_start(s: dict, ev: list, pr: tuple) -> None:
     m = s["x"]["mood"]
     a, b = sorted(pr, key=lambda d: m[d]["morale"])   # the one in the worse mood starts it
-    topic = TOPICS[pr][int(draw(s, "conflict_topic") * len(TOPICS[pr]))][0]
+    pick = TOPICS[pr][:2]
+    topic = "venting" if s["x"].get("rel_why", {}).get("|".join(pr)) == "berated" else pick[int(draw(s, "conflict_topic") * len(pick))][0]   # when your words caused it, that is what they fight about
     s["x"]["conflict"] = {"a": a, "b": b, "topic": topic, "round": 0}
     s["x"]["conflicts"]["started"] += 1
     _emit(s, ev, "conflict_started", a=a, b=b, topic=topic)
@@ -1771,7 +1793,7 @@ def _g_conflict_start(s: dict, ev: list, pr: tuple) -> None:
 def _g_maybe_conflict(s: dict, ev: list) -> None:
     """Low morale breeds tension, and tension turns into a fight between two teammates all by itself, without you saying a word."""
     x = s["x"]
-    if x.get("conflict") is not None or x.get("tutorial") or "rel" not in x:
+    if x.get("conflict") is not None or x.get("tutorial") or "rel" not in x or x.get("conflict_cool", 0) > 0:
         return
     pr = max(PAIRS, key=lambda q: x["rel"]["|".join(q)])
     tension = x["rel"]["|".join(pr)]
@@ -1786,9 +1808,9 @@ def _g_tension(s: dict, ev: list) -> None:
         avg = (m[pr[0]]["morale"] + m[pr[1]]["morale"]) / 2
         frayed = min(m[pr[0]]["sanity"], m[pr[1]]["sanity"]) < 50
         if avg < 55 or frayed:
-            _g_rel(s, pr, round((55 - min(avg, 55)) / 4) + (3 if frayed else 0) + 1)
-        elif avg >= 70:
-            _g_rel(s, pr, -3)
+            _g_rel(s, pr, round((55 - min(avg, 55)) / 4) + (3 if frayed else 0) + (2 if min(m[pr[0]]["sanity"], m[pr[1]]["sanity"]) < 35 else 0) + 1, "frayed" if frayed else "low")
+        elif avg >= 55:
+            _g_rel(s, pr, -4 if avg >= 70 else -3)
     _g_maybe_conflict(s, ev)
 
 
@@ -1797,13 +1819,25 @@ def _g_conflict_tick(s: dict, ev: list, why: str) -> None:
     c = s["x"].get("conflict")
     if c is None or s["x"].get("tutorial"):
         return
-    if c["round"] >= 6:
+    if c.get("hearing"):   # they have said their sides and are waiting for your answer, quietly, for a while
+        c["hearing"] -= 1
+        if c["hearing"] <= 0:
+            c.pop("hearing")
+            c["hush"] = 0
+            _g_rel(s, next(q for q in PAIRS if set(q) == {c["a"], c["b"]}), 3)
+            _emit(s, ev, "conflict_hearing_failed", a=c["a"], b=c["b"], why="lapsed")
+            return
+        c["hush"] = max(c.get("hush", 0), 1)
+    if c.get("hush", 0) > 0:   # you told them to stop: a quiet spell, then it picks up again if nothing was settled
+        c["hush"] -= 1
+        return
+    if c["round"] >= 12:
         return
     c["round"] += 1
     pr = next(q for q in PAIRS if set(q) == {c["a"], c["b"]})
-    _g_rel(s, pr, 4)
+    _g_rel(s, pr, 4, "fight")
     for d in pr:
-        _g_mood(s, ev, d, -2, 0, "conflict", raw=True)
+        _g_mood(s, ev, d, -2, -1, "conflict", raw=True)   # fighting wears everyone down until you step in
     _emit(s, ev, "conflict_round", a=c["a"], b=c["b"], topic=c["topic"], round=c["round"], speaker=c["a"] if c["round"] % 2 == 0 else c["b"], why=why)
     if c["round"] == ESCALATE:
         _emit(s, ev, "conflict_break", dev=min(pr, key=lambda d: s["x"]["mood"][d]["morale"]), a=c["a"], b=c["b"])
@@ -1812,6 +1846,10 @@ def _g_conflict_tick(s: dict, ev: list, why: str) -> None:
 def _g_conflict_end(s: dict, ev: list, how: str) -> None:
     c = s["x"]["conflict"]
     s["x"]["conflict"] = None
+    pr = next(q for q in PAIRS if set(q) == {c["a"], c["b"]})
+    k = "|".join(pr)
+    s["x"]["rel"][k] = min(s["x"]["rel"][k], 30 if how == "sided" else 12)   # settled for real: the air is clear (backing one side leaves resentment)
+    s["x"]["conflict_cool"] = 8                                            # and nobody starts again straight away
     s["x"]["conflicts"]["sided" if how == "sided" else "resolved"] += 1
     _emit(s, ev, "conflict_resolved", a=c["a"], b=c["b"], topic=c["topic"], how=how)
 
@@ -1820,7 +1858,7 @@ MEDIATE = {   # the Scrum Master's options: (label, what it does, minimum morale
     "listen": ("Hear both sides", "Ask each of them to explain, without interrupting. Works when neither is too upset.", 15),
     "goal": ("Back to the Sprint Goal", "Remind them what they share and agree one working rule. Needs a little goodwill.", 10),
     "side_a": ("Back one of them", "Say who is right. Settles it fast, but the other feels betrayed.", 0),
-    "dismiss": ("Tell them to stop", "Order them to quit arguing. It rarely works.", 0)}
+    "dismiss": ("Tell them to stop", "They go quiet for a while, but nothing is settled and they resent being shut down.", 0)}
 
 
 def _g_conflict_public(s: dict) -> dict | None:
@@ -1831,7 +1869,8 @@ def _g_conflict_public(s: dict) -> dict | None:
     topic = next(t for t in TOPICS[pr] if t[0] == c["topic"])
     m = s["x"]["mood"]
     low = min(m[c["a"]]["morale"], m[c["b"]]["morale"])
-    return {"a": c["a"], "b": c["b"], "topic": c["topic"], "label": topic[1], "about": topic[2], "round": c["round"], "tension": s["x"]["rel"]["|".join(pr)], "blocking": c["round"] >= ESCALATE,
+    why = s["x"].get("rel_why", {}).get("|".join(pr))
+    return {"a": c["a"], "b": c["b"], "topic": c["topic"], "label": topic[1], "about": topic[2], "cause": CAUSES.get(why, ""), "round": c["round"], "hushed": c.get("hush", 0) > 0, "hearing": bool(c.get("hearing")), "tension": s["x"]["rel"]["|".join(pr)], "blocking": c["round"] >= ESCALATE,
             "choices": [{"id": k, "label": v[0], "hint": v[1], "ready": low >= v[2]} for k, v in MEDIATE.items()]}
 
 
@@ -1850,9 +1889,15 @@ def _h_mediate(s, ev, content, p):
             _g_rel(s, pr, -5)
             _emit(s, ev, "conflict_unmoved", a=c["a"], b=c["b"], choice=choice)   # too upset to listen: lift their morale first
             return
-        _g_rel(s, pr, -22 if choice == "goal" else -20)
+        if choice == "listen":   # not a button press: each of them says their side, and you have to answer them
+            if not c.get("hearing"):
+                c["hearing"] = 6
+                c["hush"] = max(c.get("hush", 0), 1)
+                _emit(s, ev, "conflict_hearing", a=c["a"], b=c["b"])
+            return
+        _g_rel(s, pr, -22)
         for d in pr:
-            _g_mood(s, ev, d, 3 if choice == "listen" else 2, 1, "mediated", raw=True)
+            _g_mood(s, ev, d, 2, 1, "mediated", raw=True)
         return _g_conflict_end(s, ev, choice)
     if choice == "side_a":
         fav = p.get("side") if p.get("side") in pr else c["a"]
@@ -1862,12 +1907,42 @@ def _h_mediate(s, ev, content, p):
         pair_key = "|".join(pr)
         x["rel"][pair_key] = max(25, x["rel"][pair_key] - 10)   # settled on the surface, resented underneath
         return _g_conflict_end(s, ev, "sided")
-    for d in pr:   # dismiss
-        _g_mood(s, ev, d, -4, 0, "dismissed", raw=True)
-    _g_rel(s, pr, 10)
+    for d in pr:   # dismiss: they stop, for now, and resent it
+        _g_mood(s, ev, d, -3, 0, "dismissed", raw=True)
+    _g_rel(s, pr, 5)
+    c["hush"] = 5
     x["conflicts"]["ignored"] += 1
     _emit(s, ev, "conflict_dismissed", a=c["a"], b=c["b"])
-    _g_conflict_tick(s, ev, "dismissed")
+
+
+def _h_hearing_reply(s, ev, content, p):
+    """Server-only: how your answer to their two sides landed (the chat judged it): it settles the fight, keeps the hearing going, or ruins it."""
+    c = (s.get("x") or {}).get("conflict")
+    if s.get("guide") is None or c is None or not c.get("hearing"):
+        _illegal("nobody is waiting for your answer")
+    pr = next(q for q in PAIRS if set(q) == {c["a"], c["b"]})
+    q = p.get("quality")
+    if q == "good":
+        c.pop("hearing")
+        _g_rel(s, pr, -20)
+        for d in pr:
+            _g_mood(s, ev, d, 3, 1, "mediated", raw=True)   # being heard lifts both of them
+        return _g_conflict_end(s, ev, "listen")
+    if q == "bad":
+        c.pop("hearing")
+        c["hush"] = 0
+        _g_rel(s, pr, 8)
+        return _emit(s, ev, "conflict_hearing_failed", a=c["a"], b=c["b"], why="rude")
+    c["hearing"] = max(c["hearing"], 3)   # a thin answer: they want more, and the clock keeps running
+    _g_rel(s, pr, -4)
+    _emit(s, ev, "conflict_hearing_meh", a=c["a"], b=c["b"])
+
+
+def _h_conflict_tick(s, ev, content, p):
+    """Server-only: time passes while a fight goes unsettled. A quiet tick only counts down a "stop it"; a real one is another round."""
+    if s.get("guide") is None or (s.get("x") or {}).get("conflict") is None:
+        _illegal("nobody is fighting")
+    _g_conflict_tick(s, ev, "time")
 
 
 def _g_assigned(s: dict, ev: list, dev: str, ok: bool) -> None:
@@ -1877,9 +1952,10 @@ def _g_assigned(s: dict, ev: list, dev: str, ok: bool) -> None:
         return
     p = PERSONA[dev]
     _g_conflict_tick(s, ev, "assigned")
+    x["conflict_cool"] = max(0, x.get("conflict_cool", 0) - 1)
     x["idle"][dev] = 0
     x["load"][dev] += 1
-    _g_mood(s, ev, dev, -p["load"] - (1 if x["load"][dev] >= 3 else 0), 0, "assigned", raw=True)
+    _g_mood(s, ev, dev, 0, -p["load"] - (2 if x["load"][dev] >= 3 else 0), "assigned", raw=True)   # workload wears down sanity; morale only moves with how it goes
     if ok:
         _g_mood(s, ev, dev, p["pride"], 0, "finished", raw=True)
 
@@ -1890,12 +1966,13 @@ def _g_solo(s: dict, ev: list) -> None:
     if x.get("mood") is None or x.get("tutorial"):
         return
     _g_conflict_tick(s, ev, "solo")
+    x["conflict_cool"] = max(0, x.get("conflict_cool", 0) - 1)
     for dev in ("dev1", "dev2"):
         p = PERSONA[dev]
         x["idle"][dev] += 1
         n = x["idle"][dev]
         if n >= p["idle_at"] and (n - p["idle_at"]) % 2 == 0:
-            _g_mood(s, ev, dev, -p["idle"], -1, "idle", raw=True)
+            _g_mood(s, ev, dev, -p["idle"], -2, "idle", raw=True)
             _emit(s, ev, "feels_idle", dev=dev, n=n)
 
 
@@ -1934,6 +2011,10 @@ def _g_peers(s: dict, ev: list) -> None:
             _emit(s, ev, "peer_drag", dev=a, to=b)
     if _team_mood(s, "morale") < 40:
         _g_mood(s, ev, "po", -2, 0, "board_pressure", raw=True)
+    elif _team_mood(s, "morale") >= 60 and draw(s, "banter") < 0.6:   # in good spirits they talk to each other too, in their own channel
+        pr = PAIRS[int(draw(s, "banter_pair") * len(PAIRS))]
+        if not s["x"].get("conflict"):
+            _emit(s, ev, "team_banter", a=pr[0], b=pr[1])
 
 
 def _g_silence(s: dict, ev: list) -> None:
@@ -1946,8 +2027,12 @@ def _g_silence(s: dict, ev: list) -> None:
             _g_mood(s, ev, d, -SILENCE_MORALE, 0, "unheard", raw=True)
     x["standups_seen"] += 1
     x["chat_since"] = 0
+    for d in ("dev1", "dev2"):
+        if x["load"][d] == 0 and x["standups_seen"] > 1:
+            _g_mood(s, ev, d, 0, 3, "rested", raw=True)   # a day without new tasks lets them recover
     x["load"] = {"dev1": 0, "dev2": 0}   # a new day: the workload resets
     _g_peers(s, ev)
+    x["conflict_cool"] = max(0, x.get("conflict_cool", 0) - 2)
     _g_tension(s, ev)
     _g_conflict_tick(s, ev, "standup")
 
@@ -2173,7 +2258,7 @@ def _g_offload(s: dict, ev: list, content: Content, c: dict, p: dict) -> None:
     _g_trust(s, ev, content, dev, -C["offload_cost"], "offloaded")
     _g_assigned(s, ev, dev, ok)
     if not ok and s["x"].get("mood") is not None and not s["x"].get("tutorial"):
-        _g_mood(s, ev, dev, -3, -1, "offload_failed")   # they hate letting you down
+        _g_mood(s, ev, dev, -3, -2, "offload_failed")   # they hate letting you down
 
 
 def _g_deal_sprint(s: dict, ev: list, content: Content) -> None:
@@ -3109,8 +3194,8 @@ HANDLERS = {"help_answer": _h_help_answer, "open_card": _h_open_card, "flag_line
             "regroup": _h_regroup, "add_card": _h_add_card, "remove_card": _h_remove_card,
             "review_inspect": _h_review_inspect, "review_fix": _h_review_fix, "review_ship": _h_review_ship,
             "review_send_back": _h_review_send_back, "ship_release": _h_ship_release, "unblock": _h_unblock,
-            "guide_answer": _h_guide_answer, "guide_next": _h_guide_next, "mediate": _h_mediate}
-EXPERIMENTAL_ONLY = ("help_answer", "guide_answer", "guide_next", "mediate", "configure", "ai_set", "chat_effect", "debug_skip", "buy_practice", "reroll_shop", "lock_offer", "retro", "use_ultimate", "regroup", "add_card",
+            "guide_answer": _h_guide_answer, "guide_next": _h_guide_next, "mediate": _h_mediate, "conflict_tick": _h_conflict_tick, "hearing_reply": _h_hearing_reply}
+EXPERIMENTAL_ONLY = ("help_answer", "guide_answer", "guide_next", "mediate", "conflict_tick", "hearing_reply", "configure", "ai_set", "chat_effect", "debug_skip", "buy_practice", "reroll_shop", "lock_offer", "retro", "use_ultimate", "regroup", "add_card",
                      "remove_card", "review_inspect", "review_fix", "review_ship", "review_send_back", "ship_release", "unblock")
 
 

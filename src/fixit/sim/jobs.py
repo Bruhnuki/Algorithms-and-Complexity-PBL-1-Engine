@@ -60,6 +60,8 @@ class SimJobs:
             raise ValueError("reps must be between 1 and 20")
         if len(options.get("rates") or []) > 40:
             raise ValueError("at most 40 arrival rates")
+        if any(not isinstance(r, (int, float)) or isinstance(r, bool) or not 0 < r <= 1000 for r in options.get("rates") or []):
+            raise ValueError("every arrival rate must be between 0 and 1000 students per hour")
         with self._lock:
             if self.running() >= MAX_RUNNING:
                 raise OverflowError("too many simulations are running; wait for one to finish or cancel it")

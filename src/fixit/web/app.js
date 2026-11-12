@@ -30,6 +30,7 @@ document.body.append(fx, toasts);
 function playEnter() { if (REDUCED) return; root.classList.add("enter"); setTimeout(() => root.classList.remove("enter"), 1200); }
 // a screen change animates in; refreshes of the game screen do not (no replaying on every poll)
 const mount = (...nodes) => {
+  document.getElementById("conflictwin")?.remove();   // a floating argument belongs to the game screen only
   const wasGame = !!document.getElementById("browser");
   root.replaceChildren(...nodes.filter(Boolean));
   document.body.classList.toggle("in-game", !!document.getElementById("browser"));
@@ -348,7 +349,7 @@ async function tick() {
 }
 
 const MOOD_WHY = { mistake: "A mistake rattled the team", put_down: "Dropping an item hurt the team", skipped_checks: "Skipped checks worry the team", hidden_problem: "A hidden problem surfaced at the Review",
-  offload_failed: "Letting you down hurts", assigned: "A new task weighs on them", finished: "Finishing it felt good", idle: "Being left out hurts", peer_support: "A teammate checked in", peer_drag: "A teammate's gloom rubbed off", board_pressure: "The board is leaning on Marlo", coached: "Being coached helped", honest_checks: "Honest work steadies the team" };
+  offload_failed: "Letting you down hurts", assigned: "A new task wears on them", rested: "A quieter day helped them recover", conflict: "The fighting wears them down", finished: "Finishing it felt good", idle: "Being left out hurts", peer_support: "A teammate checked in", peer_drag: "A teammate's gloom rubbed off", board_pressure: "The board is leaning on Marlo", coached: "Being coached helped", honest_checks: "Honest work steadies the team" };
 // experimental mechanics: what each new event says when it happens
 const XTOAST = {
   penalty: (e) => ["bad", `Mistake: Grade −${e.grade}, trust −${e.trust} for the whole team`],
@@ -379,6 +380,9 @@ const XTOAST = {
   conflict_started: (e) => ["bad", `${who(e.a)} and ${who(e.b)} are arguing in Slackish. Settle it before it spreads.`],
   conflict_break: (e) => ["bad", `${who(e.dev)} stormed off: their work is blocked until you settle the argument`],
   conflict_resolved: (e) => ["good", `${who(e.a)} and ${who(e.b)} settled it ${HOW[e.how] || ""}`],
+  conflict_hearing: () => ["good", "They are explaining their sides in #teammates. Answer both of them there."],
+  conflict_hearing_meh: () => ["warn", "Not enough yet: say what you heard from each of them."],
+  conflict_hearing_failed: (e) => ["bad", e.why === "rude" ? "That answer made it worse. The hearing is over." : "You took too long: they lost patience and the argument is back."],
   conflict_unmoved: () => ["warn", "They are too upset to listen. Lift their morale in the chat first."],
   conflict_dismissed: () => ["bad", "Telling them to stop made it worse"],
   conflict_cost: () => ["bad", "Users can feel a team at war with itself: rating −0.2"],
@@ -952,7 +956,20 @@ const TUT = [
     say: ["Here we are! This is where you chat with Marlo, Ines and Tobi.",
       "Everyone sees the same messages, so nothing is hidden. Scrum calls that transparency, and it keeps a team honest.",
       "They'll answer what you do, too. The more they trust you, the friendlier they sound.",
-      "Now let's hold the Daily Scrum."] },
+      "Now let's look at how your team feels, and how to talk to them."] },
+  { id: "mood", at: () => "aside.side", act: null,
+    say: ["On the left is the team's mood. Each teammate has two bars: {morale} and {sanity}, from 0 to 100.",
+      "{morale} is how motivated they feel. Kind, honest words lift it. Mistakes, pressure and silence wear it down.",
+      "{sanity} is how much strain they can take. Harsh words and a pile of mistakes drain it, and tired people make more errors.",
+      "The big bar at the top is the whole team. If it falls too low, the team gives up and the game is over. In this practice Sprint nothing you say can hurt them, so feel free to try."] },
+  { id: "typeMsg", at: () => ".chatform", act: () => ".chatform", done: () => !!(run && run.tut && run.tut.typed),
+    say: ["You can talk to your team by typing in the box under the chat. Write @Ines, @Tobi or @Marlo to talk to one of them, or just write to everyone.",
+      "Try something kind, like thanking them for their work. Type it, then press Send."],
+    todo: () => "Type a message to the team, then press Send." },
+  { id: "typeReply", at: () => ".chatcard", act: null,
+    say: ["Nice! Now watch the chat: when your team is writing back you'll see “Your team is typing…” under the messages.",
+      "Their answer depends on how you wrote. Kind and clear words raise their {morale} and {sanity}, rude ones lower them.",
+      "In a real Sprint, staying quiet costs {morale} too, so check in with them often. Now let's hold the Daily Scrum."] },
   { id: "daily", at: (s) => s.standup ? "[data-guide=standup]" : "[data-guide=start-build]", act: (s) => s.standup ? "[data-answer=accurate]" : "[data-guide=start-build]",
     spot: (s) => s.standup ? "[data-answer=accurate]" : "[data-guide=start-build]", done: (s) => s.stage === "BUILD",
     say: (s) => ["This is the Daily Scrum: a quick check, fifteen minutes at most, on how we're doing toward the Sprint Goal.",
@@ -1028,9 +1045,9 @@ const TUT = [
       "Press “End the day”."],
     todo: () => "Press “End the day”." },
 ];
-const TERM_WORDS = { rating: "Rating", trust: "Trust", hidden: "Hidden Problem" };
-const richText = (text) => String(text).split(/(\{rating\}|\{trust\}|\{hidden\})/).filter(Boolean).map((part) => {
-  const m = part.match(/^\{(rating|trust|hidden)\}$/);
+const TERM_WORDS = { rating: "Rating", trust: "Trust", hidden: "Hidden Problem", morale: "Morale", sanity: "Sanity" };
+const richText = (text) => String(text).split(/(\{rating\}|\{trust\}|\{hidden\}|\{morale\}|\{sanity\})/).filter(Boolean).map((part) => {
+  const m = part.match(/^\{(rating|trust|hidden|morale|sanity)\}$/);
   return m ? h("span", { class: "term-" + m[1] }, TERM_WORDS[m[1]]) : part;
 });
 const sayOf = (step, s) => (typeof step.say === "function" ? step.say(s) : step.say);
@@ -1127,7 +1144,7 @@ function tutBox(s) {
   if (pos.review) buttons.push(h("button", { class: "primary", onclick: tutNext }, "Next"));
   else if (talking) buttons.push(h("button", { class: "primary", onclick: () => {
     if (!last) { t.bubble++; t.key = null; syncTour(run.state); }
-    else if (!step.act) { tutGo(t.step + 1); if (run && run.tut && !run.tut.finished) syncTour(run.state); }
+    else if (!step.act) { tutGo(t.step + 1); if (run && run.tut && !run.tut.finished) { run.sig = null; render(); } }   // redraw: a step can reveal part of the screen (the mood bars)
     else { t.phase = "do"; t.key = null; run.sig = null; render(); }
   } }, last ? "Got it" : "Next"));
   if (t.replay) buttons.push(h("button", { class: "quiet", onclick: finishTutorial }, "Skip tutorial"));   // returning players only: the first run cannot be skipped
@@ -1264,8 +1281,9 @@ function replyInChat(ans) { if (run) run.lines.push({ id: -(run.lines.length + 1
 function vbar(label, v, max, tone, extra = {}) {
   const pct = Math.round((v / max) * 100), fill = h("i", { class: tone });
   fill.style.height = Math.max(4, pct) + "%";
+  fill.style.setProperty("--p", Math.max(4, pct) + "%");   // the team sidebar draws the same bar sideways
   const tag = extra.tag || "button";
-  return h(tag, { class: "vbar", "aria-label": `${label} ${v} of ${max}` + (extra.tip ? ". What is this?" : ""), title: `${label} ${v}/${max}`, ...(extra.tip ? { onclick: (e) => { e.stopPropagation(); showTip(e.currentTarget, extra.tip); } } : {}) },
+  return h(tag, { class: "vbar", "data-v": String(v), "aria-label": `${label} ${v} of ${max}` + (extra.tip ? ". What is this?" : ""), title: `${label} ${v}/${max}`, ...(extra.tip ? { onclick: (e) => { e.stopPropagation(); showTip(e.currentTarget, extra.tip); } } : {}) },
     h("span", { class: "vtrack" }, fill, h("b", {}, String(v))), h("small", {}, label));
 }
 // Tolerance: how much patience a teammate has with you (0 to 10, starts at 0). It rises when you talk things through and makes their work succeed more often.
@@ -1291,16 +1309,62 @@ function conflictCard(s) {
   if (!c || !s.x.mood) return null;
   const face = (id) => h("div", { class: "cside" }, h("span", { class: "avring r-bad" }, avatar(id, id === "dev2" ? "panicked" : "pushy")), h("b", {}, who(id)), h("small", {}, s.x.mood[id].feeling));
   const btn = (id, label, hint, ready, extra = {}) => h("button", { class: "mchoice" + (ready ? "" : " notready") + (id === "dismiss" ? " quiet-choice" : ""), "data-mediate": id + (extra.side ? ":" + extra.side : ""), disabled: !!run.busy,
-    title: ready ? hint : "They are too upset for this yet. Lift their morale in the chat first.", onclick: () => cmd("mediate", { choice: id, ...extra }) }, h("b", {}, label), h("small", {}, ready ? hint : "Too upset: lift their morale first"));
+    title: ready ? hint : "They are too upset for this yet. Lift their morale in the chat first.",
+    onclick: async () => { await cmd("mediate", { choice: id, ...extra }); if (id === "listen" && run.state.x.conflict && run.state.x.conflict.hearing) { run.channel = "mates"; run.sig = null; render(); const b = document.getElementById("chatbox"); if (b) b.focus(); } } }, h("b", {}, label), h("small", {}, ready ? hint : "Too upset: lift their morale first"));
   const by = Object.fromEntries(c.choices.map((x) => [x.id, x]));
   return h("section", { class: "conflict" + (c.blocking ? " blocking" : ""), role: "alert", "aria-label": "Argument between teammates" },
-    h("div", { class: "chead" }, ic("warn"), h("b", {}, `Argument: ${c.label}`), c.blocking ? h("span", { class: "cblock" }, "Their work is blocked") : null),
-    h("p", { class: "cabout" }, c.about + " Left alone it spreads, hurts their work and costs you rating."),
+    h("div", { class: "chead", title: "Drag to move" }, ic("warn"), h("b", {}, `Argument: ${c.label}`), c.blocking ? h("span", { class: "cblock" }, "Work blocked") : null, c.hushed ? h("span", { class: "cblock calm" }, "Quiet for now") : null,
+      h("button", { class: "cwmin", type: "button", "aria-label": "Fold the argument away", title: "Fold away", onclick: (e) => { e.stopPropagation(); run.cwMin = true; syncConflictWin(run.state); } }, "–")),
+    c.hearing ? h("p", { class: "chearing" }, "They are explaining their sides in #teammates. Answer both of them there: say what you heard from each, and suggest a way forward.") : null,
+    h("p", { class: "cabout" }, c.about + (c.cause && !c.about.includes("harsh words") ? " " + c.cause : "") + " Left alone it spreads, hurts their work and costs you rating."),
     h("div", { class: "cvs" }, face(c.a), h("div", { class: "cmid" }, vbar("Tension", c.tension, 100, c.tension >= 60 ? "bad" : c.tension >= 35 ? "mid" : "good", { tag: "span" }), h("span", { class: "vsb" }, "VS")), face(c.b)),
     h("div", { class: "cchoices" }, btn("listen", by.listen.label, by.listen.hint, by.listen.ready), btn("goal", by.goal.label, by.goal.hint, by.goal.ready),
       btn("side_a", "Back " + who(c.a), "Say " + who(c.a) + " is right. " + who(c.b) + " will feel betrayed.", true, { side: c.a }), btn("side_a", "Back " + who(c.b), "Say " + who(c.b) + " is right. " + who(c.a) + " will feel betrayed.", true, { side: c.b }),
       btn("dismiss", by.dismiss.label, by.dismiss.hint, true)),
-    h("p", { class: "muted small" }, "Or talk to both of them in the chat below: kind, constructive words cool it down, cruel ones feed it."));
+    h("p", { class: "muted small" }, "Or talk to them in the chat: \"stop it\" quietens them for a while, kind and constructive words cool it down, cruel ones feed it."));
+}
+
+// The argument floats over the game like a window: drag it by its header, fold it into a small pill, and it stays out of the way of the chat.
+function syncConflictWin(s) {
+  const c = s && s.x && s.x.conflict;
+  let w = document.getElementById("conflictwin");
+  if (!c || !s.x.mood || s.x.tutorial || !document.getElementById("browser")) { if (w) w.remove(); return; }
+  if (!w) {
+    w = h("div", { id: "conflictwin", class: "cwin" });
+    document.body.append(w);
+    placeWin(w);
+    w.addEventListener("pointerdown", (e) => {
+      const grip = e.target.closest(".chead, .cwpill");
+      if (!grip || e.target.closest("button.cwmin")) return;
+      const r = w.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
+      let moved = false;
+      const move = (ev) => {
+        moved = moved || Math.abs(ev.clientX - e.clientX) + Math.abs(ev.clientY - e.clientY) > 4;
+        if (!moved) return;
+        w.dataset.drag = "1";
+        run.cwPos = { left: Math.max(0, Math.min(innerWidth - 60, ev.clientX - dx)), top: Math.max(0, Math.min(innerHeight - 40, ev.clientY - dy)) };
+        placeWin(w);
+      };
+      const up = () => {
+        document.removeEventListener("pointermove", move); document.removeEventListener("pointerup", up);
+        delete w.dataset.drag;
+        if (!moved && grip.classList.contains("cwpill")) { run.cwMin = false; syncConflictWin(run.state); }
+      };
+      document.addEventListener("pointermove", move); document.addEventListener("pointerup", up);
+      e.preventDefault();
+    });
+  }
+  if (w.dataset.drag) return;
+  const sig = JSON.stringify([c, s.x.mood[c.a].feeling, s.x.mood[c.b].feeling, !!run.busy, !!run.cwMin]);
+  if (w.dataset.sig === sig) return;
+  w.dataset.sig = sig;
+  w.classList.toggle("min", !!run.cwMin);
+  w.replaceChildren(run.cwMin ? h("div", { class: "cwpill", title: "Open the argument (drag to move)" }, ic("warn"), h("b", {}, `${who(c.a)} vs ${who(c.b)}`), h("span", {}, c.hushed ? "quiet" : `tension ${c.tension}`)) : conflictCard(s));
+}
+function placeWin(w) {
+  const p = run.cwPos;
+  if (p) { w.style.left = p.left + "px"; w.style.top = p.top + "px"; w.style.right = "auto"; w.style.bottom = "auto"; }
+  else { w.style.left = ""; w.style.top = ""; w.style.right = "18px"; w.style.bottom = "90px"; }
 }
 function bondsEl(s) {
   const rel = s.x.rel;
@@ -1326,42 +1390,57 @@ function chatList(s, msgs) {
 }
 
 // One message box for the whole session: it keeps its text and focus while the page around it is rebuilt.
-function chatForm(s) {
+function chatForm(s, ch = "team") {
   const d = run.chatDraft || (run.chatDraft = { text: "", focus: false });
   const busy = !!run.chatBusy && Date.now() < run.chatBusy.until;
-  const input = h("input", { type: "text", id: "chatbox", maxlength: "300", autocomplete: "off", placeholder: "Message the team. Write @Ines, @Tobi or @Marlo to talk to one of them.", "aria-label": "Message the team", value: d.text });
+  const input = h("input", { type: "text", id: "chatbox", maxlength: "300", autocomplete: "off", placeholder: ch === "mates" ? (s.x && s.x.conflict && s.x.conflict.hearing ? "Answer both of them: what you heard from each, and a way forward..." : "Step in. Say something to the two of them...") : "Message the team. Write @Ines, @Tobi or @Marlo to talk to one of them.", "aria-label": ch === "mates" ? "Step into their conversation" : "Message the team", value: d.text });
   input.addEventListener("input", () => { d.text = input.value; });
   input.addEventListener("focus", () => { d.focus = true; });
   input.addEventListener("blur", () => { if (input.isConnected) d.focus = false; });
   if (d.focus) requestAnimationFrame(() => { input.focus(); input.setSelectionRange(input.value.length, input.value.length); });
   const send = h("button", { class: "primary", type: "submit", disabled: busy || s.status !== "active" }, busy ? "Waiting…" : "Send");
-  return h("form", { class: "chatform", onsubmit: (e) => { e.preventDefault(); sendChat(d.text); } }, input, send);
+  return h("form", { class: "chatform", onsubmit: (e) => { e.preventDefault(); sendChat(d.text, ch); } }, input, send);
 }
-async function sendChat(text) {
+async function sendChat(text, ch = "team") {
   const t = String(text || "").trim();
-  if (!t || !run || (run.chatBusy && Date.now() < run.chatBusy.until)) return;
-  run.chatDraft.text = ""; run.chatStick = true;
+  if (!t || !run || run.sending || (run.chatBusy && Date.now() < run.chatBusy.until)) return;
+  run.sending = true;   // set before the request: a second click or Enter while it is in flight is ignored
+  run.chatDraft.text = ""; run.chatStick = true; run.channel = ch;
   try {
-    const r = await api(`/api/v1/runs/${run.id}/chat`, "POST", { text: t });
-    run.chatBusy = { left: r.to.length, until: Date.now() + 45000 };
+    const r = await api(`/api/v1/runs/${run.id}/chat`, "POST", { text: t, channel: ch });
+    run.chatBusy = r.to.length ? { left: r.to.length, until: Date.now() + 45000 } : null;
+    if (run.tut) run.tut.typed = true;
   } catch (e) { toast("bad", e.status === 429 ? "Slow down a little: give the team a minute." : "That message did not send."); run.chatDraft.text = t; }
+  run.sending = false;
   run.sig = null; poll();
 }
 
+// Two channels: #team-chat is you and your team; #teammates is what they say to each other (arguments, support, banter). You can listen in.
+const isMates = (l) => l.tone === "heated" || l.tone === "banter" || l.tone === "talk" || (l.speaker === "you" && l.source === "player_m");
 function slackApp(s) {
-  const msgs = run.lines.slice(-12), T = s.x && s.x.tolerance;
-  const chatting = T && !s.x.tutorial && !run.tut;
+  const all = run.lines.slice(-300), T = s.x && s.x.tolerance;
+  const practice = !!(s.x && s.x.tutorial), real = !practice && !run.tut;
+  const chatting = T && (real || (practice && run.tut && !run.tut.finished && run.tut.step >= TUT.findIndex((t) => t.id === "mood")));   // the tutorial reveals the chat at the mood step
+  const ch = real && run.channel === "mates" ? "mates" : "team";
+  const teamLines = all.filter((l) => !isMates(l)), mateLines = all.filter(isMates), msgs = ch === "mates" ? mateLines : teamLines;
+  run.chSeen = run.chSeen || { team: 0, mates: 0 };
+  const lastOf = (arr) => (arr.length ? arr[arr.length - 1].id : 0);
+  const unread = { team: ch === "team" ? 0 : teamLines.filter((l) => l.id > run.chSeen.team && l.speaker !== "you").length, mates: ch === "mates" ? 0 : mateLines.filter((l) => l.id > run.chSeen.mates).length };
+  run.chSeen[ch] = Math.max(run.chSeen[ch], lastOf(msgs));
+  const heatedNew = ch !== "mates" && mateLines.some((l) => l.tone === "heated" && l.id > run.chSeen.mates);
+  const tab = (id, label) => h("button", { class: "chtab" + (ch === id ? " on" : "") + (id === "mates" && heatedNew ? " hot" : ""), role: "tab", "aria-selected": String(ch === id), type: "button",
+    onclick: () => { run.channel = id; run.sig = null; render(); } }, label, unread[id] ? h("span", { class: "chbadge" }, String(unread[id])) : null);
   const typing = chatting && run.chatBusy && Date.now() < run.chatBusy.until;
   return h("div", { class: "slack" },
     h("aside", { class: "side", "aria-label": "Team members" },
-      h("h3", {}, h("span", { class: "hash" }, "#"), "team-chat"), h("p", { class: "online" }, h("i", {}), "3 teammates online"), chatting ? teamMood(s) : null, chatting ? bondsEl(s) : null,
-      ["po", "dev1", "dev2"].map((id) => { const [nm, role] = String(NAMES[id]).replace(")", "").split(" ("); return h("div", { class: "member" }, h("span", { class: "avw" }, avatar(id), h("i", { class: "dot" })), h("span", { class: "who" }, h("b", {}, nm), role ? h("small", {}, role) : null), chatting ? h("span", { class: "feel f-" + moodTone(s.x.mood[id].morale), title: s.x.mood[id].note }, s.x.mood[id].feeling) : null, chatting ? h("span", { class: "vbars" }, moodBar("Morale", s.x.mood[id].morale), moodBar("Sanity", s.x.mood[id].sanity), tolBar(id, T[id] || 0)) : null); })),
-    h("div", { class: "main" }, s.stage === "STANDUP" ? codeDesk(s) : null, chatting ? conflictCard(s) : null,
-      h("section", { class: "card chatcard", "aria-label": "Team chat" }, h("h2", {}, "# team-chat"), h("p", { class: "sub" }, "What your team is saying."),
+      h("h3", {}, h("span", { class: "hash" }, "#"), "team-chat"), h("p", { class: "online" }, h("i", {}), "3 teammates online"), chatting ? teamMood(s) : null, real ? bondsEl(s) : null,
+      ["po", "dev1", "dev2"].map((id) => { const [nm, role] = String(NAMES[id]).replace(")", "").split(" ("); return h("div", { class: "member" }, h("span", { class: "avw" }, avatar(id), h("i", { class: "dot" })), h("span", { class: "who" }, h("b", {}, nm), role ? h("small", {}, role) : null), chatting ? h("span", { class: "feel f-" + moodTone(s.x.mood[id].morale), title: s.x.mood[id].note }, s.x.mood[id].feeling) : null, chatting ? h("span", { class: "vbars" }, moodBar("Morale", s.x.mood[id].morale), moodBar("Sanity", s.x.mood[id].sanity), real ? tolBar(id, T[id] || 0) : null) : null); })),
+    h("div", { class: "main" }, s.stage === "STANDUP" ? codeDesk(s) : null, h("section", { class: "card chatcard", "aria-label": ch === "mates" ? "What your teammates say to each other" : "Team chat" },
+        real ? h("div", { class: "chtabs", role: "tablist", "aria-label": "Channels" }, tab("team", "# team-chat"), tab("mates", "# teammates")) : h("h2", {}, "# team-chat"),
+        h("p", { class: "sub" }, ch === "mates" ? "What they say to each other. Type to step into their conversation: they will answer you here." : "What your team is saying."),
         msgs.length ? h("div", { class: "chat" }, chatList(s, msgs))
-          : h("p", { class: "muted" }, "No messages yet. Enjoy the quiet while it lasts."),
-        typing ? h("p", { class: "typing muted small", role: "status" }, "Your team is typing…") : null,
-        chatting ? chatForm(s) : null)));
+          : h("p", { class: "muted" }, ch === "mates" ? "Quiet in here. They talk among themselves when something is going on: good or bad." : "No messages yet. Enjoy the quiet while it lasts."),
+        [typing ? h("p", { class: "typing muted small", role: "status" }, ch === "mates" ? "They are answering…" : "Your team is typing…") : null, chatting ? chatForm(s, ch) : null])));
 }
 
 // ---- The live team board: drag a request onto a person (or use the buttons). Teammates work in real time.
@@ -2015,7 +2094,7 @@ function browserFrame(s) {
 
 // what each page actually draws; a page is rebuilt only when this changes
 const PAGE_DEPS = {
-  slack: (s) => [run.lines.slice(-12).map((l) => l.id), s.stage, s.standup, s.x ? [s.x.standup_timer_s, s.x.prices, s.x.tolerance, s.x.mood, s.x.conflict, s.x.rel] : null, !!run.chatBusy, run.busy],
+  slack: (s) => [run.channel, run.lines.length, run.lines.length ? run.lines[run.lines.length - 1].id : 0, s.stage, s.standup, s.x ? [s.x.standup_timer_s, s.x.prices, s.x.tolerance, s.x.mood, s.x.conflict, s.x.rel] : null, !!run.chatBusy, run.busy, run.tut ? run.tut.step : -1],
   github: (s) => [s.pile, s.stage, s.guide && [s.guide.backlog, s.guide.committed, s.guide.goal], s.x && [s.x.skill, s.x.debt, s.x.team && Object.values(s.x.team).map((m) => m.bug_chance)],
     s.work && { ...s.work, speed: s.work.speed && s.work.speed.misses }, s.open_card, s.day, s.perks, run.runs, s.standup,
     s.x ? [s.x.shop, s.x.intents.map((i) => [i.text, i.kind]), s.x.move_costs, s.x.retro_left, s.x.next_clean_factor, s.x.practices, s.meters.points, s.x.goal,
@@ -2082,6 +2161,7 @@ function render() {
   const lastId = run.lines.length ? run.lines[run.lines.length - 1].id : 0;
   run.freshAfter = run.slackSeen ?? 0; run.wallFresh = run.playSeen ?? 0;   // only lines you have not seen yet animate in
   updateScreen(s);
+  syncConflictWin(s);
   syncScene(s);
   applyGuide(s);
   if (!run.modal && !(s.x && s.x.calm)) { const c = conceptFor(s); if (c) showConcept(c); }

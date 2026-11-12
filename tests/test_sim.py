@@ -213,3 +213,11 @@ def test_SIM15_this_deployment_can_be_measured(admin):
     assert r["params"]["dists"]["login_auth"][0] > 0 and "llm" in r["kept_from_paper"]       # no AI server in this test: the paper's LLM time stays
     run = c.post("/api/v1/instructor/sim/jobs", json={"kind": "baseline", "reps": 2, "params": r["params"]}).json()
     assert wait(c, run["id"])["status"] == "done"
+
+
+def test_QA2_arrival_rates_in_a_stress_sweep_must_be_positive_and_sane():
+    from fixit.sim.jobs import SimJobs
+    jobs = SimJobs()
+    for bad in ([0], [-5], [5, 0], [5000], ["x"], [True]):
+        with pytest.raises(ValueError):
+            jobs.start("stress", {}, {"rates": bad})

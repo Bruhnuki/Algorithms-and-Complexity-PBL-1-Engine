@@ -4,7 +4,9 @@ from __future__ import annotations
 import hashlib
 import ipaddress
 import os
+import re
 import secrets
+import random
 import threading
 import time
 from collections import defaultdict, deque
@@ -22,7 +24,7 @@ from sqlalchemy.orm import Session as DbSession
 
 from ..gateway import context as gctx
 from ..gateway import drama
-from ..gateway.chat import PLAIN, TAKE_AT, Chat, addressed, item_asked
+from ..gateway.chat import PLAIN, TAKE_AT, Chat, addressed, item_asked, judge as judge_text
 from ..gateway.gateway import Gateway
 from ..rules import content as content_mod, reducer
 from ..rules.reducer import GameError
@@ -116,6 +118,7 @@ class NewRunIn(BaseModel):
 
 class ChatIn(BaseModel):
     text: str = Field(min_length=1, max_length=300)
+    channel: str = Field(default="team", pattern="^(team|mates)$")   # "mates": you step into what the teammates are saying to each other
 
 
 class TickIn(BaseModel):
@@ -368,46 +371,123 @@ def create_app(db_path: str, content=None, gateway: Gateway | None = None, setti
             out["ai"] = a
         return out
 
+    fights: set[int] = set()
+
+    def fight_loop(run_id: int):
+        """Once a fight starts it keeps going by itself, a line every few seconds, until you settle it or tell them to stop. Every few lines is a round that wears them down."""
+        if st.dialogue_inline or run_id in fights:
+            return
+        fights.add(run_id)
+
+        def loop():
+            n = 0
+            try:
+                while True:
+                    time.sleep(3.5 + random.random() * 2.5)
+                    with DbSession(engine) as d:
+                        run = d.get(M.Run, run_id)
+                        if run is None or run.status != "active":
+                            return
+                        s = get_cached(d, run)["state"]
+                        cf = s["x"].get("conflict")
+                        if cf is None:
+                            return
+                        if cf.get("hush", 0) > 0 or cf.get("hearing"):
+                            execute(d, run, {"type": "conflict_tick", "payload": {}}, None)   # counts the quiet spell (or the wait for your answer) down
+                            continue
+                        a, b = cf["a"], cf["b"]
+                        last = d.scalars(select(M.TranscriptLine).where(M.TranscriptLine.run_id == run_id).order_by(M.TranscriptLine.id.desc()).limit(8)).all()
+                        recent_heated = next((l for l in last if l.tone == "heated"), None)
+                        who = (b if recent_heated is not None and recent_heated.speaker == a else a)
+                        other = b if who == a else a
+                        history = [f"{PLAIN.get(l.speaker, 'Scrum Master (the player)')}: {l.text}" for l in reversed(last)]
+                        about = next(x[2] for pr, tps in reducer.TOPICS.items() for x in tps if x[0] == cf["topic"] and set(pr) == {a, b})
+                        about += " " + reducer.CAUSES.get(s["x"].get("rel_why", {}).get("|".join(next(q for q in reducer.PAIRS if set(q) == {a, b}))), "")
+                        facts = {"morale": s["x"]["mood"][who]["morale"], "sanity": s["x"]["mood"][who]["sanity"]}
+                        ln = drama.line(content, ai, chat.model, who, other, cf["topic"], about, cf["round"] * 2 + n, facts, history)
+                        now_cf = get_cached(d, run)["state"]["x"].get("conflict")
+                        if now_cf is None or now_cf.get("hush", 0) > 0 or now_cf.get("hearing"):
+                            continue   # you stepped in while this line was being written: it is stale, drop it
+                        d.add(M.TranscriptLine(run_id=run_id, seq=get_cached(d, run)["seq"], speaker=who, text=ln["text"], source=ln["source"], latency_ms=0, tone="heated"))
+                        d.commit()
+                        n += 1
+                        if n % 4 == 0:
+                            try:
+                                execute(d, run, {"type": "conflict_tick", "payload": {}}, None)
+                            except GameError:
+                                return
+            except Exception:   # noqa: BLE001  (a failed line must never take the server down; the next request restarts the loop)
+                pass
+            finally:
+                fights.discard(run_id)
+        threading.Thread(target=loop, daemon=True, name=f"fight-{run_id}").start()
+
     def argue(run_id: int, seq: int, events: list[dict], state: dict):
         """The team's arguments: each conflict event becomes lines in the chat, written by the AI in the speaker's voice (authored lines if it is off)."""
-        wanted = [e for e in events if e["type"] in ("conflict_started", "conflict_round", "conflict_break", "conflict_resolved", "conflict_unmoved", "conflict_dismissed")]
+        wanted = [e for e in events if e["type"] in ("conflict_started", "conflict_round", "conflict_break", "conflict_resolved", "conflict_unmoved", "conflict_dismissed", "team_banter", "conflict_hearing", "conflict_hearing_failed") and e.get("why") != "time"]   # timed rounds already have their lines from the fight loop
+        if any(e["type"] == "conflict_started" for e in events):
+            fight_loop(run_id)
         if not wanted:
             return
 
         def work():
+            def put(who, text, tone, src, pause=True):
+                with DbSession(engine) as d3:   # one line at a time, so they appear in Slackish like a fast, heated back-and-forth
+                    d3.add(M.TranscriptLine(run_id=run_id, seq=seq, speaker=who, text=text, source=src, latency_ms=0, tone=tone))
+                    d3.commit()
+                if pause and not st.dialogue_inline:
+                    time.sleep(0.7 + random.random() * 0.9)
             with DbSession(engine) as d2:
                 last = d2.scalars(select(M.TranscriptLine).where(M.TranscriptLine.run_id == run_id).order_by(M.TranscriptLine.id.desc()).limit(8)).all()
-                history = [f"{PLAIN.get(l.speaker, 'Scrum Master (the player)')}: {l.text}" for l in reversed(last)]
-                out = []
-                for e in wanted:
-                    t = e["type"]
-                    mood = state["x"]["mood"]
-                    if t in ("conflict_started", "conflict_round"):
-                        a, b = e["a"], e["b"]
-                        speaker = e["speaker"] if t == "conflict_round" else a
-                        rounds = [(speaker, e.get("round", 0))] + ([(b, 1)] if t == "conflict_started" else [])
-                        for who, rnd in rounds:
-                            other = b if who == a else a
-                            about = next(x[2] for pr, tps in reducer.TOPICS.items() for x in tps if x[0] == e["topic"])
-                            facts = {"morale": mood[who]["morale"], "sanity": mood[who]["sanity"]}
-                            ln = drama.line(content, ai, chat.model, who, other, e["topic"], about, rnd, facts, history)
-                            out.append((who, ln["text"], "heated", ln["source"]))
-                            history.append(f"{PLAIN[who]}: {ln['text']}")
-                    elif t == "conflict_break":
-                        out.append((e["dev"], drama.BREAK[e["dev"]], "heated", "fallback"))
-                    elif t == "conflict_resolved":
-                        if e["how"] == "sided":
-                            out.append((e["b"], drama.SIDED_LOSER, "pushy", "fallback"))
-                            out.append((e["a"], drama.RESOLVED["sided"][e["a"]], "calm", "fallback"))
-                        else:
-                            out += [(e["a"], drama.RESOLVED[e["how"]][e["a"]], "calm", "fallback"), (e["b"], drama.RESOLVED[e["how"]][e["b"]], "calm", "fallback")]
-                    elif t == "conflict_unmoved":
-                        out.append((min((e["a"], e["b"]), key=lambda x: mood[x]["morale"]), drama.UNMOVED[min((e["a"], e["b"]), key=lambda x: mood[x]["morale"])], "heated", "fallback"))
-                    elif t == "conflict_dismissed":
-                        out.append((e["a"], drama.DISMISSED[e["a"]], "heated", "fallback"))
-                for who, text, tone, src in out:
-                    d2.add(M.TranscriptLine(run_id=run_id, seq=seq, speaker=who, text=text, source=src, latency_ms=0, tone=tone))
-                d2.commit()
+            history = [f"{PLAIN.get(l.speaker, 'Scrum Master (the player)')}: {l.text}" for l in reversed(last)]
+            mood = state["x"]["mood"]
+            for e in wanted:
+                t = e["type"]
+                if t in ("conflict_started", "conflict_round"):
+                    a, b = e["a"], e["b"]
+                    first = e["speaker"] if t == "conflict_round" else a
+                    n = 6 if t == "conflict_started" else 4
+                    about = next(x[2] for pr, tps in reducer.TOPICS.items() for x in tps if x[0] == e["topic"] and set(pr) == {a, b})
+                    about += " " + reducer.CAUSES.get(state["x"].get("rel_why", {}).get("|".join(next(q for q in reducer.PAIRS if set(q) == {a, b}))), "")
+                    for k in range(n):
+                        who = first if k % 2 == 0 else (b if first == a else a)
+                        other = b if who == a else a
+                        facts = {"morale": mood[who]["morale"], "sanity": mood[who]["sanity"]}
+                        ln = drama.line(content, ai, chat.model, who, other, e["topic"], about, e.get("round", 0) * 2 + k, facts, history)
+                        put(who, ln["text"], "heated", ln["source"])
+                        history.append(f"{PLAIN[who]}: {ln['text']}")
+                elif t == "conflict_hearing":   # each side says their piece to you, one after the other
+                    about = next(x[2] for pr, tps in reducer.TOPICS.items() for x in tps if x[0] == e["topic"] and set(pr) == {e["a"], e["b"]}) if e.get("topic") else ""
+                    for who in (e["a"], e["b"]):
+                        other = e["b"] if who == e["a"] else e["a"]
+                        ln = drama.explain(content, ai, chat.model, who, other, about or "their argument", {"morale": mood[who]["morale"], "sanity": mood[who]["sanity"]}, history)
+                        put(who, ln["text"], "talk", ln["source"])
+                        history.append(f"{PLAIN[who]}: {ln['text']}")
+                elif t == "conflict_hearing_failed":
+                    low = e["a"] if e["why"] == "rude" else min((e["a"], e["b"]), key=lambda x: mood[x]["morale"])
+                    put(low, drama.UNMOVED[low] if e["why"] == "rude" else "You never answered us. Fine. Back to it, then.", "heated", "fallback")
+                elif t == "team_banter":
+                    a, b = e["a"], e["b"]
+                    for k in range(3):
+                        who = a if k % 2 == 0 else b
+                        other = b if who == a else a
+                        ln = drama.line(content, ai, chat.model, who, other, "", "", k, {"morale": mood[who]["morale"], "sanity": mood[who]["sanity"]}, history, friendly=True)
+                        put(who, ln["text"], "banter", ln["source"])
+                        history.append(f"{PLAIN[who]}: {ln['text']}")
+                elif t == "conflict_break":
+                    put(e["dev"], drama.BREAK[e["dev"]], "heated", "fallback")
+                elif t == "conflict_resolved":
+                    if e["how"] == "sided":
+                        put(e["b"], drama.SIDED_LOSER, "heated", "fallback")
+                        put(e["a"], drama.RESOLVED["sided"][e["a"]], "banter", "fallback")
+                    else:
+                        put(e["a"], drama.RESOLVED[e["how"]][e["a"]], "banter", "fallback")
+                        put(e["b"], drama.RESOLVED[e["how"]][e["b"]], "banter", "fallback")
+                elif t == "conflict_unmoved":
+                    low = min((e["a"], e["b"]), key=lambda x: mood[x]["morale"])
+                    put(low, drama.UNMOVED[low], "heated", "fallback")
+                elif t == "conflict_dismissed":
+                    put(e["a"], drama.DISMISSED[e["a"]], "heated", "fallback")
         if st.dialogue_inline:
             work()
         else:
@@ -423,7 +503,7 @@ def create_app(db_path: str, content=None, gateway: Gateway | None = None, setti
                 pool = IDLE_LINES[e["dev"]]
                 lines.append((e["dev"], pool[(e["n"] // 2) % len(pool)], "panicked" if e["dev"] == "dev2" else "pushy"))
             elif e["type"] in ("peer_support", "peer_drag"):
-                lines.append((e["dev"], PEER_LINES[e["type"]][(e["dev"], e["to"])], "calm" if e["type"] == "peer_support" else "pushy"))
+                lines.append((e["dev"], PEER_LINES[e["type"]][(e["dev"], e["to"])], "banter" if e["type"] == "peer_support" else "heated"))   # what teammates say to each other lives in their own channel
         if lines:
             with DbSession(engine) as d2:
                 for who, text, tone in lines:
@@ -607,13 +687,15 @@ def create_app(db_path: str, content=None, gateway: Gateway | None = None, setti
     def get_state(run_id: int, since: int = 0, since_line: int = 0, user=Depends(current), db: DbSession = Depends(db_dep)):
         run = load_run(db, run_id, user)
         c = get_cached(db, run)
+        if run.status == "active" and (c["state"].get("x") or {}).get("conflict"):
+            fight_loop(run.id)   # a fight that was going when the server restarted picks up again
         evs = db.scalars(select(M.RunEvent).where(M.RunEvent.run_id == run.id, M.RunEvent.seq > since,
                                                   M.RunEvent.type != "cmd").order_by(M.RunEvent.seq)).all()
         lines = db.scalars(select(M.TranscriptLine).where(M.TranscriptLine.run_id == run.id, M.TranscriptLine.id > since_line)
                            .order_by(M.TranscriptLine.id)).all()
         return {"seq": c["seq"], "state": pub(run.id, c["state"]),
                 "events": [{"seq": e.seq, **public_event(e.payload)} for e in evs],
-                "lines": [{"id": ln.id, "seq": ln.seq, "speaker": ln.speaker, "text": ln.text, "tone": ln.tone} for ln in lines]}
+                "lines": [{"id": ln.id, "seq": ln.seq, "speaker": ln.speaker, "text": ln.text, "tone": ln.tone, "source": ln.source} for ln in lines]}
 
     @app.post("/api/v1/runs/{run_id}/commands")
     def post_command(run_id: int, body: CommandIn, user=Depends(current), db: DbSession = Depends(db_dep)):
@@ -655,8 +737,9 @@ def create_app(db_path: str, content=None, gateway: Gateway | None = None, setti
     # ------------------------------------------------------------ team chat (Slackish)
     chat = Chat(content, ai)
     app.state.chat = chat
+    last_send: dict[int, tuple[str, float]] = {}
 
-    def chat_work(run_id: int, text: str, targets: list[str]):
+    def chat_work(run_id: int, text: str, targets: list[str], channel: str = "team", hearing_q: str | None = None):
         """Each addressed teammate answers in turn; the game applies the tolerance change and, when asked and earned, the delegation."""
         for dev in targets:
             with DbSession(engine) as d:
@@ -667,21 +750,25 @@ def create_app(db_path: str, content=None, gateway: Gateway | None = None, setti
                 mine = d.scalars(select(M.TranscriptLine).where(M.TranscriptLine.run_id == run_id, M.TranscriptLine.speaker == "you")
                                  .order_by(M.TranscriptLine.id.desc()).limit(5)).all()
                 last = d.scalars(select(M.TranscriptLine).where(M.TranscriptLine.run_id == run_id).order_by(M.TranscriptLine.id.desc()).limit(10)).all()
+                last = last[next((i for i, l in enumerate(last) if l.speaker == "you"), 0):]   # up to the player's message: replies from this same turn are not shown, so nobody answers a teammate instead of the player
                 history = [f"{PLAIN.get(l.speaker, 'Scrum Master (the player)')}: {l.text}" for l in reversed(last)]
                 card = item_asked(text, s["pile"], content) if dev != "po" else None
                 title = content.tickets[card["ticket"]]["title"] if card else None
                 code = [c for c in s["pile"] if c.get("ticket") and c.get("state") in ("pile", "open")]
                 mood = {**s["x"]["mood"][dev], "feeling": reducer._g_feeling(s, dev)[0]}
-                facts = {"stage": s["stage"], "sprint": s["sprint"], "morale": mood["morale"], "sanity": mood["sanity"], "feeling": mood["feeling"], "open_items": [content.tickets[c["ticket"]]["title"] for c in code][:6]}
+                facts = {"player": (d.get(M.User, run.user_id).display_name or "the Scrum Master"), "stage": s["stage"], "sprint": s["sprint"], "morale": mood["morale"], "sanity": mood["sanity"], "feeling": mood["feeling"], "open_items": [content.tickets[c["ticket"]]["title"] for c in code][:6]}
                 forbidden = [o["text"] for c in code for o in content.tickets[c["ticket"]]["options"] if o["effect"] == "correct"]
                 rep = chat.reply(dev, text, tolerance=s["x"]["tolerance"][dev], history=history, facts=facts, recent_player=[l.text for l in mine[1:]],
                                  item=title, forbidden=forbidden, seed=run.seed)
                 try:
+                    if hearing_q:   # your answer to their two sides is judged once, before they reply
+                        execute(d, run, {"type": "hearing_reply", "payload": {"quality": hearing_q}}, None)
+                        hearing_q = None
                     delta = chat.allowed_gain((run_id, dev), rep["delta"])
                     morale = chat.allowed_morale((run_id, dev), rep["morale"])
                     cf = s["x"].get("conflict")
                     peace = ((5 if rep["delta"] >= 2 else 3 if rep["delta"] == 1 or rep["morale"] > 0 else 0) - (6 if rep["morale"] < 0 else 0)) if cf and dev in (cf["a"], cf["b"]) else 0
-                    execute(d, run, {"type": "chat_effect", "payload": {"dev": dev, "delta": delta, "morale": morale, "sanity": rep["sanity"], "msg": 1, "peace": peace}}, None)
+                    execute(d, run, {"type": "chat_effect", "payload": {"dev": dev, "delta": delta, "morale": morale, "sanity": rep["sanity"], "msg": 1, "peace": peace, "calm": bool(rep.get("calm")) or (channel == "mates" and rep["delta"] >= 1 and rep["morale"] >= 0)}}, None)   # stepping into their conversation with something constructive quietens them
                     if rep["intent"] == "agree_help" and card:
                         now_s = get_cached(d, run)["state"]
                         if now_s["x"]["tolerance"][dev] >= TAKE_AT:
@@ -692,7 +779,7 @@ def create_app(db_path: str, content=None, gateway: Gateway | None = None, setti
                 except GameError:
                     return
                 d.add(M.TranscriptLine(run_id=run_id, seq=get_cached(d, run)["seq"], speaker=dev, text=rep["text"], source=rep["source"],
-                                       latency_ms=rep["latency_ms"], tone=rep["tone"], model=rep.get("model")))
+                                       latency_ms=rep["latency_ms"], tone="talk" if channel == "mates" else rep["tone"], model=rep.get("model")))   # replies stay in the channel you spoke in
                 d.commit()
 
     @app.post("/api/v1/runs/{run_id}/chat", status_code=202)
@@ -704,16 +791,32 @@ def create_app(db_path: str, content=None, gateway: Gateway | None = None, setti
         text = " ".join(body.text.split())
         if not text:
             raise ApiError(422, "EMPTY_MESSAGE", "write something first")
+        if last_send.get(run.id, ("", 0.0))[0] == text and time.time() - last_send[run.id][1] < 4:
+            return {"line": None, "to": [], "duplicate": True}   # a double click or a double Enter must not send twice
+        last_send[run.id] = (text, time.time())
         _rate(attempts, f"chat:{run.id}", 15, now())
-        line = M.TranscriptLine(run_id=run.id, seq=c["seq"], speaker="you", text=text, source="player", latency_ms=0, tone="mine")
+        line = M.TranscriptLine(run_id=run.id, seq=c["seq"], speaker="you", text=text, source="player_m" if body.channel == "mates" else "player", latency_ms=0, tone="mine")
         db.add(line)
         db.commit()
         targets = addressed(text)
+        if body.channel == "mates" and not re.search(r"@(ines|tobi|marlo)\b", text, re.I):
+            cf = c["state"]["x"].get("conflict")   # stepping in: you are talking to the two who are talking
+            if cf:
+                targets = [cf["a"], cf["b"]]
+            else:
+                recent = db.scalars(select(M.TranscriptLine).where(M.TranscriptLine.run_id == run.id, M.TranscriptLine.tone.in_(("heated", "banter", "talk"))).order_by(M.TranscriptLine.id.desc()).limit(8)).all()
+                pair = list(dict.fromkeys(l.speaker for l in recent if l.speaker != "you"))[:2]
+                targets = pair or targets
+        hearing_q = None
+        cfh = c["state"]["x"].get("conflict")
+        if body.channel == "mates" and cfh and cfh.get("hearing"):
+            v = judge_text(text, [])
+            hearing_q = "bad" if v.morale < 0 else "good" if v.delta >= 1 and len(text.split()) >= 6 else "meh"
         if st.dialogue_inline:
-            chat_work(run.id, text, targets)
+            chat_work(run.id, text, targets, body.channel, hearing_q)
         else:
-            threading.Thread(target=chat_work, args=(run.id, text, targets), daemon=True, name=f"chat-{run.id}").start()
-        return {"line": {"id": line.id, "seq": line.seq, "speaker": "you", "text": text, "tone": "mine"}, "to": targets}
+            threading.Thread(target=chat_work, args=(run.id, text, targets, body.channel, hearing_q), daemon=True, name=f"chat-{run.id}").start()
+        return {"line": {"id": line.id, "seq": line.seq, "speaker": "you", "text": text, "tone": "mine", "source": line.source}, "to": targets}
 
     # ------------------------------------------------------------ instructor
     def cohort_students(db, cohort_id):

@@ -39,7 +39,7 @@ export function enginesTab({ h, api, toast }) {
 
   // ---- form helpers
   const field = (obj, key, label, type = "number", extra = {}) => h("label", { class: "simf" }, label, h("input", { type, value: obj[key], ...extra, onchange: (e) => { obj[key] = type === "number" ? +e.target.value : e.target.value; } }));
-  const pick = (obj, key, label, options) => h("label", { class: "simf" }, label, h("select", { onchange: (e) => { obj[key] = e.target.value; } },
+  const pick = (obj, key, label, options, after) => h("label", { class: "simf" }, label, h("select", { onchange: (e) => { obj[key] = e.target.value; if (after) after(); } },
     options.map(([v, t]) => h("option", { value: v, selected: String(obj[key]) === String(v) }, t))));
   const runPicker = (obj, label) => h("label", { class: "simf" }, label, h("select", { "data-runs": "1", onchange: (e) => { obj.run_id = e.target.value; } },
     h("option", { value: "" }, "(none)"), S.runs.map((r) => h("option", { value: r.run_id, selected: String(obj.run_id) === String(r.run_id) }, `run ${r.run_id} · ${r.student} · ${r.status}`))));
@@ -49,7 +49,7 @@ export function enginesTab({ h, api, toast }) {
   function drawE1Form() {
     const e = S.e1;
     e1Form.replaceChildren(
-      h("div", { class: "simgrid" }, pick(e, "source", "Transcript", [["synthetic", "Synthetic (the paper's instance)"], ["run", "A real run's transcript and memory"]]),
+      h("div", { class: "simgrid" }, pick(e, "source", "Transcript", [["synthetic", "Synthetic (the paper's instance)"], ["run", "A real run's transcript and memory"]], () => drawE1Form()),
         e.source === "run" ? runPicker(e, "Run") : field(e, "n", "Segments (1 to 2000)", "number", { min: 1, max: 2000 }),
         pick(e, "stage", "Current stage", ["PLANNING", "STANDUP", "BUILD", "REVIEW"].map((s) => [s, s])),
         pick(e, "advance_to", "Advance first to", [["", "(stay)"], ["STANDUP", "STANDUP"], ["BUILD", "BUILD"], ["REVIEW", "REVIEW"]]),
@@ -87,7 +87,7 @@ export function enginesTab({ h, api, toast }) {
   function drawE2Form() {
     const e = S.e2;
     e2Form.replaceChildren(
-      h("div", { class: "simgrid" }, pick(e, "source", "Cohort", [["synthetic", "Synthetic cohort"], ["cohort", "My real cohort (first to latest run)"]]),
+      h("div", { class: "simgrid" }, pick(e, "source", "Cohort", [["synthetic", "Synthetic cohort"], ["cohort", "My real cohort (first to latest run)"]], () => drawE2Form()),
         e.source === "synthetic" ? [field(e, "n", "Students", "number", { min: 1, max: 2000 }), field(e, "mean_pre", "Mean before (0-100)", "number", { min: 0, max: 100 }), field(e, "mean_post", "Mean after (0-100)", "number", { min: 0, max: 100 }),
           field(e, "spread", "Spread", "number", { min: 0, max: 50 })] : null,
         field(e, "B", "Bootstrap draws", "number", { min: 100, max: 10000, step: 100 }), field(e, "seed", "Random seed", "number", { min: 0 }), runPicker(e, "Process score from a real run (optional)")),
